@@ -68,7 +68,18 @@ const STATUS_STYLES: Record<string, { fill: ExcelJS.Fill; font: Partial<ExcelJS.
 };
 
 /**
- * Creates a fully styled ExcelJS Workbook for Test Cases
+ * Helper to parse base64 image data string into extension and clean base64 string
+ */
+function parseBase64Image(dataUrl: string): { extension: 'png' | 'jpeg'; base64: string } | null {
+  if (!dataUrl || !dataUrl.startsWith('data:image')) return null;
+  const matches = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
+  if (!matches) return null;
+  const ext = matches[1] === 'jpg' ? 'jpeg' : (matches[1] as 'png' | 'jpeg');
+  return { extension: ext, base64: matches[2] };
+}
+
+/**
+ * Creates a fully styled ExcelJS Workbook for Test Cases with Embedded Screenshot Images
  */
 export async function buildTestCasesWorkbook(
   headerMeta: TestCaseHeaderMeta,
@@ -87,16 +98,16 @@ export async function buildTestCasesWorkbook(
 
   // 1. Setup Column Widths
   worksheet.columns = [
-    { key: 'testCaseId', width: 15 },
-    { key: 'testModule', width: 18 },
+    { key: 'testCaseId', width: 16 },
+    { key: 'testModule', width: 20 },
     { key: 'featureTab', width: 28 },
-    { key: 'testScenario', width: 44 },
+    { key: 'testScenario', width: 46 },
     { key: 'testCases', width: 50 },
     { key: 'testInputs', width: 34 },
     { key: 'expectedResult', width: 48 },
     { key: 'actualResult', width: 48 },
     { key: 'status', width: 14 },
-    { key: 'screenshot1', width: 32 },
+    { key: 'screenshot1', width: 34 },
   ];
 
   // 2. Metadata Rows (Rows 1 to 6)
@@ -158,22 +169,33 @@ export async function buildTestCasesWorkbook(
 
   // 4. Data Rows (Starting at Row 10)
   testCases.forEach((tc, rowIndex) => {
-    const currentRowNumber = 10 + rowIndex;
+    const currentRowNumber = 10 + rowIndex; // 1-based row index in Excel
     const row = worksheet.getRow(currentRowNumber);
-    row.height = 36; // comfortable reading height
 
     const isEven = rowIndex % 2 === 0;
     const defaultFill: ExcelJS.Fill = isEven ? WHITE_FILL : ZEBRA_LIGHT_FILL;
 
-    // Attachments text / hyperlink
+    // Determine attachments and image data
     let attachmentText = '';
     let firstUrl = '';
+    let hasBase64Image = false;
+    let base64ImgInfo: { extension: 'png' | 'jpeg'; base64: string } | null = null;
+
     if (tc.attachments && tc.attachments.length > 0) {
       attachmentText = tc.attachments.map((a) => a.name).join('; ');
       firstUrl = tc.attachments[0].url || '';
     } else if (tc.screenshot1) {
       attachmentText = tc.screenshot1;
     }
+
+    if (firstUrl) {
+      base64ImgInfo = parseBase64Image(firstUrl);
+      if (base64ImgInfo) {
+        hasBase64Image = true;
+      }
+    }
+
+    row.height = hasBase64Image ? 90 : 42; // Height accommodates embedded image if available
 
     const rowValues = [
       tc.testCaseId || '',
@@ -203,14 +225,40 @@ export async function buildTestCasesWorkbook(
         cell.fill = style.fill;
         cell.font = style.font;
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      } else if (isAttCol && firstUrl && firstUrl.startsWith('http')) {
-        cell.value = {
-          text: attachmentText || 'View Attachment',
-          hyperlink: firstUrl,
-        };
+      } else if (isAttCol) {
         cell.fill = defaultFill;
-        cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
-        cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        if (hasBase64Image && base64ImgInfo) {
+          cell.value = attachmentText; // text label
+          cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF475569' } };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+
+          // Embed Base64 Image into Excel Worksheet!
+          try {
+            const imageId = workbook.addImage({
+              base64: base64ImgInfo.base64,
+              extension: base64ImgInfo.extension,
+            });
+
+            worksheet.addImage(imageId, {
+              tl: { col: 9, row: currentRowNumber - 1 }, // 0-based col (9 = column J) & 0-based row
+              ext: { width: 190, height: 85 },
+              editAs: 'oneCell',
+            });
+          } catch (e) {
+            console.error('Failed to embed base64 image into Excel', e);
+          }
+        } else if (firstUrl && firstUrl.startsWith('http')) {
+          cell.value = {
+            text: attachmentText || 'View Attachment',
+            hyperlink: firstUrl,
+          };
+          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        } else {
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        }
       } else {
         cell.value = val;
         cell.fill = defaultFill;
@@ -270,7 +318,7 @@ export async function exportTestCasesToExcel(
 }
 
 /**
- * Creates a fully styled ExcelJS Workbook for Observations & RFEs
+ * Creates a fully styled ExcelJS Workbook for Observations & RFEs with Embedded Screenshots
  */
 export async function buildObservationsWorkbook(
   headerMeta: ObservationHeaderMeta,
@@ -291,10 +339,10 @@ export async function buildObservationsWorkbook(
     { key: 'observationRFE', width: 55 },
     { key: 'attachments', width: 36 },
     { key: 'priority', width: 16 },
-    { key: 'status', width: 24 },
+    { key: 'status', width: 26 },
   ];
 
-  // Metadata block
+  // Metadata block (Rows 1-4)
   const metaRows = [
     `Ticket Name : ${headerMeta.ticketName || ''}`,
     `Ticket Number : ${headerMeta.ticketNo || ''}`,
@@ -320,7 +368,7 @@ export async function buildObservationsWorkbook(
 
   worksheet.getRow(5).height = 12; // spacing
 
-  // Headers
+  // Headers (Row 6)
   const headerRow = worksheet.getRow(6);
   headerRow.height = 28;
   const headers = [
@@ -341,17 +389,19 @@ export async function buildObservationsWorkbook(
     cell.border = HEADER_BORDER;
   });
 
-  // Data rows
+  // Data rows (Row 7 onwards)
   observations.forEach((obs, rowIndex) => {
-    const rowNumber = 7 + rowIndex;
+    const rowNumber = 7 + rowIndex; // 1-based row index in Excel
     const row = worksheet.getRow(rowNumber);
-    row.height = 32;
 
     const isEven = rowIndex % 2 === 0;
     const defaultFill: ExcelJS.Fill = isEven ? WHITE_FILL : ZEBRA_LIGHT_FILL;
 
     let attachmentDisplay = 'None';
     let firstUrl = '';
+    let hasBase64Image = false;
+    let base64ImgInfo: { extension: 'png' | 'jpeg'; base64: string } | null = null;
+
     if (obs.attachments && obs.attachments.length > 0) {
       attachmentDisplay = obs.attachments.map((a) => a.name).join('; ');
       firstUrl = obs.attachments[0].url || '';
@@ -359,6 +409,15 @@ export async function buildObservationsWorkbook(
       attachmentDisplay = obs.screenshotName;
       firstUrl = obs.screenshotUrl || '';
     }
+
+    if (firstUrl) {
+      base64ImgInfo = parseBase64Image(firstUrl);
+      if (base64ImgInfo) {
+        hasBase64Image = true;
+      }
+    }
+
+    row.height = hasBase64Image ? 90 : 36;
 
     const values = [
       obs.serialNo,
@@ -373,11 +432,37 @@ export async function buildObservationsWorkbook(
       const cell = row.getCell(colIndex + 1);
       cell.border = THIN_BORDER;
 
-      if (colIndex === 3 && firstUrl && firstUrl.startsWith('http')) {
-        cell.value = { text: attachmentDisplay, hyperlink: firstUrl };
+      if (colIndex === 3) {
+        // Attachment column (Column D)
         cell.fill = defaultFill;
-        cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
-        cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        if (hasBase64Image && base64ImgInfo) {
+          cell.value = attachmentDisplay;
+          cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF475569' } };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+
+          try {
+            const imageId = workbook.addImage({
+              base64: base64ImgInfo.base64,
+              extension: base64ImgInfo.extension,
+            });
+
+            worksheet.addImage(imageId, {
+              tl: { col: 3, row: rowNumber - 1 }, // Column D (index 3)
+              ext: { width: 190, height: 85 },
+              editAs: 'oneCell',
+            });
+          } catch (e) {
+            console.error('Failed to embed image into observation row', e);
+          }
+        } else if (firstUrl && firstUrl.startsWith('http')) {
+          cell.value = { text: attachmentDisplay, hyperlink: firstUrl };
+          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        } else {
+          cell.value = val;
+          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } };
+          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        }
       } else {
         cell.value = val;
         cell.fill = defaultFill;
