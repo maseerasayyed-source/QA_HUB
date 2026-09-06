@@ -1,0 +1,6 @@
+{
+  "name": "QA HUB",
+  "description": "One Hub for Smarter QA - AI-powered testing and QA management platform for Beacon financial tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
