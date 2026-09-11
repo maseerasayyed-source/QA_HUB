@@ -75,13 +75,13 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
       <div className="flex border-b border-slate-200 gap-2">
         <button
           onClick={() => setActiveTab('format-input')}
-          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === 'format-input'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <FileSpreadsheet className="w-4 h-4" />
+          <FileSpreadsheet className="w-4.5 h-4.5" />
           <span>1. Provide Test Case Format</span>
           {savedFormat && (
             <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
@@ -91,25 +91,25 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
 
         <button
           onClick={() => setActiveTab('roadmap')}
-          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === 'roadmap'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Sparkles className="w-4 h-4" />
+          <Sparkles className="w-4.5 h-4.5" />
           <span>3. MVP Scope &amp; Roadmap</span>
         </button>
 
         <button
           onClick={() => setActiveTab('beginner-guide')}
-          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
+          className={`pb-3 px-4 text-sm font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
             activeTab === 'beginner-guide'
               ? 'border-blue-600 text-blue-600'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Terminal className="w-4 h-4" />
+          <Terminal className="w-4.5 h-4.5" />
           <span>4. Beginner VS Code &amp; GitHub Guide</span>
         </button>
       </div>

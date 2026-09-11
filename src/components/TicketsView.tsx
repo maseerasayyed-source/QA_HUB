@@ -194,12 +194,12 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
         {/* Status Quick Filter Buttons */}
         <div className="flex items-center gap-1.5 overflow-x-auto pt-2 border-t border-slate-100">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Status:</span>
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-1">Status:</span>
           {['all', 'Ready for QA', 'In Testing', 'Observation Raised', 'Passed'].map((status) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap transition-colors cursor-pointer ${
+              className={`px-3 py-1 rounded-md text-xs font-bold whitespace-nowrap transition-colors cursor-pointer ${
                 statusFilter === status
                   ? 'bg-blue-600 text-white'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'

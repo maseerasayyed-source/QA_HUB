@@ -57,9 +57,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Navigation Group */}
-      <nav className="flex-1 py-4 overflow-y-auto space-y-1">
+      <nav className="flex-1 py-4 overflow-y-auto space-y-1.5">
         <div className="px-4 mb-2">
-          <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">
+          <span className="text-slate-400 text-xs font-extrabold uppercase tracking-wider">
             Workspace Navigation
           </span>
         </div>
@@ -71,14 +71,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors cursor-pointer ${
+              className={`w-full flex items-center justify-between px-4 py-3.5 text-base font-bold transition-colors cursor-pointer ${
                 isActive
-                  ? 'bg-blue-600 text-white font-bold shadow-sm'
-                  : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-slate-200 hover:bg-slate-800 hover:text-white'
               }`}
             >
               <div className="flex items-center min-w-0">
-                <Icon className={`w-4 h-4 mr-3 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                <Icon className={`w-5 h-5 mr-3 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                 <span className="truncate">{item.label}</span>
               </div>
               {item.badge && (
@@ -86,7 +86,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className={`text-xs px-2 py-0.5 rounded font-mono font-bold ${
                     isActive
                       ? 'bg-blue-700 text-white'
-                      : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      : 'bg-slate-800 text-slate-300 border border-slate-700'
                   }`}
                 >
                   {item.badge}
