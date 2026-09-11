@@ -233,8 +233,8 @@ export default function App() {
                   <div className="px-2 py-0.5 bg-purple-200 text-purple-900 font-bold rounded text-[10px] inline-block">
                     Super Admin
                   </div>
-                  <p className="text-purple-950/80 text-[11px] leading-relaxed">
-                    Full authority: Manage users, tickets, modules, database backups, and final sign-offs.
+                  <p className="text-purple-950/80 text-xs leading-relaxed">
+                    Full authority: Manage users, tickets, modules, system configurations, and final sign-offs.
                   </p>
                 </div>
 

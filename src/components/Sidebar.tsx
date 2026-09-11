@@ -42,16 +42,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   ];
 
   return (
-    <aside className="w-60 bg-[#0F172A] flex flex-col flex-shrink-0 h-screen select-none border-r border-slate-800">
+    <aside className="w-64 bg-[#0F172A] flex flex-col flex-shrink-0 h-screen select-none border-r border-slate-800">
       {/* Brand Header */}
       <div className="p-5 border-b border-slate-800 flex items-center justify-between">
         <div>
-          <h1 className="text-white text-xl font-bold tracking-tight">QA HUB</h1>
-          <p className="text-slate-400 text-[10px] uppercase tracking-widest mt-0.5 font-medium">
+          <h1 className="text-white text-2xl font-black tracking-tight">QA HUB</h1>
+          <p className="text-slate-400 text-xs uppercase tracking-widest mt-0.5 font-semibold">
             Beacon Quality Hub
           </p>
         </div>
-        <span className="px-2 py-0.5 bg-blue-600/30 text-blue-400 border border-blue-500/30 text-[10px] font-bold rounded">
+        <span className="px-2.5 py-0.5 bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-bold rounded">
           v2.0
         </span>
       </div>
@@ -59,7 +59,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Navigation Group */}
       <nav className="flex-1 py-4 overflow-y-auto space-y-1">
         <div className="px-4 mb-2">
-          <span className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">
+          <span className="text-slate-500 text-xs font-bold uppercase tracking-wider">
             Workspace Navigation
           </span>
         </div>
@@ -71,9 +71,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-4 py-2.5 text-xs font-semibold transition-colors cursor-pointer ${
+              className={`w-full flex items-center justify-between px-4 py-3 text-sm font-semibold transition-colors cursor-pointer ${
                 isActive
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-blue-600 text-white font-bold shadow-sm'
                   : 'text-slate-300 hover:bg-slate-800 hover:text-white'
               }`}
             >
@@ -83,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               {item.badge && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded font-mono font-bold ${
+                  className={`text-xs px-2 py-0.5 rounded font-mono font-bold ${
                     isActive
                       ? 'bg-blue-700 text-white'
                       : 'bg-slate-800 text-slate-400 border border-slate-700'
@@ -101,11 +101,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div
         onClick={onOpenLoginModal}
         title="Click to change Official Email / Login Role"
-        className="p-3.5 bg-slate-950 border-t border-slate-800 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition-colors"
+        className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition-colors"
       >
         <div className="flex items-center min-w-0">
           <div
-            className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0 ${
+            className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-xs ${
               currentUser.role === 'Super Admin'
                 ? 'bg-purple-600'
                 : currentUser.role === 'Admin'
@@ -116,13 +116,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {currentUser.name.slice(0, 2).toUpperCase()}
           </div>
           <div className="ml-2.5 overflow-hidden">
-            <p className="text-xs font-bold text-white truncate">{currentUser.name}</p>
-            <p className="text-[10px] text-slate-400 truncate">{currentUser.email}</p>
+            <p className="text-sm font-bold text-white truncate">{currentUser.name}</p>
+            <p className="text-xs text-slate-400 truncate">{currentUser.email}</p>
           </div>
         </div>
 
         <span
-          className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase shrink-0 ${
+          className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${
             currentUser.role === 'Super Admin'
               ? 'bg-purple-950 text-purple-300 border-purple-800'
               : currentUser.role === 'Admin'

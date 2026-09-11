@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FolderTree, Plus, Search, Filter, Layers, Database } from 'lucide-react';
+import { FolderTree, Plus, Search, Filter, Layers } from 'lucide-react';
 import { BeaconModule } from '../types';
 
 interface ModulesViewProps {
@@ -62,7 +62,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
             <h1 className="text-xl font-bold text-slate-900 tracking-tight">Beacon Financial Modules</h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            Dynamic database-driven module registry for Beacon. Not hard-coded; add new lending products or treasury instruments anytime.
+            Dynamic module registry for Beacon. Add new lending products or treasury instruments anytime.
           </p>
         </div>
 
@@ -203,7 +203,7 @@ export const ModulesView: React.FC<ModulesViewProps> = ({
                   type="submit"
                   className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-semibold cursor-pointer"
                 >
-                  Save Module to DB
+                  Save Module
                 </button>
               </div>
             </form>

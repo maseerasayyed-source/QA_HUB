@@ -27,7 +27,7 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
   savedFormat,
   onOpenWorkbench,
 }) => {
-  const [activeTab, setActiveTab] = useState<'architecture' | 'roadmap' | 'format-input' | 'beginner-guide'>('format-input');
+  const [activeTab, setActiveTab] = useState<'roadmap' | 'format-input' | 'beginner-guide'>('format-input');
   const [customFormatInput, setCustomFormatInput] = useState(savedFormat || '');
   const [formatSavedNotification, setFormatSavedNotification] = useState(false);
 
@@ -55,8 +55,7 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
               Welcome to QA HUB — &quot;One Hub for Smarter QA&quot;
             </h1>
             <p className="text-sm text-slate-300 mt-1 max-w-2xl">
-              A scalable, modular QA workbench tailored for Beacon. As requested, we build step-by-step
-              with clear beginner instructions, waiting for your custom Test Case format before locking in database tables.
+              A scalable, modular QA workbench tailored for Beacon. Complete end-to-end QA management platform for test cases, executions, and observations.
             </p>
           </div>
 
@@ -89,17 +88,6 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
           )}
         </button>
 
-        <button
-          onClick={() => setActiveTab('architecture')}
-          className={`pb-3 px-4 text-xs font-bold border-b-2 transition-colors cursor-pointer flex items-center gap-2 ${
-            activeTab === 'architecture'
-              ? 'border-blue-600 text-blue-600'
-              : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Layers className="w-4 h-4" />
-          <span>2. System &amp; DB Architecture</span>
-        </button>
 
         <button
           onClick={() => setActiveTab('roadmap')}
@@ -194,7 +182,7 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
                 <div className="text-xs text-slate-500">
                   {savedFormat ? (
                     <span className="text-emerald-600 font-medium flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Format received &amp; ready for Phase 2 database migration
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Format registered &amp; active in QA Hub
                     </span>
                   ) : (
                     <span>You can paste it here or in your next chat message.</span>
@@ -224,7 +212,7 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
               Beacon Financial Modules Supported
             </h3>
             <p className="text-xs text-slate-600">
-              QA HUB comes pre-loaded with 18 Beacon financial modules configured in the database layer:
+              QA HUB comes pre-loaded with 18 Beacon financial modules configured:
             </p>
             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
               {[
@@ -250,121 +238,12 @@ export const Phase1Welcome: React.FC<Phase1WelcomeProps> = ({
               ))}
             </div>
             <div className="text-[11px] text-slate-500 pt-1 border-t border-slate-200">
-              Modules are 100% dynamic and stored in the database so you can add new products anytime.
+              Modules are 100% dynamic so you can add new products anytime.
             </div>
           </div>
         </div>
       )}
 
-      {/* Tab Content 2: Architecture */}
-      {activeTab === 'architecture' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
-              <div className="flex items-center gap-2 mb-2 text-indigo-600">
-                <FileCode2 className="w-5 h-5" />
-                <h3 className="font-bold text-sm text-slate-900">Frontend (UI)</h3>
-              </div>
-              <p className="text-xs text-slate-600 mb-3">
-                React with Vite &amp; Tailwind CSS. Component-driven design with Lucide icons.
-              </p>
-              <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
-                <li>Modular layout with dedicated tab routing</li>
-                <li>Zero complicated setups, instant live preview</li>
-                <li>Accessible financial data tables &amp; forms</li>
-              </ul>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
-              <div className="flex items-center gap-2 mb-2 text-indigo-600">
-                <Server className="w-5 h-5" />
-                <h3 className="font-bold text-sm text-slate-900">Backend &amp; Server</h3>
-              </div>
-              <p className="text-xs text-slate-600 mb-3">
-                Node.js &amp; Express API routes. Keeps credentials safe and proxies AI requests securely.
-              </p>
-              <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
-                <li>RESTful API routes (/api/tickets, /api/test-cases)</li>
-                <li>Gemini API server-side integration</li>
-                <li>File &amp; screenshot attachment storage</li>
-              </ul>
-            </div>
-
-            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs">
-              <div className="flex items-center gap-2 mb-2 text-indigo-600">
-                <Database className="w-5 h-5" />
-                <h3 className="font-bold text-sm text-slate-900">Database (PostgreSQL)</h3>
-              </div>
-              <p className="text-xs text-slate-600 mb-3">
-                PostgreSQL connected via pgAdmin locally. Relational design with foreign keys.
-              </p>
-              <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
-                <li>users, roles, modules</li>
-                <li>tickets, test_cases, test_executions</li>
-                <li>observations, developer_testing, audit_logs</li>
-              </ul>
-            </div>
-          </div>
-
-          {/* Database Schema Map */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-2xs">
-            <h3 className="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2">
-              <Database className="w-4 h-4 text-indigo-600" />
-              <span>Recommended Relational Schema Architecture (PostgreSQL)</span>
-            </h3>
-            <p className="text-xs text-slate-600 mb-4">
-              Here is how each table connects to ensure data integrity without circular dependencies:
-            </p>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="font-bold text-slate-900 mb-1 border-b border-slate-200 pb-1">
-                  1. Core Reference
-                </div>
-                <div className="text-slate-600 space-y-1 font-mono text-[11px]">
-                  <div>users (id, name, email, role)</div>
-                  <div>modules (id, name, code)</div>
-                  <div>roles (id, role_name)</div>
-                </div>
-              </div>
-
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="font-bold text-slate-900 mb-1 border-b border-slate-200 pb-1">
-                  2. Tickets &amp; Dev Testing
-                </div>
-                <div className="text-slate-600 space-y-1 font-mono text-[11px]">
-                  <div>tickets (id, module_id, qa_id)</div>
-                  <div>developer_testing (ticket_id, dev_id, scenarios, status)</div>
-                </div>
-              </div>
-
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="font-bold text-slate-900 mb-1 border-b border-slate-200 pb-1">
-                  3. Test Cases (Dynamic)
-                </div>
-                <div className="text-slate-600 space-y-1 font-mono text-[11px]">
-                  <div>test_cases (id, ticket_id, ...)</div>
-                  <div className="text-indigo-600 font-semibold italic">
-                    *Columns mapped directly from your format
-                  </div>
-                  <div>test_executions (history logs)</div>
-                </div>
-              </div>
-
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                <div className="font-bold text-slate-900 mb-1 border-b border-slate-200 pb-1">
-                  4. Quality &amp; Audit
-                </div>
-                <div className="text-slate-600 space-y-1 font-mono text-[11px]">
-                  <div>observations (id, ticket_id)</div>
-                  <div>attachments (screenshot_url)</div>
-                  <div>audit_logs (who, when, what)</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Tab Content 3: MVP Scope vs Future */}
       {activeTab === 'roadmap' && (

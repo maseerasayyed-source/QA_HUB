@@ -76,9 +76,14 @@ export function loadInitialData() {
   // Load User
   let user: UserProfile = INITIAL_USER;
   try {
-    const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
-    if (storedUser) {
-      user = JSON.parse(storedUser);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
+      if (storedUser) {
+        const parsed = JSON.parse(storedUser);
+        if (parsed && typeof parsed === 'object' && parsed.email) {
+          user = parsed;
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to parse user from localStorage', e);
@@ -87,9 +92,14 @@ export function loadInitialData() {
   // Load Modules
   let modules: BeaconModule[] = INITIAL_MODULES;
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.MODULES);
-    if (stored) {
-      modules = JSON.parse(stored);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.MODULES);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          modules = parsed;
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to parse modules from localStorage', e);
@@ -98,9 +108,14 @@ export function loadInitialData() {
   // Load Tickets
   let tickets: TicketSummary[] = INITIAL_TICKETS;
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.TICKETS);
-    if (stored) {
-      tickets = JSON.parse(stored);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.TICKETS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          tickets = parsed;
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to parse tickets from localStorage', e);
@@ -111,9 +126,14 @@ export function loadInitialData() {
     '21653': INITIAL_TEST_CASES,
   };
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
-    if (stored) {
-      testCasesMap = JSON.parse(stored);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          testCasesMap = { ...testCasesMap, ...parsed };
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to parse test cases map from localStorage', e);
@@ -124,9 +144,14 @@ export function loadInitialData() {
     '21653': INITIAL_OBSERVATIONS,
   };
   try {
-    const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
-    if (stored) {
-      observationsMap = JSON.parse(stored);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          observationsMap = { ...observationsMap, ...parsed };
+        }
+      }
     }
   } catch (e) {
     console.error('Failed to parse observations map from localStorage', e);
