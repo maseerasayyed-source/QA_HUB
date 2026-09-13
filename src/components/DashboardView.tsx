@@ -15,7 +15,7 @@ import {
   ArrowUpDown,
   Sparkles,
 } from 'lucide-react';
-import { TicketSummary, BeaconModule } from '../types';
+import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 
@@ -24,6 +24,7 @@ interface DashboardViewProps {
   modules: BeaconModule[];
   onSelectTicket: (ticket: TicketSummary) => void;
   onNavigateTab: (tab: any) => void;
+  currentUser?: UserProfile;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
@@ -31,6 +32,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   modules,
   onSelectTicket,
   onNavigateTab,
+  currentUser,
 }) => {
   // State for Filters & Search on Dashboard
   const [selectedModule, setSelectedModule] = useState<string>('all');
@@ -43,18 +45,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedAdoTicket, setSelectedAdoTicket] = useState<TicketSummary | null>(null);
   const [adoNotice, setAdoNotice] = useState<string | null>(null);
 
+  // User role-based filtering logic: Super Admin sees all tickets; standard User / Admin sees tickets assigned to them
+  const roleFilteredTickets = useMemo(() => {
+    if (!currentUser || currentUser.role === 'Super Admin') {
+      return tickets;
+    }
+    const userEmail = currentUser.email.toLowerCase().trim();
+    const userName = currentUser.name.toLowerCase().trim();
+
+    return tickets.filter((t) => {
+      const qa = (t.qaAssignee || '').toLowerCase().trim();
+      const dev = (t.developer || '').toLowerCase().trim();
+      return (
+        qa.includes(userName) ||
+        userEmail.includes(qa) ||
+        dev.includes(userName) ||
+        userEmail.includes(dev)
+      );
+    });
+  }, [tickets, currentUser]);
+
   // Extract unique QA assignees for filter
   const qaAssignees = useMemo(() => {
     const set = new Set<string>();
-    tickets.forEach((t) => {
+    roleFilteredTickets.forEach((t) => {
       if (t.qaAssignee) set.add(t.qaAssignee);
     });
     return Array.from(set);
-  }, [tickets]);
+  }, [roleFilteredTickets]);
 
   // Compute Dashboard Metrics dynamically based on active filters
   const filteredTickets = useMemo(() => {
-    return tickets
+    return roleFilteredTickets
       .filter((t) => {
         if (selectedModule !== 'all' && t.moduleId !== selectedModule && t.moduleName.toLowerCase() !== selectedModule.toLowerCase()) {
           return false;

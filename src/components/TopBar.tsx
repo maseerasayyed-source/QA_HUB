@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, BookOpen, ShieldCheck, UserCheck } from 'lucide-react';
+import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Trash2 } from 'lucide-react';
 import { UserProfile } from '../types';
 
 interface TopBarProps {
@@ -9,6 +9,7 @@ interface TopBarProps {
   modules: { id: string; name: string }[];
   onOpenGuide: () => void;
   onOpenLoginModal?: () => void;
+  onClearSampleData?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -18,6 +19,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   modules,
   onOpenGuide,
   onOpenLoginModal,
+  onClearSampleData,
 }) => {
   return (
     <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-10 flex-shrink-0">
@@ -68,6 +70,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           </span>
         </button>
 
+        {onClearSampleData && (
+          <button
+            onClick={onClearSampleData}
+            title="Clear all sample data to perform actual model testing with clean data"
+            className="flex items-center gap-1.5 px-3 py-1.5 font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg transition-colors cursor-pointer"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-amber-600" />
+            <span className="hidden sm:inline">Clear Sample Data</span>
+          </button>
+        )}
+
         <button
           onClick={onOpenGuide}
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-lg transition-colors cursor-pointer"
@@ -76,9 +89,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>Guide &amp; Specs</span>
         </button>
 
-        <span className="text-[11px] font-medium text-slate-500 hidden lg:inline">
-          Official Email Login Active
-        </span>
       </div>
     </header>
   );

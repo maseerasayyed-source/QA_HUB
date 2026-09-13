@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown } from 'lucide-react';
-import { TicketSummary, BeaconModule } from '../types';
+import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2 } from 'lucide-react';
+import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 
 interface TicketsViewProps {
   tickets: TicketSummary[];
   modules: BeaconModule[];
+  currentUser: UserProfile;
   onSelectTicket: (ticket: TicketSummary) => void;
   onNavigateTab: (tab: any) => void;
   onAddTicket?: (newTicket: TicketSummary) => void;
@@ -15,6 +17,7 @@ interface TicketsViewProps {
 export const TicketsView: React.FC<TicketsViewProps> = ({
   tickets,
   modules,
+  currentUser,
   onSelectTicket,
   onNavigateTab,
   onAddTicket,
@@ -38,18 +41,79 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newQaAssignee, setNewQaAssignee] = useState('Maseera Sayyed');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
 
+  // Azure DevOps Fetch state
+  const [isFetchingAdo, setIsFetchingAdo] = useState(false);
+  const [adoFetchMessage, setAdoFetchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleFetchFromAzure = async () => {
+    if (!newTicketId.trim()) {
+      setAdoFetchMessage({ type: 'error', text: 'Please enter a Ticket / Work Item ID first.' });
+      return;
+    }
+
+    setIsFetchingAdo(true);
+    setAdoFetchMessage(null);
+
+    const res = await fetchWorkItemFromAzure({ workItemId: newTicketId.trim() });
+    setIsFetchingAdo(false);
+
+    if (res.success) {
+      if (res.title) setNewFeatureName(res.title);
+      if (res.priority) setNewPriority(res.priority);
+      if (res.assignee) setNewQaAssignee(res.assignee);
+
+      // Attempt matching module from Area Path or Title
+      if (res.areaPath || res.title) {
+        const searchText = `${res.areaPath || ''} ${res.title || ''}`.toLowerCase();
+        const matchedModule = modules.find(
+          (m) => searchText.includes(m.name.toLowerCase()) || searchText.includes(m.code.toLowerCase())
+        );
+        if (matchedModule) {
+          setNewModuleId(matchedModule.id);
+        }
+      }
+
+      setAdoFetchMessage({
+        type: 'success',
+        text: `Fetched directly from Azure DevOps: "${res.title}"`,
+      });
+    } else {
+      setAdoFetchMessage({
+        type: 'error',
+        text: res.message || 'Could not fetch from Azure DevOps API.',
+      });
+    }
+  };
+
+  // User Role-based ticket filtering: Super Admin sees all, other users see only their assigned tickets
+  const roleFilteredTickets = useMemo(() => {
+    if (!currentUser || currentUser.role === 'Super Admin') return tickets;
+    const normUser = (currentUser.name || '').toLowerCase().trim();
+    const normEmail = (currentUser.email || '').toLowerCase().trim();
+    return tickets.filter((t) => {
+      const qa = (t.qaAssignee || '').toLowerCase();
+      const dev = (t.developer || '').toLowerCase();
+      return (
+        qa.includes(normUser) ||
+        dev.includes(normUser) ||
+        (normUser && normUser.includes(qa)) ||
+        (normEmail && normEmail.includes(qa))
+      );
+    });
+  }, [tickets, currentUser]);
+
   // Unique QA assignees
   const qaAssignees = useMemo(() => {
     const set = new Set<string>();
-    tickets.forEach((t) => {
+    roleFilteredTickets.forEach((t) => {
       if (t.qaAssignee) set.add(t.qaAssignee);
     });
     return Array.from(set);
-  }, [tickets]);
+  }, [roleFilteredTickets]);
 
   // Comprehensive Search & Filter pipeline
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
+    return roleFilteredTickets.filter((t) => {
       const matchesSearch =
         t.ticketNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.featureName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -65,7 +129,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
       return matchesSearch && matchesStatus && matchesModule && matchesPriority && matchesQa;
     });
-  }, [tickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
+  }, [roleFilteredTickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
 
   const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,13 +187,15 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={() => setIsNewTicketOpen(true)}
-          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>+ Add Azure DevOps Ticket</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsNewTicketOpen(true)}
+            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Add Azure DevOps Ticket</span>
+          </button>
+        </div>
       </div>
 
       {/* Filter and Search Bar */}
@@ -341,14 +407,44 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                 <label className="block text-slate-700 font-bold mb-1">
                   Azure DevOps Ticket ID / Work Item #
                 </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. 21654 or BCN-4920"
-                  value={newTicketId}
-                  onChange={(e) => setNewTicketId(e.target.value)}
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 21654 or BCN-4920"
+                    value={newTicketId}
+                    onChange={(e) => setNewTicketId(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFetchFromAzure}
+                    disabled={isFetchingAdo || !newTicketId.trim()}
+                    className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    {isFetchingAdo ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <DownloadCloud className="w-3.5 h-3.5" />
+                    )}
+                    <span>Fetch from Azure</span>
+                  </button>
+                </div>
+
+                {adoFetchMessage && (
+                  <p
+                    className={`text-[11px] font-semibold mt-1.5 flex items-center gap-1 ${
+                      adoFetchMessage.type === 'success' ? 'text-emerald-600' : 'text-amber-600'
+                    }`}
+                  >
+                    {adoFetchMessage.type === 'success' ? (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    ) : (
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                    )}
+                    <span>{adoFetchMessage.text}</span>
+                  </p>
+                )}
               </div>
 
               <div>

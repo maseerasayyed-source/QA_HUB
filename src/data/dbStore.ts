@@ -122,16 +122,14 @@ export function loadInitialData() {
   }
 
   // Load Test Cases Map (keyed by Ticket Number)
-  let testCasesMap: Record<string, TestCaseItem[]> = {
-    '21653': INITIAL_TEST_CASES,
-  };
+  let testCasesMap: Record<string, TestCaseItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          testCasesMap = { ...testCasesMap, ...parsed };
+          testCasesMap = parsed;
         }
       }
     }
@@ -140,16 +138,14 @@ export function loadInitialData() {
   }
 
   // Load Observations Map (keyed by Ticket Number)
-  let observationsMap: Record<string, ObservationItem[]> = {
-    '21653': INITIAL_OBSERVATIONS,
-  };
+  let observationsMap: Record<string, ObservationItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          observationsMap = { ...observationsMap, ...parsed };
+          observationsMap = parsed;
         }
       }
     }
@@ -220,6 +216,26 @@ export function saveUserSession(user: UserProfile) {
   } catch (e) {
     console.error(e);
   }
+}
+
+/**
+ * Clears all sample tickets, test cases, and observations for actual model testing
+ */
+export function clearSampleData() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(STORAGE_KEYS.TICKETS);
+      localStorage.removeItem(STORAGE_KEYS.TEST_CASES_MAP);
+      localStorage.removeItem(STORAGE_KEYS.OBSERVATIONS_MAP);
+    }
+  } catch (e) {
+    console.error('Failed to clear sample data from localStorage', e);
+  }
+  return {
+    tickets: [] as TicketSummary[],
+    testCasesMap: {} as Record<string, TestCaseItem[]>,
+    observationsMap: {} as Record<string, ObservationItem[]>,
+  };
 }
 
 /**
