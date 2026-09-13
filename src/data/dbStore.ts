@@ -122,16 +122,14 @@ export function loadInitialData() {
   }
 
   // Load Test Cases Map (keyed by Ticket Number)
-  let testCasesMap: Record<string, TestCaseItem[]> = {
-    '21653': INITIAL_TEST_CASES,
-  };
+  let testCasesMap: Record<string, TestCaseItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          testCasesMap = { ...testCasesMap, ...parsed };
+          testCasesMap = parsed;
         }
       }
     }
@@ -140,16 +138,14 @@ export function loadInitialData() {
   }
 
   // Load Observations Map (keyed by Ticket Number)
-  let observationsMap: Record<string, ObservationItem[]> = {
-    '21653': INITIAL_OBSERVATIONS,
-  };
+  let observationsMap: Record<string, ObservationItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          observationsMap = { ...observationsMap, ...parsed };
+          observationsMap = parsed;
         }
       }
     }

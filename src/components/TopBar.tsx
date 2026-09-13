@@ -89,9 +89,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           <span>Guide &amp; Specs</span>
         </button>
 
-        <span className="text-[11px] font-medium text-slate-500 hidden lg:inline">
-          Official Email Login Active
-        </span>
       </div>
     </header>
   );

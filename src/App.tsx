@@ -169,6 +169,7 @@ export default function App() {
               setIsGuideOpen(false);
               setActiveTab(tab);
             }}
+            currentUser={currentUser}
           />
         );
 
@@ -186,6 +187,7 @@ export default function App() {
               setActiveTab(tab);
             }}
             onAddTicket={handleAddTicket}
+            currentUser={currentUser}
           />
         );
 

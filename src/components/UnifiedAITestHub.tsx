@@ -137,11 +137,23 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   }, [tickets, selectedTicketNumber]);
 
   // Ticket Context states for AI Generator
+  const [countToGenerate, setCountToGenerate] = useState<number>(5);
   const [ticketDescription, setTicketDescription] = useState<string>(
     matchedTicket?.description ||
       matchedTicket?.qaRequirementDoc ||
       'Automate overdue penalty interest and principal calculation for Term Loans after loan disbursement.'
   );
+
+  // Sync ticket description when matched ticket changes
+  useEffect(() => {
+    if (matchedTicket) {
+      if (matchedTicket.description) {
+        setTicketDescription(matchedTicket.description);
+      } else if (matchedTicket.qaRequirementDoc) {
+        setTicketDescription(matchedTicket.qaRequirementDoc);
+      }
+    }
+  }, [matchedTicket]);
   const [ticketScenarios, setTicketScenarios] = useState<string>(
     matchedTicket?.scenarioDetails ||
       'Scenario 1: Overdue past grace period (5 days) triggers daily penalty accrual.\nScenario 2: Pre-disbursement deals must suppress all penalty rows.\nScenario 3: Excel export must preserve formatted figures without number truncation.'
@@ -395,34 +407,30 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           ]
         : [];
 
-      if (mode === 'all' || mode === 'positive') {
-        newGeneratedCases.push({
-          id: `tc-${Date.now()}-pos1`,
-          testCaseId: `TC${baseIndex + newGeneratedCases.length}`,
-          testModule: tModule,
-          featureTab: `${feature} core`,
-          testScenario: polishTestScenario(`Verify ${ticketDescription.slice(0, 70)} for deal #${ticketNum}`),
-          testCases: polishTestSteps(`1. Open ${tModule} module for deal #${ticketNum}.\n2. Input valid operational parameters.\n3. Execute calculation and verify schedules.`),
-          testInputs: `Ticket: #${ticketNum}\nScope: ${ticketDescription.slice(0, 50)}`,
-          expectedResult: polishExpectedResult('System should calculate values accurately and display updated schedules.'),
-          actualResult: 'Pending execution',
-          status: 'not run',
-          screenshot1: initialAttachments.length > 0 ? initialAttachments[0].name : '',
-          attachments: [...initialAttachments],
-          isAiGenerated: true,
-        });
-      }
+      const requestedCount = Math.min(Math.max(countToGenerate, 1), 20);
 
-      if (mode === 'all' || mode === 'negative') {
+      for (let i = 1; i <= requestedCount; i++) {
+        const isNeg = mode === 'negative' || (mode === 'all' && i % 2 === 0);
+        const scenarioType = isNeg ? '[Negative]' : '[Positive]';
+        const tabSuffix = isNeg ? 'guard' : 'core';
+
         newGeneratedCases.push({
-          id: `tc-${Date.now()}-neg1`,
+          id: `tc-${Date.now()}-${i}`,
           testCaseId: `TC${baseIndex + newGeneratedCases.length}`,
           testModule: tModule,
-          featureTab: `${feature} guard`,
-          testScenario: polishTestScenario(`[Negative] Verify execution is suppressed when deal is un-disbursed`),
-          testCases: polishTestSteps(`1. Select deal #${ticketNum} where disbursement status is PENDING.\n2. Attempt calculation.\n3. Check error warning banner.`),
-          testInputs: `Status: UN-DISBURSED\nTicket: #${ticketNum}`,
-          expectedResult: polishExpectedResult('System should halt calculation with guard error warning.'),
+          featureTab: `${feature} ${tabSuffix}`,
+          testScenario: polishTestScenario(
+            `${scenarioType} ${isNeg ? 'Boundary validation' : 'Functional verification'} #${i} for ticket #${ticketNum}: ${ticketDescription.slice(0, 60)}`
+          ),
+          testCases: polishTestSteps(
+            `1. Open ${tModule} module for deal #${ticketNum}.\n2. Configure test conditions (${isNeg ? 'invalid/boundary parameters' : 'standard valid operational values'}).\n3. Execute workflow and observe result.`
+          ),
+          testInputs: `Ticket: #${ticketNum}\nCase #${i}\nReq: ${ticketDescription.slice(0, 40)}`,
+          expectedResult: polishExpectedResult(
+            isNeg
+              ? 'System displays appropriate validation warning and suppresses calculation.'
+              : 'System processes successfully and updates transaction schedules accurately.'
+          ),
           actualResult: 'Pending execution',
           status: 'not run',
           screenshot1: initialAttachments.length > 0 ? initialAttachments[0].name : '',
@@ -741,28 +749,43 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-            <button
-              disabled={isGenerating}
-              onClick={() => handleGenerateAiCases('positive')}
-              className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs rounded cursor-pointer"
-            >
-              + Positive Cases
-            </button>
-            <button
-              disabled={isGenerating}
-              onClick={() => handleGenerateAiCases('negative')}
-              className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-800 border border-red-300 font-bold text-xs rounded cursor-pointer"
-            >
-              + Negative Cases
-            </button>
-            <button
-              disabled={isGenerating}
-              onClick={() => handleGenerateAiCases('all')}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded shadow-xs cursor-pointer"
-            >
-              ✨ Generate All
-            </button>
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-bold text-slate-700">Number of Test Cases:</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={countToGenerate}
+                onChange={(e) => setCountToGenerate(parseInt(e.target.value, 10) || 1)}
+                className="w-16 px-2 py-1 bg-slate-50 border border-slate-300 rounded font-bold text-blue-700 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <span className="text-[10px] text-slate-400 font-mono">(1 - 20)</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                disabled={isGenerating}
+                onClick={() => handleGenerateAiCases('positive')}
+                className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 font-bold text-xs rounded cursor-pointer"
+              >
+                + Positive ({countToGenerate})
+              </button>
+              <button
+                disabled={isGenerating}
+                onClick={() => handleGenerateAiCases('negative')}
+                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-800 border border-red-300 font-bold text-xs rounded cursor-pointer"
+              >
+                + Negative ({countToGenerate})
+              </button>
+              <button
+                disabled={isGenerating}
+                onClick={() => handleGenerateAiCases('all')}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded shadow-xs cursor-pointer"
+              >
+                ✨ Generate All ({countToGenerate})
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2 } from 'lucide-react';
-import { TicketSummary, BeaconModule } from '../types';
+import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
@@ -8,6 +8,7 @@ import { getTestCasesExcelBlob } from '../utils/excelExport';
 interface TicketsViewProps {
   tickets: TicketSummary[];
   modules: BeaconModule[];
+  currentUser: UserProfile;
   onSelectTicket: (ticket: TicketSummary) => void;
   onNavigateTab: (tab: any) => void;
   onAddTicket?: (newTicket: TicketSummary) => void;
@@ -16,6 +17,7 @@ interface TicketsViewProps {
 export const TicketsView: React.FC<TicketsViewProps> = ({
   tickets,
   modules,
+  currentUser,
   onSelectTicket,
   onNavigateTab,
   onAddTicket,
@@ -83,18 +85,35 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     }
   };
 
+  // User Role-based ticket filtering: Super Admin sees all, other users see only their assigned tickets
+  const roleFilteredTickets = useMemo(() => {
+    if (!currentUser || currentUser.role === 'Super Admin') return tickets;
+    const normUser = (currentUser.name || '').toLowerCase().trim();
+    const normEmail = (currentUser.email || '').toLowerCase().trim();
+    return tickets.filter((t) => {
+      const qa = (t.qaAssignee || '').toLowerCase();
+      const dev = (t.developer || '').toLowerCase();
+      return (
+        qa.includes(normUser) ||
+        dev.includes(normUser) ||
+        (normUser && normUser.includes(qa)) ||
+        (normEmail && normEmail.includes(qa))
+      );
+    });
+  }, [tickets, currentUser]);
+
   // Unique QA assignees
   const qaAssignees = useMemo(() => {
     const set = new Set<string>();
-    tickets.forEach((t) => {
+    roleFilteredTickets.forEach((t) => {
       if (t.qaAssignee) set.add(t.qaAssignee);
     });
     return Array.from(set);
-  }, [tickets]);
+  }, [roleFilteredTickets]);
 
   // Comprehensive Search & Filter pipeline
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
+    return roleFilteredTickets.filter((t) => {
       const matchesSearch =
         t.ticketNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.featureName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -110,7 +129,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
       return matchesSearch && matchesStatus && matchesModule && matchesPriority && matchesQa;
     });
-  }, [tickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
+  }, [roleFilteredTickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
 
   const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
