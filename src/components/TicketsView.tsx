@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2 } from 'lucide-react';
+import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
-import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
+import { fetchWorkItemFromAzure, loadSavedAdoConfig, saveAdoConfig } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 
 interface TicketsViewProps {
@@ -41,9 +41,23 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newQaAssignee, setNewQaAssignee] = useState('Maseera Sayyed');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
 
-  // Azure DevOps Fetch state
+  // Azure DevOps Config & Fetch state
+  const [adoOrg, setAdoOrg] = useState('quantumphinance');
+  const [adoProject, setAdoProject] = useState('Beacon');
+  const [adoPat, setAdoPat] = useState('');
+  const [showAdoConfig, setShowAdoConfig] = useState(false);
   const [isFetchingAdo, setIsFetchingAdo] = useState(false);
-  const [adoFetchMessage, setAdoFetchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [adoFetchMessage, setAdoFetchMessage] = useState<{ type: 'success' | 'error'; text: string; detail?: string } | null>(null);
+
+  // Load ADO settings when opening modal
+  const handleOpenNewTicketModal = () => {
+    const saved = loadSavedAdoConfig();
+    if (saved.organization) setAdoOrg(saved.organization);
+    if (saved.project) setAdoProject(saved.project);
+    if (saved.personalAccessToken) setAdoPat(saved.personalAccessToken);
+    setAdoFetchMessage(null);
+    setIsNewTicketOpen(true);
+  };
 
   const handleFetchFromAzure = async () => {
     if (!newTicketId.trim()) {
@@ -51,10 +65,24 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       return;
     }
 
+    // Save config if PAT/Org/Project modified
+    if (adoPat.trim() || adoOrg.trim() || adoProject.trim()) {
+      saveAdoConfig({
+        organization: adoOrg.trim() || 'quantumphinance',
+        project: adoProject.trim() || 'Beacon',
+        personalAccessToken: adoPat.trim(),
+      });
+    }
+
     setIsFetchingAdo(true);
     setAdoFetchMessage(null);
 
-    const res = await fetchWorkItemFromAzure({ workItemId: newTicketId.trim() });
+    const res = await fetchWorkItemFromAzure({
+      organization: adoOrg,
+      project: adoProject,
+      workItemId: newTicketId.trim(),
+      pat: adoPat,
+    });
     setIsFetchingAdo(false);
 
     if (res.success) {
@@ -81,7 +109,12 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       setAdoFetchMessage({
         type: 'error',
         text: res.message || 'Could not fetch from Azure DevOps API.',
+        detail: res.errorDetail,
       });
+      // Automatically expand PAT config view if missing PAT
+      if (!adoPat.trim()) {
+        setShowAdoConfig(true);
+      }
     }
   };
 
@@ -189,7 +222,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsNewTicketOpen(true)}
+            onClick={handleOpenNewTicketModal}
             className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -432,19 +465,92 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                 </div>
 
                 {adoFetchMessage && (
-                  <p
-                    className={`text-[11px] font-semibold mt-1.5 flex items-center gap-1 ${
-                      adoFetchMessage.type === 'success' ? 'text-emerald-600' : 'text-amber-600'
+                  <div
+                    className={`p-2.5 rounded-lg border text-[11px] mt-2 ${
+                      adoFetchMessage.type === 'success'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-900'
+                        : 'bg-amber-50 border-amber-300 text-amber-900'
                     }`}
                   >
-                    {adoFetchMessage.type === 'success' ? (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    ) : (
-                      <AlertTriangle className="w-3.5 h-3.5" />
+                    <div className="flex items-start gap-1.5 font-semibold">
+                      {adoFetchMessage.type === 'success' ? (
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      )}
+                      <span>{adoFetchMessage.text}</span>
+                    </div>
+                    {adoFetchMessage.detail && (
+                      <div className="mt-1 font-mono text-[10px] bg-white/80 p-1.5 rounded border border-slate-200 text-slate-700 max-h-20 overflow-y-auto">
+                        {adoFetchMessage.detail}
+                      </div>
                     )}
-                    <span>{adoFetchMessage.text}</span>
-                  </p>
+                  </div>
                 )}
+
+                {/* Azure DevOps Connection / PAT Settings Toggle */}
+                <div className="mt-2.5 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setShowAdoConfig(!showAdoConfig)}
+                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                  >
+                    <Key className="w-3 h-3" />
+                    <span>{showAdoConfig ? 'Hide' : 'Configure'} Azure DevOps PAT & Org Settings</span>
+                  </button>
+
+                  {showAdoConfig && (
+                    <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-slate-700">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                            <Building className="w-3 h-3 text-slate-500" />
+                            <span>Org Name</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={adoOrg}
+                            onChange={(e) => setAdoOrg(e.target.value)}
+                            placeholder="quantumphinance"
+                            className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                            <FolderGit2 className="w-3 h-3 text-slate-500" />
+                            <span>Project Name</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={adoProject}
+                            onChange={(e) => setAdoProject(e.target.value)}
+                            placeholder="Beacon"
+                            className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
+                          <Key className="w-3 h-3 text-amber-600" />
+                          <span>Personal Access Token (PAT)</span>
+                        </label>
+                        <input
+                          type="password"
+                          value={adoPat}
+                          onChange={(e) => setAdoPat(e.target.value)}
+                          placeholder="Paste PAT to avoid CORS / Auth issues"
+                          className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
+                          <Info className="w-3 h-3 text-blue-500 shrink-0" />
+                          <span>PAT requires Work Items Read permission in Azure DevOps.</span>
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div>
