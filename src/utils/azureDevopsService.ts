@@ -155,9 +155,10 @@ export async function fetchWorkItemFromAzure(params: {
       rawFields: fields,
     };
   } catch (err: any) {
+    const missingPatNotice = !pat ? ' (No Personal Access Token provided)' : '';
     return {
       success: false,
-      message: 'Network or CORS error fetching from Azure DevOps API.',
+      message: `Network or CORS error fetching from Azure DevOps API${missingPatNotice}. Ensure a valid PAT with Work Items Read permissions is provided, or check network connectivity / CORS restrictions.`,
       errorDetail: err?.message || String(err),
     };
   }
