@@ -32,6 +32,7 @@ import {
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 
 interface UnifiedAITestHubProps {
   initialHeader: TestCaseHeaderMeta;
@@ -88,6 +89,37 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   // AI Drawer & Azure DevOps Modal
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState<boolean>(false);
   const [isAdoModalOpen, setIsAdoModalOpen] = useState<boolean>(false);
+  const [isFetchingAdo, setIsFetchingAdo] = useState<boolean>(false);
+
+  const handleFetchTicketFromAzure = async (targetTicketNo?: string) => {
+    const ticketToFetch = targetTicketNo || header.ticketNo || selectedTicketNumber;
+    if (!ticketToFetch.trim()) {
+      setNotification('Please enter or select a Ticket ID first.');
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    setIsFetchingAdo(true);
+    const res = await fetchWorkItemFromAzure({ workItemId: ticketToFetch.trim() });
+    setIsFetchingAdo(false);
+
+    if (res.success) {
+      const newHeader: TestCaseHeaderMeta = {
+        ...header,
+        ticketNo: res.ticketNumber || ticketToFetch.trim(),
+        taskName: res.title || header.taskName,
+        taskDoneBy: res.assignee || header.taskDoneBy,
+      };
+      setHeader(newHeader);
+      onUpdateHeader?.(newHeader);
+
+      setNotification(`Fetched directly from Azure: "${res.title}"`);
+      setTimeout(() => setNotification(null), 4000);
+    } else {
+      setNotification(res.message || 'Could not fetch ticket details from Azure DevOps API.');
+      setTimeout(() => setNotification(null), 4000);
+    }
+  };
   const [adoNotification, setAdoNotification] = useState<string | null>(null);
 
   // Screenshot scanner
@@ -567,6 +599,16 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 </option>
               ))}
             </select>
+
+            <button
+              onClick={() => handleFetchTicketFromAzure()}
+              disabled={isFetchingAdo}
+              title="Fetch title, description, and assignee directly from Azure DevOps Work Item"
+              className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded flex items-center gap-1.5 cursor-pointer shadow-xs transition-colors"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>{isFetchingAdo ? 'Fetching...' : 'Fetch from Azure'}</span>
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 text-xs">

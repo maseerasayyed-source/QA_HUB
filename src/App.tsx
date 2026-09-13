@@ -10,6 +10,7 @@ import {
   getRoleByEmail,
   REGISTERED_USERS,
   syncTicketCounts,
+  clearSampleData,
 } from './data/dbStore';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
@@ -94,6 +95,21 @@ export default function App() {
     setTickets(nextTickets);
     setActiveTicketNumber(newTicket.ticketNumber);
     saveTicketsToStorage(nextTickets);
+  };
+
+  // Handle Clear Sample Data for Model Testing
+  const handleClearSampleData = () => {
+    if (
+      window.confirm(
+        'Clear all sample data?\nThis will remove demo tickets and test cases so you can perform actual model testing with clean data.'
+      )
+    ) {
+      clearSampleData();
+      setTickets([]);
+      setTestCasesMap({});
+      setObservationsMap({});
+      setActiveTicketNumber('');
+    }
   };
 
   // Handle Login via Official Email ID
@@ -311,6 +327,7 @@ export default function App() {
           modules={modules}
           onOpenGuide={() => setIsGuideOpen(true)}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onClearSampleData={handleClearSampleData}
         />
 
         <main className="flex-1 overflow-y-auto">
