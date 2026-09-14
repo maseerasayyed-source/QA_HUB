@@ -1,12 +1,26 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { NavTab, UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem } from './types';
+import {
+  NavTab,
+  UserProfile,
+  BeaconModule,
+  TicketSummary,
+  TestCaseHeaderMeta,
+  TestCaseItem,
+  ObservationHeaderMeta,
+  ObservationItem,
+  DeveloperTestItem,
+  DeveloperTestHeaderMeta,
+} from './types';
 import {
   loadInitialData,
   saveUserSession,
   saveTicketsToStorage,
   saveTestCasesMapToStorage,
+  saveTestCaseHeadersMapToStorage,
   saveObservationsMapToStorage,
+  saveDevTestingMapToStorage,
+  saveDevTestingHeadersMapToStorage,
   getRoleByEmail,
   REGISTERED_USERS,
   syncTicketCounts,
@@ -19,8 +33,10 @@ import { Phase1Welcome } from './components/Phase1Welcome';
 import { ModulesView } from './components/ModulesView';
 import { TicketsView } from './components/TicketsView';
 import { ObservationsView } from './components/ObservationsView';
+import { DeveloperTestingView } from './components/DeveloperTestingView';
 import { UnifiedAITestHub } from './components/UnifiedAITestHub';
-import { X, UserCheck, ShieldCheck, Mail, Ticket } from 'lucide-react';
+import { SeniorQAReviewQueue } from './components/SeniorQAReviewQueue';
+import { X, UserCheck, ShieldCheck, Mail } from 'lucide-react';
 
 export default function App() {
   // Load Initial Data from persistent localStorage store
@@ -33,8 +49,21 @@ export default function App() {
     syncTicketCounts(dbState.tickets, dbState.testCasesMap, dbState.observationsMap)
   );
 
-  const [testCasesMap, setTestCasesMap] = useState<Record<string, TestCaseItem[]>>(dbState.testCasesMap);
-  const [observationsMap, setObservationsMap] = useState<Record<string, ObservationItem[]>>(dbState.observationsMap);
+  const [testCasesMap, setTestCasesMap] = useState<Record<string, TestCaseItem[]>>(
+    dbState.testCasesMap
+  );
+  const [testCaseHeadersMap, setTestCaseHeadersMap] = useState<Record<string, TestCaseHeaderMeta>>(
+    dbState.testCaseHeadersMap || {}
+  );
+  const [observationsMap, setObservationsMap] = useState<Record<string, ObservationItem[]>>(
+    dbState.observationsMap
+  );
+  const [devTestingMap, setDevTestingMap] = useState<Record<string, DeveloperTestItem[]>>(
+    dbState.devTestingMap || {}
+  );
+  const [devTestingHeadersMap, setDevTestingHeadersMap] = useState<
+    Record<string, DeveloperTestHeaderMeta>
+  >(dbState.devTestingHeadersMap || {});
 
   const [activeModuleFilter, setActiveModuleFilter] = useState<string>('all');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
@@ -44,16 +73,20 @@ export default function App() {
   // Selected Active Ticket ID
   const [activeTicketNumber, setActiveTicketNumber] = useState<string>('21653');
 
-  // Currently active test case header and list for active ticket
-  const currentTicket = tickets.find((t) => t.ticketNumber.toLowerCase() === activeTicketNumber.toLowerCase()) || tickets[0];
+  // Currently active ticket
+  const currentTicket =
+    tickets.find((t) => t.ticketNumber.toLowerCase() === activeTicketNumber.toLowerCase()) ||
+    tickets[0];
 
-  const testCaseHeader: TestCaseHeaderMeta = {
+  const testCaseHeader: TestCaseHeaderMeta = testCaseHeadersMap[activeTicketNumber] || {
     ticketNo: currentTicket?.ticketNumber || '21653',
     clientName: currentTicket?.clientName || 'Treasury Master',
     sha: currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
     taskName: currentTicket?.featureName || 'penalty overdue report',
     taskDoneBy: currentTicket?.qaAssignee || 'Maseera Sayyed',
     signOffBy: currentTicket?.signOffBy || 'Ashwini Poke',
+    reviewStatus: 'Draft',
+    version: '1.0',
   };
 
   const testCasesList = testCasesMap[activeTicketNumber] || testCasesMap['21653'] || [];
@@ -67,19 +100,42 @@ export default function App() {
     date: new Date().toISOString().split('T')[0],
   };
 
-  // Sync back tickets, cases, observations whenever map changes
+  // Sync back tickets, cases, observations, dev testing whenever state changes
   useEffect(() => {
     const updatedTickets = syncTicketCounts(tickets, testCasesMap, observationsMap);
     saveTicketsToStorage(updatedTickets);
     saveTestCasesMapToStorage(testCasesMap);
+    saveTestCaseHeadersMapToStorage(testCaseHeadersMap);
     saveObservationsMapToStorage(observationsMap);
-  }, [testCasesMap, observationsMap]);
+    saveDevTestingMapToStorage(devTestingMap);
+    saveDevTestingHeadersMapToStorage(devTestingHeadersMap);
+  }, [testCasesMap, testCaseHeadersMap, observationsMap, devTestingMap, devTestingHeadersMap]);
 
   // Update Test Cases for active ticket
   const handleUpdateTestCases = (newCases: TestCaseItem[]) => {
     const nextMap = { ...testCasesMap, [activeTicketNumber]: newCases };
     setTestCasesMap(nextMap);
     setTickets((prev) => syncTicketCounts(prev, nextMap, observationsMap));
+  };
+
+  const handleUpdateTestCaseHeader = (newHeader: TestCaseHeaderMeta) => {
+    setTestCaseHeadersMap((prev) => ({
+      ...prev,
+      [newHeader.ticketNo]: newHeader,
+    }));
+    setActiveTicketNumber(newHeader.ticketNo);
+  };
+
+  // Update Developer Testing Map
+  const handleUpdateDevTestingMap = (
+    ticketNo: string,
+    items: DeveloperTestItem[],
+    header?: DeveloperTestHeaderMeta
+  ) => {
+    setDevTestingMap((prev) => ({ ...prev, [ticketNo]: items }));
+    if (header) {
+      setDevTestingHeadersMap((prev) => ({ ...prev, [ticketNo]: header }));
+    }
   };
 
   // Update Observations for active ticket
@@ -97,7 +153,7 @@ export default function App() {
     saveTicketsToStorage(nextTickets);
   };
 
-  // Handle Clear Sample Data for Model Testing
+  // Handle Clear Sample Data
   const handleClearSampleData = () => {
     if (
       window.confirm(
@@ -107,7 +163,10 @@ export default function App() {
       clearSampleData();
       setTickets([]);
       setTestCasesMap({});
+      setTestCaseHeadersMap({});
       setObservationsMap({});
+      setDevTestingMap({});
+      setDevTestingHeadersMap({});
       setActiveTicketNumber('');
     }
   };
@@ -191,6 +250,17 @@ export default function App() {
           />
         );
 
+      case 'developer-testing':
+        return (
+          <DeveloperTestingView
+            tickets={tickets}
+            currentUser={currentUser}
+            devTestingMap={devTestingMap}
+            devTestingHeadersMap={devTestingHeadersMap}
+            onUpdateDevTestingMap={handleUpdateDevTestingMap}
+          />
+        );
+
       case 'ai-test-hub':
       case 'test-cases':
         return (
@@ -199,8 +269,29 @@ export default function App() {
             initialTestCases={testCasesList}
             tickets={tickets}
             modules={modules}
-            onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
+            currentUser={currentUser}
+            onUpdateHeader={handleUpdateTestCaseHeader}
             onUpdateTestCases={handleUpdateTestCases}
+          />
+        );
+
+      case 'review-queue':
+        return (
+          <SeniorQAReviewQueue
+            tickets={tickets}
+            testCasesMap={testCasesMap}
+            testCaseHeadersMap={testCaseHeadersMap}
+            currentUser={currentUser}
+            onUpdateHeader={(tNo, h) => {
+              setTestCaseHeadersMap((prev) => ({ ...prev, [tNo]: h }));
+            }}
+            onUpdateTestCases={(tNo, c) => {
+              setTestCasesMap((prev) => ({ ...prev, [tNo]: c }));
+            }}
+            onOpenTestCasesForTicket={(tNo) => {
+              setActiveTicketNumber(tNo);
+              setActiveTab('ai-test-hub');
+            }}
           />
         );
 
@@ -252,7 +343,7 @@ export default function App() {
                     Super Admin
                   </div>
                   <p className="text-purple-950/80 text-xs leading-relaxed">
-                    Full authority: Manage users, tickets, modules, system configurations, and final sign-offs.
+                    Full authority across QA HUB: Manage users, tickets, developer testing, test cases, reviews, approvals, versions, and audit history.
                   </p>
                 </div>
 
@@ -262,23 +353,23 @@ export default function App() {
                     <span>Ashwini Poke</span>
                   </div>
                   <div className="px-2 py-0.5 bg-emerald-200 text-emerald-900 font-bold rounded text-[10px] inline-block">
-                    Admin
+                    Senior QA
                   </div>
                   <p className="text-emerald-950/80 text-[11px] leading-relaxed">
-                    Management authority: Review test cases, assign tickets to QA, and sign off test releases.
+                    Senior QA review authority: Review submitted test cases, edit during review, comment, Send Back, and grant final Approval.
                   </p>
                 </div>
 
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
                   <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
                     <Mail className="w-4 h-4 text-blue-600" />
-                    <span>Team Users (QA / Dev)</span>
+                    <span>QA &amp; Developers</span>
                   </div>
                   <div className="px-2 py-0.5 bg-blue-200 text-blue-900 font-bold rounded text-[10px] inline-block">
-                    User
+                    QA / Developer
                   </div>
                   <p className="text-blue-950/80 text-[11px] leading-relaxed">
-                    Standard authority: Execute test cases, attach screenshots, and raise observations.
+                    Assigned QA creates &amp; submits test cases. Developers document &amp; submit developer testing evidence.
                   </p>
                 </div>
               </div>
@@ -300,7 +391,8 @@ export default function App() {
             initialTestCases={testCasesList}
             tickets={tickets}
             modules={modules}
-            onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
+            currentUser={currentUser}
+            onUpdateHeader={handleUpdateTestCaseHeader}
             onUpdateTestCases={handleUpdateTestCases}
           />
         );
@@ -366,7 +458,7 @@ export default function App() {
 
             <div className="p-5 space-y-4 text-xs">
               <p className="text-slate-600">
-                Log in with your official email ID. Authority level (Super Admin, Admin, or User) is automatically determined based on your email:
+                Log in with your official email ID. Authority level (Super Admin, Senior QA, or QA/Developer) is automatically determined based on your email:
               </p>
 
               {/* Preset Quick Login Buttons */}
@@ -397,7 +489,7 @@ export default function App() {
                       className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                         user.role === 'Super Admin'
                           ? 'bg-purple-100 text-purple-800'
-                          : user.role === 'Admin'
+                          : user.role === 'Senior QA' || user.role === 'Admin'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}

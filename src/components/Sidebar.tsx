@@ -6,8 +6,8 @@ import {
   AlertOctagon,
   FolderTree,
   Users2,
+  Code2,
   ShieldCheck,
-  UserCheck,
 } from 'lucide-react';
 import { NavTab, UserProfile } from '../types';
 
@@ -31,11 +31,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onOpenLoginModal,
 }) => {
-  // Only show active, relevant, functional core tabs
+  // Navigation tabs list with font size greater than 15px (16.5px font-bold)
   const navItems: NavItem[] = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'tickets', label: 'Tickets (Azure)', icon: Ticket },
+    { id: 'developer-testing', label: 'Developer Testing', icon: Code2 },
     { id: 'ai-test-hub', label: 'AI Test Case Hub', icon: Sparkles },
+    { id: 'review-queue', label: 'QA Review Queue', icon: ShieldCheck },
     { id: 'observations', label: 'Observations & RFE', icon: AlertOctagon },
     { id: 'modules', label: 'Modules', icon: FolderTree, badge: '18' },
     { id: 'qa-team', label: 'QA Team & Roles', icon: Users2 },
@@ -71,7 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               key={item.id}
               onClick={() => onSelectTab(item.id)}
-              className={`w-full flex items-center justify-between px-4 py-3.5 text-base font-bold transition-colors cursor-pointer ${
+              className={`w-full flex items-center justify-between px-4 py-3 text-[16.5px] font-bold transition-colors cursor-pointer ${
                 isActive
                   ? 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-200 hover:bg-slate-800 hover:text-white'
@@ -108,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-xs ${
               currentUser.role === 'Super Admin'
                 ? 'bg-purple-600'
-                : currentUser.role === 'Admin'
+                : currentUser.role === 'Senior QA' || currentUser.role === 'Admin'
                 ? 'bg-emerald-600'
                 : 'bg-blue-600'
             }`}
@@ -125,7 +127,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${
             currentUser.role === 'Super Admin'
               ? 'bg-purple-950 text-purple-300 border-purple-800'
-              : currentUser.role === 'Admin'
+              : currentUser.role === 'Senior QA' || currentUser.role === 'Admin'
               ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
               : 'bg-slate-800 text-slate-300 border-slate-700'
           }`}
