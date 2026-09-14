@@ -40,7 +40,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'review-queue', label: 'QA Test Case Review', icon: ShieldCheck },
     { id: 'observations', label: 'Observations & RFE', icon: AlertOctagon },
     { id: 'modules', label: 'Modules', icon: FolderTree, badge: '18' },
-    { id: 'qa-team', label: 'QA Team & Roles', icon: Users2 },
   ];
 
   return (

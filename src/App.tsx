@@ -450,94 +450,6 @@ export default function App() {
           />
         );
 
-      case 'qa-team':
-        return (
-          <div className="p-8 max-w-5xl mx-auto space-y-6">
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <div>
-                  <h2 className="text-base font-bold text-slate-900">QA Team Roles &amp; Privacy Authority Levels</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Official Email Login authentication state and role assignments for Beacon QA Hub.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsLoginModalOpen(true)}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer"
-                  >
-                    Switch Official Email / User
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Logout</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl space-y-2">
-                  <div className="font-bold text-purple-900 flex items-center gap-1.5 text-sm">
-                    <ShieldCheck className="w-4 h-4 text-purple-600" />
-                    <span>Maseera Sayyed</span>
-                  </div>
-                  <div className="px-2 py-0.5 bg-purple-200 text-purple-900 font-bold rounded text-[10px] inline-block">
-                    Super Admin
-                  </div>
-                  <p className="text-purple-950/80 text-xs leading-relaxed">
-                    Full authority across QA HUB: Manage users, tickets, developer testing, test cases, reviews, approvals, versions, and audit history.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl space-y-2">
-                  <div className="font-bold text-emerald-900 flex items-center gap-1.5 text-sm">
-                    <UserCheck className="w-4 h-4 text-emerald-600" />
-                    <span>Ashwini Poke</span>
-                  </div>
-                  <div className="px-2 py-0.5 bg-emerald-200 text-emerald-900 font-bold rounded text-[10px] inline-block">
-                    Senior QA
-                  </div>
-                  <p className="text-emerald-950/80 text-[11px] leading-relaxed">
-                    Senior QA review authority: Review submitted test cases, edit during review, comment, Send Back, and grant final Approval.
-                  </p>
-                </div>
-
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
-                  <div className="font-bold text-blue-900 flex items-center gap-1.5 text-sm">
-                    <Mail className="w-4 h-4 text-blue-600" />
-                    <span>QA &amp; Developers</span>
-                  </div>
-                  <div className="px-2 py-0.5 bg-blue-200 text-blue-900 font-bold rounded text-[10px] inline-block">
-                    QA / Developer
-                  </div>
-                  <p className="text-blue-950/80 text-[11px] leading-relaxed">
-                    Assigned QA creates &amp; submits test cases. Developers document &amp; submit developer testing evidence.
-                  </p>
-                </div>
-              </div>
-
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
-                <div>
-                  <div className="font-bold text-slate-800">Current Logged-In User Session:</div>
-                  <div className="text-slate-600 mt-1">
-                    <strong>{currentUser.name}</strong> ({currentUser.email}) • Authority Level: <strong className="text-blue-700">{currentUser.role}</strong>
-                  </div>
-                </div>
-
-                <button
-                  onClick={handleLogout}
-                  className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Logout</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        );
 
       default:
         return (
@@ -609,47 +521,14 @@ export default function App() {
             </div>
 
             <div className="p-5 space-y-4 text-xs">
-              <p className="text-slate-600">
-                Log in as a different registered official email ID or logout:
-              </p>
-
-              {/* Preset Quick Login Buttons */}
-              <div className="space-y-2">
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Quick Select Official Users:
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div className="font-bold text-slate-800">Currently Logged-In User:</div>
+                <div className="text-slate-600 mt-1">
+                  <strong>{currentUser.name}</strong> ({currentUser.email})
                 </div>
-
-                {REGISTERED_USERS.map((user) => (
-                  <button
-                    key={user.email}
-                    onClick={() => {
-                      setCurrentUser(user);
-                      saveUserSession(user);
-                      setIsLoginModalOpen(false);
-                    }}
-                    className={`w-full p-2.5 rounded-lg border text-left flex items-center justify-between transition-colors cursor-pointer ${
-                      currentUser.email.toLowerCase() === user.email.toLowerCase()
-                        ? 'bg-blue-50 border-blue-400 font-bold text-blue-900'
-                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    <div>
-                      <div className="font-bold text-xs">{user.name}</div>
-                      <div className="text-[10px] text-slate-500">{user.email}</div>
-                    </div>
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded ${
-                        user.role === 'Super Admin'
-                          ? 'bg-purple-100 text-purple-800'
-                          : user.role === 'Senior QA'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-blue-100 text-blue-800'
-                      }`}
-                    >
-                      {user.role}
-                    </span>
-                  </button>
-                ))}
+                <div className="text-xs text-blue-700 font-bold mt-0.5">
+                  Role: {currentUser.role}
+                </div>
               </div>
 
               <div className="pt-3 border-t border-slate-100 flex justify-end">
