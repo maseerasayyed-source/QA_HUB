@@ -204,23 +204,6 @@ export default function App() {
     saveTicketsToStorage(nextTickets);
   };
 
-  // Handle Clear Sample Data
-  const handleClearSampleData = () => {
-    if (
-      window.confirm(
-        'Clear all sample data?\nThis will remove demo tickets and test cases so you can perform actual model testing with clean data.'
-      )
-    ) {
-      clearSampleData();
-      setTickets([]);
-      setTestCasesMap({});
-      setTestCaseHeadersMap({});
-      setObservationsMap({});
-      setDevTestingMap({});
-      setDevTestingHeadersMap({});
-      setActiveTicketNumber('');
-    }
-  };
 
   // Apply theme & font to body
   useEffect(() => {
@@ -485,7 +468,6 @@ export default function App() {
           modules={modules}
           onOpenGuide={() => setIsGuideOpen(true)}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
-          onClearSampleData={handleClearSampleData}
         />
 
         <main className="flex-1 overflow-y-auto">
