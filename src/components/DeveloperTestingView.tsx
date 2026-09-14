@@ -34,6 +34,7 @@ import {
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { CommonHeader } from './common/CommonHeader';
 import {
   generateDevTestingFromPoint,
   generateDevTestingFromTicket,
@@ -78,7 +79,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }
     return {
       ticketNo: currentTicket?.ticketNumber || defaultTicketNo,
-      featureName: currentTicket?.featureName || INITIAL_DEV_TEST_HEADER.ticketName,
+      featureName: currentTicket?.featureName || (INITIAL_DEV_TEST_HEADER as any).ticketName || 'Feature Verification',
       developer: currentTicket?.developer || currentUser?.name || 'Kunal Joshi',
       devTestDate: new Date().toISOString().split('T')[0],
       dealId: currentTicket?.dealId || `DEAL-${selectedTicketNo}`,
@@ -142,6 +143,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         developer: found?.developer || currentUser?.name || 'Kunal Joshi',
         devTestDate: new Date().toISOString().split('T')[0],
         dealId: found?.dealId || `DEAL-${tNo}`,
+        description: found?.description || found?.featureName || '',
+        testingScenarios: found?.testingScenarios || found?.scenarioDetails || '',
         status: 'Draft',
       });
     }
@@ -538,44 +541,25 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         </div>
       )}
 
-      {/* ONE-LINE INPUT + AI GENERATE ACTION CARD */}
-      <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 shadow-2xs space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-blue-600" />
-            <h2 className="text-xs font-bold text-slate-900">One-Line AI Developer Testing Generator</h2>
-          </div>
-          <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-            Ticket #{header.ticketNo}
-          </span>
-        </div>
-
-        <p className="text-xs text-slate-600">
-          Enter one simple testing point line (e.g. <em>"Verify that changing the Index Rate updates the Effective Rate."</em>) and click <strong>AI Generate</strong>:
-        </p>
-
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={singlePointInput}
-            onChange={(e) => setSinglePointInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAiGenerateSinglePoint();
-            }}
-            placeholder="e.g. Verify that changing the Index Rate updates the Effective Rate."
-            className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
-          />
-
-          <button
-            onClick={handleAiGenerateSinglePoint}
-            disabled={isGeneratingAiPoint}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{isGeneratingAiPoint ? 'Generating...' : 'AI Generate'}</span>
-          </button>
-        </div>
-      </div>
+      {/* COMMON MODULE HEADER */}
+      <CommonHeader
+        selectedTicketNumber={selectedTicketNo}
+        tickets={tickets}
+        description={header.description || currentTicket?.description || ''}
+        testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}
+        onSelectTicket={handleTicketChange}
+        onChangeDescription={(val) => {
+          const next = { ...header, description: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        onChangeTestingScenarios={(val) => {
+          const next = { ...header, testingScenarios: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        showGenerateButton={false}
+      />
 
       {/* DEVELOPER TESTING TABLE */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">

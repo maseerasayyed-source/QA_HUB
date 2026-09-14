@@ -11,6 +11,9 @@ import {
   ObservationItem,
   DeveloperTestItem,
   DeveloperTestHeaderMeta,
+  AppSettings,
+  ColourTheme,
+  FontStyle,
 } from './types';
 import {
   loadInitialData,
@@ -22,7 +25,7 @@ import {
   saveObservationsMapToStorage,
   saveDevTestingMapToStorage,
   saveDevTestingHeadersMapToStorage,
-  getRoleByEmail,
+  saveAppSettingsToStorage,
   REGISTERED_USERS,
   syncTicketCounts,
   clearSampleData,
@@ -43,6 +46,9 @@ import { X, UserCheck, ShieldCheck, Mail, LogOut } from 'lucide-react';
 export default function App() {
   // Load Initial Data from persistent localStorage store
   const [dbState, setDbState] = useState(() => loadInitialData());
+
+  // App Settings (Theme & Font)
+  const [settings, setSettings] = useState<AppSettings>(dbState.settings || { theme: 'Default', font: 'Inter' });
 
   // Current logged in user (null if not authenticated)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(dbState.user);
@@ -203,21 +209,29 @@ export default function App() {
     }
   };
 
+  // Apply theme & font to body
+  useEffect(() => {
+    document.body.setAttribute('data-theme', settings.theme);
+    document.body.setAttribute('data-font', settings.font);
+    saveAppSettingsToStorage(settings);
+  }, [settings]);
+
   // Map Tab ID to Human Label
   const getTabLabel = (tab: NavTab): string => {
     const labels: Record<NavTab, string> = {
       dashboard: 'Dashboard',
       tickets: 'Tickets (Azure)',
       'developer-testing': 'Developer Testing',
-      'ai-test-hub': 'AI Test Case Hub',
+      'ai-test-hub': 'QA AI Test Case',
       'test-cases': 'Test Cases Workbench',
-      'review-queue': 'Senior QA Review Queue',
-      observations: 'Observations & RFE',
+      'review-queue': 'QA Test Case Review',
+      observations: 'Observations',
+      rfe: 'RFE Module',
       modules: 'Modules',
       'qa-team': 'QA Team & Roles',
       reports: 'Reports',
       'ai-assistant': 'AI Assistant',
-      settings: 'Settings',
+      settings: 'Settings & Theme',
     };
     return labels[tab] || 'QA Hub Module';
   };
@@ -328,6 +342,7 @@ export default function App() {
         );
 
       case 'observations':
+      case 'rfe':
         return (
           <ObservationsView
             tickets={tickets}
@@ -336,6 +351,64 @@ export default function App() {
             onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
             onUpdateObservations={handleUpdateObservations}
           />
+        );
+
+      case 'settings':
+        return (
+          <div className="p-8 max-w-4xl mx-auto space-y-6">
+            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-2xs space-y-6">
+              <div>
+                <h2 className="text-base font-bold text-slate-900">Application Appearance &amp; Settings</h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Customize application theme colors and font style consistently across QA Hub.
+                </p>
+              </div>
+
+              {/* Theme Selector */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                  Colour Theme:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-bold">
+                  {(['Default', 'Blue', 'Green', 'Purple', 'Dark'] as ColourTheme[]).map((themeName) => (
+                    <button
+                      key={themeName}
+                      onClick={() => setSettings({ ...settings, theme: themeName })}
+                      className={`p-3 rounded-lg border text-center transition-all cursor-pointer ${
+                        settings.theme === themeName
+                          ? 'border-blue-600 bg-blue-50 text-blue-900 ring-2 ring-blue-500/30'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {themeName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Font Selector */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
+                  Font Style:
+                </label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-bold">
+                  {(['Inter', 'Roboto', 'Arial', 'Poppins'] as FontStyle[]).map((fontName) => (
+                    <button
+                      key={fontName}
+                      onClick={() => setSettings({ ...settings, font: fontName })}
+                      className={`p-3 rounded-lg border text-center transition-all cursor-pointer ${
+                        settings.font === fontName
+                          ? 'border-blue-600 bg-blue-50 text-blue-900 ring-2 ring-blue-500/30'
+                          : 'border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700'
+                      }`}
+                    >
+                      {fontName}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
         );
 
       case 'modules':
@@ -537,7 +610,7 @@ export default function App() {
                       className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                         user.role === 'Super Admin'
                           ? 'bg-purple-100 text-purple-800'
-                          : user.role === 'Senior QA' || user.role === 'Admin'
+                          : user.role === 'Senior QA'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-blue-100 text-blue-800'
                       }`}
