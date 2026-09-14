@@ -300,11 +300,65 @@ export function syncTicketCounts(
 }
 
 /**
- * Save user session to localStorage
+ * Backend persistence sync helper
+ */
+async function syncStateToBackend(currentUser?: UserProfile | null) {
+  try {
+    const data = loadInitialData();
+    const user = currentUser || data.user;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (user?.name) headers['x-user-name'] = user.name;
+    if (user?.role) headers['x-user-role'] = user.role;
+
+    await fetch('/api/sync-state', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        tickets: data.tickets,
+        testCases: data.testCasesMap,
+        observations: data.observationsMap,
+        devTesting: data.devTestingMap
+      }),
+    });
+  } catch (e) {
+    // Fail silently in offline mode
+  }
+}
+
+/**
+ * Rehydrate initial state from backend database if available
+ */
+export async function fetchInitialDataFromBackend() {
+  try {
+    const res = await fetch('/api/sync-state');
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.tickets) && data.tickets.length > 0) {
+        saveTicketsToStorage(data.tickets);
+      }
+      return data;
+    }
+  } catch (e) {
+    // Offline mode
+  }
+  return null;
+}
+
+/**
+ * Save user session to localStorage and sync with backend
  */
 export function saveUserSession(user: UserProfile) {
   try {
     localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+    fetch('/api/users/role', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-name': user.name,
+        'x-user-role': user.role
+      },
+      body: JSON.stringify({ userName: user.name, role: user.role })
+    }).catch(() => {});
   } catch (e) {
     console.error(e);
   }
@@ -355,6 +409,7 @@ export function clearSampleData() {
 export function saveTicketsToStorage(tickets: TicketSummary[]) {
   try {
     localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(tickets));
+    syncStateToBackend();
   } catch (e) {
     console.error(e);
   }
@@ -366,6 +421,7 @@ export function saveTicketsToStorage(tickets: TicketSummary[]) {
 export function saveTestCasesMapToStorage(map: Record<string, TestCaseItem[]>) {
   try {
     localStorage.setItem(STORAGE_KEYS.TEST_CASES_MAP, JSON.stringify(map));
+    syncStateToBackend();
   } catch (e) {
     console.error(e);
   }
@@ -388,6 +444,7 @@ export function saveTestCaseHeadersMapToStorage(map: Record<string, TestCaseHead
 export function saveObservationsMapToStorage(map: Record<string, ObservationItem[]>) {
   try {
     localStorage.setItem(STORAGE_KEYS.OBSERVATIONS_MAP, JSON.stringify(map));
+    syncStateToBackend();
   } catch (e) {
     console.error(e);
   }
@@ -399,6 +456,7 @@ export function saveObservationsMapToStorage(map: Record<string, ObservationItem
 export function saveDevTestingMapToStorage(map: Record<string, DeveloperTestItem[]>) {
   try {
     localStorage.setItem(STORAGE_KEYS.DEV_TESTING_MAP, JSON.stringify(map));
+    syncStateToBackend();
   } catch (e) {
     console.error(e);
   }
