@@ -15,6 +15,7 @@ import {
 import {
   loadInitialData,
   saveUserSession,
+  logoutUserSession,
   saveTicketsToStorage,
   saveTestCasesMapToStorage,
   saveTestCaseHeadersMapToStorage,
@@ -36,14 +37,22 @@ import { ObservationsView } from './components/ObservationsView';
 import { DeveloperTestingView } from './components/DeveloperTestingView';
 import { UnifiedAITestHub } from './components/UnifiedAITestHub';
 import { SeniorQAReviewQueue } from './components/SeniorQAReviewQueue';
-import { X, UserCheck, ShieldCheck, Mail } from 'lucide-react';
+import { LoginPage } from './components/LoginPage';
+import { X, UserCheck, ShieldCheck, Mail, LogOut } from 'lucide-react';
 
 export default function App() {
   // Load Initial Data from persistent localStorage store
   const [dbState, setDbState] = useState(() => loadInitialData());
 
-  const [currentUser, setCurrentUser] = useState<UserProfile>(dbState.user);
+  // Current logged in user (null if not authenticated)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(dbState.user);
+
+  // Active navigation tab
   const [activeTab, setActiveTab] = useState<NavTab>('ai-test-hub');
+
+  // Track target requested tab for post-login redirect
+  const [targetTabAfterLogin, setTargetTabAfterLogin] = useState<NavTab>('ai-test-hub');
+
   const [modules, setModules] = useState<BeaconModule[]>(dbState.modules);
   const [tickets, setTickets] = useState<TicketSummary[]>(() =>
     syncTicketCounts(dbState.tickets, dbState.testCasesMap, dbState.observationsMap)
@@ -68,7 +77,6 @@ export default function App() {
   const [activeModuleFilter, setActiveModuleFilter] = useState<string>('all');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
-  const [inputEmail, setInputEmail] = useState<string>(dbState.user.email);
 
   // Selected Active Ticket ID
   const [activeTicketNumber, setActiveTicketNumber] = useState<string>('21653');
@@ -110,6 +118,30 @@ export default function App() {
     saveDevTestingMapToStorage(devTestingMap);
     saveDevTestingHeadersMapToStorage(devTestingHeadersMap);
   }, [testCasesMap, testCaseHeadersMap, observationsMap, devTestingMap, devTestingHeadersMap]);
+
+  // Handle Tab Navigation (Enforces Login Check)
+  const handleNavigateTab = (tab: NavTab) => {
+    setIsGuideOpen(false);
+    if (!currentUser) {
+      setTargetTabAfterLogin(tab);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  // Handle Successful Login
+  const handleLoginSuccess = (user: UserProfile) => {
+    setCurrentUser(user);
+    saveUserSession(user);
+    setActiveTab(targetTabAfterLogin);
+    setIsLoginModalOpen(false);
+  };
+
+  // Handle Logout
+  const handleLogout = () => {
+    logoutUserSession();
+    setCurrentUser(null);
+  };
 
   // Update Test Cases for active ticket
   const handleUpdateTestCases = (newCases: TestCaseItem[]) => {
@@ -171,34 +203,34 @@ export default function App() {
     }
   };
 
-  // Handle Login via Official Email ID
-  const handleLoginWithEmail = (emailStr: string) => {
-    const norm = emailStr.toLowerCase().trim();
-    if (!norm) return;
-
-    const matched = REGISTERED_USERS.find((u) => u.email.toLowerCase() === norm);
-    let newUser: UserProfile;
-
-    if (matched) {
-      newUser = matched;
-    } else {
-      const derivedRole = getRoleByEmail(norm);
-      const namePart = norm.split('@')[0].replace(/[._]/g, ' ');
-      const capitalizedName = namePart.charAt(0).toUpperCase() + namePart.slice(1);
-      newUser = {
-        name: capitalizedName,
-        email: norm,
-        role: derivedRole,
-        department: 'Quality Assurance',
-        status: 'Active',
-        joiningDate: new Date().toISOString().split('T')[0],
-      };
-    }
-
-    setCurrentUser(newUser);
-    saveUserSession(newUser);
-    setIsLoginModalOpen(false);
+  // Map Tab ID to Human Label
+  const getTabLabel = (tab: NavTab): string => {
+    const labels: Record<NavTab, string> = {
+      dashboard: 'Dashboard',
+      tickets: 'Tickets (Azure)',
+      'developer-testing': 'Developer Testing',
+      'ai-test-hub': 'AI Test Case Hub',
+      'test-cases': 'Test Cases Workbench',
+      'review-queue': 'Senior QA Review Queue',
+      observations: 'Observations & RFE',
+      modules: 'Modules',
+      'qa-team': 'QA Team & Roles',
+      reports: 'Reports',
+      'ai-assistant': 'AI Assistant',
+      settings: 'Settings',
+    };
+    return labels[tab] || 'QA Hub Module';
   };
+
+  // If user is NOT logged in, show standalone Login Page!
+  if (!currentUser) {
+    return (
+      <LoginPage
+        requestedTargetTabLabel={getTabLabel(targetTabAfterLogin)}
+        onLoginSuccess={handleLoginSuccess}
+      />
+    );
+  }
 
   const renderActiveTabContent = () => {
     if (isGuideOpen) {
@@ -222,11 +254,11 @@ export default function App() {
             modules={modules}
             onSelectTicket={(ticket) => {
               setActiveTicketNumber(ticket.ticketNumber);
-              setActiveTab('tickets');
+              handleNavigateTab('tickets');
             }}
             onNavigateTab={(tab) => {
               setIsGuideOpen(false);
-              setActiveTab(tab);
+              handleNavigateTab(tab);
             }}
             currentUser={currentUser}
           />
@@ -239,11 +271,11 @@ export default function App() {
             modules={modules}
             onSelectTicket={(t) => {
               setActiveTicketNumber(t.ticketNumber);
-              setActiveTab('ai-test-hub');
+              handleNavigateTab('ai-test-hub');
             }}
             onNavigateTab={(tab) => {
               setIsGuideOpen(false);
-              setActiveTab(tab);
+              handleNavigateTab(tab);
             }}
             onAddTicket={handleAddTicket}
             currentUser={currentUser}
@@ -290,7 +322,7 @@ export default function App() {
             }}
             onOpenTestCasesForTicket={(tNo) => {
               setActiveTicketNumber(tNo);
-              setActiveTab('ai-test-hub');
+              handleNavigateTab('ai-test-hub');
             }}
           />
         );
@@ -325,12 +357,21 @@ export default function App() {
                     Official Email Login authentication state and role assignments for Beacon QA Hub.
                   </p>
                 </div>
-                <button
-                  onClick={() => setIsLoginModalOpen(true)}
-                  className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer"
-                >
-                  Switch Official Email / User
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsLoginModalOpen(true)}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer"
+                  >
+                    Switch Official Email / User
+                  </button>
+                  <button
+                    onClick={handleLogout}
+                    className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Logout</span>
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
@@ -374,11 +415,21 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-                <div className="font-bold text-slate-800">Current Logged-In User Session:</div>
-                <div className="text-slate-600 mt-1">
-                  <strong>{currentUser.name}</strong> ({currentUser.email}) • Authority Level: <strong className="text-blue-700">{currentUser.role}</strong>
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
+                <div>
+                  <div className="font-bold text-slate-800">Current Logged-In User Session:</div>
+                  <div className="text-slate-600 mt-1">
+                    <strong>{currentUser.name}</strong> ({currentUser.email}) • Authority Level: <strong className="text-blue-700">{currentUser.role}</strong>
+                  </div>
                 </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold border border-red-200 text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Logout</span>
+                </button>
               </div>
             </div>
           </div>
@@ -404,10 +455,7 @@ export default function App() {
       {/* 1. Left Sidebar Navigation */}
       <Sidebar
         activeTab={activeTab}
-        onSelectTab={(tab) => {
-          setIsGuideOpen(false);
-          setActiveTab(tab);
-        }}
+        onSelectTab={(tab) => handleNavigateTab(tab)}
         currentUser={currentUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
       />
@@ -439,14 +487,14 @@ export default function App() {
         </main>
       </div>
 
-      {/* Official Email ID Login Modal */}
+      {/* Switch User / Official Email ID Modal */}
       {isLoginModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden">
             <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-blue-400" />
-                <h2 className="text-base font-bold">Official Email ID Login</h2>
+                <h2 className="text-base font-bold">Switch Official User / Logout</h2>
               </div>
               <button
                 onClick={() => setIsLoginModalOpen(false)}
@@ -458,13 +506,13 @@ export default function App() {
 
             <div className="p-5 space-y-4 text-xs">
               <p className="text-slate-600">
-                Log in with your official email ID. Authority level (Super Admin, Senior QA, or QA/Developer) is automatically determined based on your email:
+                Log in as a different registered official email ID or logout:
               </p>
 
               {/* Preset Quick Login Buttons */}
               <div className="space-y-2">
                 <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                  Quick Select Registered Users:
+                  Quick Select Official Users:
                 </div>
 
                 {REGISTERED_USERS.map((user) => (
@@ -500,24 +548,17 @@ export default function App() {
                 ))}
               </div>
 
-              {/* Custom Email Input */}
-              <div className="pt-3 border-t border-slate-100 space-y-2">
-                <label className="block text-slate-700 font-bold">Or enter official email ID:</label>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={inputEmail}
-                    onChange={(e) => setInputEmail(e.target.value)}
-                    placeholder="e.g. name@quantumphinance.com"
-                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={() => handleLoginWithEmail(inputEmail)}
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer"
-                  >
-                    Login
-                  </button>
-                </div>
+              <div className="pt-3 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => {
+                    handleLogout();
+                    setIsLoginModalOpen(false);
+                  }}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Logout Session</span>
+                </button>
               </div>
             </div>
           </div>

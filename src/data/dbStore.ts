@@ -22,7 +22,7 @@ const STORAGE_KEYS = {
 
 // Registered Users & Roles according to user requirements:
 // Maseera -> Super Admin
-// Ashwini -> Admin (or Senior QA)
+// Ashwini -> Senior QA
 // Others -> User (QA or Developer)
 export const REGISTERED_USERS: UserProfile[] = [
   {
@@ -76,8 +76,8 @@ export function getRoleByEmail(email: string): UserProfile['role'] {
  * Initialize / Load DB state from LocalStorage
  */
 export function loadInitialData() {
-  // Load User
-  let user: UserProfile = INITIAL_USER;
+  // Load User Session
+  let user: UserProfile | null = null;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
@@ -124,7 +124,7 @@ export function loadInitialData() {
     console.error('Failed to parse tickets from localStorage', e);
   }
 
-  // Load Test Cases Map (keyed by Ticket Number)
+  // Load Test Cases Map
   let testCasesMap: Record<string, TestCaseItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -140,7 +140,7 @@ export function loadInitialData() {
     console.error('Failed to parse test cases map from localStorage', e);
   }
 
-  // Load Test Case Headers Map (keyed by Ticket Number)
+  // Load Test Case Headers Map
   let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -156,7 +156,7 @@ export function loadInitialData() {
     console.error('Failed to parse test case headers map from localStorage', e);
   }
 
-  // Load Observations Map (keyed by Ticket Number)
+  // Load Observations Map
   let observationsMap: Record<string, ObservationItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -172,7 +172,7 @@ export function loadInitialData() {
     console.error('Failed to parse observations map from localStorage', e);
   }
 
-  // Load Developer Testing Map (keyed by Ticket Number / Deal ID)
+  // Load Developer Testing Map
   let devTestingMap: Record<string, DeveloperTestItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -188,7 +188,7 @@ export function loadInitialData() {
     console.error('Failed to parse dev testing map from localStorage', e);
   }
 
-  // Load Developer Testing Headers Map (keyed by Ticket Number)
+  // Load Developer Testing Headers Map
   let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
@@ -217,7 +217,7 @@ export function loadInitialData() {
 }
 
 /**
- * Helper to compute pending observations count for a given ticket ID
+ * Helper to compute pending observations count
  */
 export function getPendingObservationsCount(
   ticketNumber: string,
@@ -228,7 +228,7 @@ export function getPendingObservationsCount(
 }
 
 /**
- * Helper to compute total test cases written for a given ticket ID
+ * Helper to compute total test cases written
  */
 export function getTestCasesCountForTicket(
   ticketNumber: string,
@@ -239,7 +239,7 @@ export function getTestCasesCountForTicket(
 }
 
 /**
- * Helper to sync ticket summary stats from test cases & observations map
+ * Helper to sync ticket summary stats
  */
 export function syncTicketCounts(
   tickets: TicketSummary[],
@@ -279,7 +279,20 @@ export function saveUserSession(user: UserProfile) {
 }
 
 /**
- * Clears all sample tickets, test cases, observations, and developer testing logs
+ * Logout / clear user session from localStorage
+ */
+export function logoutUserSession() {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.removeItem(STORAGE_KEYS.USER);
+    }
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
+ * Clears all sample data
  */
 export function clearSampleData() {
   try {
@@ -316,7 +329,7 @@ export function saveTicketsToStorage(tickets: TicketSummary[]) {
 }
 
 /**
- * Save test cases map to localStorage
+ * Save test cases map
  */
 export function saveTestCasesMapToStorage(map: Record<string, TestCaseItem[]>) {
   try {
@@ -327,7 +340,7 @@ export function saveTestCasesMapToStorage(map: Record<string, TestCaseItem[]>) {
 }
 
 /**
- * Save test case headers map to localStorage
+ * Save test case headers map
  */
 export function saveTestCaseHeadersMapToStorage(map: Record<string, TestCaseHeaderMeta>) {
   try {
@@ -338,7 +351,7 @@ export function saveTestCaseHeadersMapToStorage(map: Record<string, TestCaseHead
 }
 
 /**
- * Save observations map to localStorage
+ * Save observations map
  */
 export function saveObservationsMapToStorage(map: Record<string, ObservationItem[]>) {
   try {
@@ -349,7 +362,7 @@ export function saveObservationsMapToStorage(map: Record<string, ObservationItem
 }
 
 /**
- * Save developer testing map to localStorage
+ * Save developer testing map
  */
 export function saveDevTestingMapToStorage(map: Record<string, DeveloperTestItem[]>) {
   try {
@@ -360,7 +373,7 @@ export function saveDevTestingMapToStorage(map: Record<string, DeveloperTestItem
 }
 
 /**
- * Save developer testing headers map to localStorage
+ * Save developer testing headers map
  */
 export function saveDevTestingHeadersMapToStorage(map: Record<string, DeveloperTestHeaderMeta>) {
   try {
