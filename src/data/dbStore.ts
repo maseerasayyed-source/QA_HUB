@@ -226,6 +226,15 @@ export function loadInitialData() {
     console.error('Failed to parse app settings from localStorage', e);
   }
 
+  // Ensure default demo maps are initialized if empty
+  if (Object.keys(testCasesMap).length === 0 && tickets.length > 0) {
+    testCasesMap['21653'] = INITIAL_TEST_CASES;
+    testCaseHeadersMap['21653'] = INITIAL_TEST_CASE_HEADER;
+  }
+  if (Object.keys(observationsMap).length === 0 && tickets.length > 0) {
+    observationsMap['21653'] = INITIAL_OBSERVATIONS;
+  }
+
   return {
     user,
     modules,

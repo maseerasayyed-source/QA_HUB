@@ -103,8 +103,19 @@ export default function App() {
     version: '1.0',
   };
 
-  const testCasesList = testCasesMap[activeTicketNumber] || testCasesMap['21653'] || [];
-  const observationsList = observationsMap[activeTicketNumber] || observationsMap['21653'] || [];
+  const testCasesList =
+    activeTicketNumber in testCasesMap
+      ? testCasesMap[activeTicketNumber]
+      : activeTicketNumber === '21653'
+      ? testCasesMap['21653'] || []
+      : [];
+
+  const observationsList =
+    activeTicketNumber in observationsMap
+      ? observationsMap[activeTicketNumber]
+      : activeTicketNumber === '21653'
+      ? observationsMap['21653'] || []
+      : [];
 
   const observationHeader: ObservationHeaderMeta = {
     ticketName: currentTicket?.featureName || 'penalty overdue report',
@@ -150,8 +161,9 @@ export default function App() {
   };
 
   // Update Test Cases for active ticket
-  const handleUpdateTestCases = (newCases: TestCaseItem[]) => {
-    const nextMap = { ...testCasesMap, [activeTicketNumber]: newCases };
+  const handleUpdateTestCases = (newCases: TestCaseItem[], ticketNum?: string) => {
+    const targetTicket = ticketNum || activeTicketNumber;
+    const nextMap = { ...testCasesMap, [targetTicket]: newCases };
     setTestCasesMap(nextMap);
     setTickets((prev) => syncTicketCounts(prev, nextMap, observationsMap));
   };
@@ -177,8 +189,9 @@ export default function App() {
   };
 
   // Update Observations for active ticket
-  const handleUpdateObservations = (newObs: ObservationItem[]) => {
-    const nextMap = { ...observationsMap, [activeTicketNumber]: newObs };
+  const handleUpdateObservations = (newObs: ObservationItem[], ticketNum?: string) => {
+    const target = ticketNum || activeTicketNumber;
+    const nextMap = { ...observationsMap, [target]: newObs };
     setObservationsMap(nextMap);
     setTickets((prev) => syncTicketCounts(prev, testCasesMap, nextMap));
   };
@@ -300,10 +313,14 @@ export default function App() {
         return (
           <DeveloperTestingView
             tickets={tickets}
+            modules={modules}
             currentUser={currentUser}
             devTestingMap={devTestingMap}
             devTestingHeadersMap={devTestingHeadersMap}
+            activeTicketNumber={activeTicketNumber}
+            onSelectTicket={(tNo) => setActiveTicketNumber(tNo)}
             onUpdateDevTestingMap={handleUpdateDevTestingMap}
+            onAddTicket={handleAddTicket}
           />
         );
 
@@ -316,8 +333,16 @@ export default function App() {
             tickets={tickets}
             modules={modules}
             currentUser={currentUser}
+            activeTicketNumber={activeTicketNumber}
+            testCasesMap={testCasesMap}
+            onSelectTicket={(tNo) => {
+              setActiveTicketNumber(tNo);
+            }}
             onUpdateHeader={handleUpdateTestCaseHeader}
-            onUpdateTestCases={handleUpdateTestCases}
+            onUpdateTestCases={(newCases, tNo) => {
+              handleUpdateTestCases(newCases, tNo);
+            }}
+            onAddTicket={handleAddTicket}
           />
         );
 
@@ -346,10 +371,16 @@ export default function App() {
         return (
           <ObservationsView
             tickets={tickets}
+            modules={modules}
+            currentUser={currentUser}
+            activeTicketNumber={activeTicketNumber}
+            observationsMap={observationsMap}
             initialHeader={observationHeader}
             initialObservations={observationsList}
+            onSelectTicket={(tNo) => setActiveTicketNumber(tNo)}
             onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
-            onUpdateObservations={handleUpdateObservations}
+            onUpdateObservations={(items, tNo) => handleUpdateObservations(items, tNo)}
+            onAddTicket={handleAddTicket}
           />
         );
 

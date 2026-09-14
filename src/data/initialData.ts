@@ -30,28 +30,148 @@ export const INITIAL_MODULES: BeaconModule[] = [
   { id: 'mod-18', name: 'Payment Bulk & Sanction', code: 'PAY', category: 'Core', description: 'Maker-checker workflows, batch processing, reversal handling', activeTicketsCount: 2 },
 ];
 
-export const INITIAL_TICKETS: TicketSummary[] = [];
+export const INITIAL_TICKETS: TicketSummary[] = [
+  {
+    id: 'ticket-21653',
+    ticketNumber: '21653',
+    featureName: 'penalty overdue report',
+    moduleId: 'mod-1',
+    moduleName: 'Term Loan',
+    developer: 'Kunal Joshi',
+    qaAssignee: 'Maseera Sayyed',
+    signOffBy: 'Ashwini Poke',
+    clientName: 'Treasury Master',
+    shaCommit: 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
+    priority: 'High',
+    status: 'In Testing',
+    testCasesCount: 3,
+    passedCount: 3,
+    failedCount: 0,
+    blockedCount: 0,
+    observationsCount: 2,
+    receivedDate: '2026-09-02',
+    description: 'Verify penalty calculation and cashflow display when loan interest or principal is overdue after disbursement.',
+    scenarioDetails: '1. Penalty entries in cashflow when overdue occurs after disbursement.\n2. Penalty entries suppressed when zero disbursement.\n3. Overdue report grid reflects penalty entries.',
+    impactPoints: ['Term Loan Engine', 'Cashflow Projections', 'Financial Reports'],
+    testingScenarios: 'Positive overdue interest calculation; Pre-disbursement guard condition; Overdue report Excel export.',
+  },
+];
 
 export const INITIAL_TEST_CASE_HEADER: import('../types').TestCaseHeaderMeta = {
-  ticketNo: '',
+  ticketNo: '21653',
   clientName: 'Treasury Master',
   sha: 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
-  taskName: '',
+  taskName: 'penalty overdue report',
   taskDoneBy: 'Maseera Sayyed',
-  signOffBy: 'Ashwini poke',
+  signOffBy: 'Ashwini Poke',
+  reviewStatus: 'Draft',
+  version: '1.0',
 };
 
-export const INITIAL_TEST_CASES: import('../types').TestCaseItem[] = [];
+export const INITIAL_TEST_CASES: import('../types').TestCaseItem[] = [
+  {
+    id: 'tc-21653-1',
+    testCaseId: 'TC1',
+    testModule: 'term loan',
+    featureTab: 'penalty',
+    testScenario: 'Penalty entries appear in the cashflow when overdue occurs after loan disbursement.',
+    preconditions: 'Financial module setup and user permissions available.',
+    testCases: 'Verify that penalty is applied and displayed in cashflow when interest or principal becomes overdue after disbursement.',
+    testInputs: 'TL-23-24-00001\npenalty interest - 10%\npenalty principal - 10%',
+    expectedResult: 'The cashflow should display the deal with penalty entries whenever overdue occurs on interest or principal after loan disbursement.',
+    actualResult: 'The cashflow is displaying the deal with penalty entries',
+    status: 'pass',
+    reviewStatus: 'Approved',
+    version: '1.0',
+    validationScenario: 'Penalty calculation matches 10% rate on overdue days.',
+    additionalCoverage: 'Cashflow settlement integrity validated.',
+    attachments: [
+      { id: 'att-1', name: 'disbursed_cashflow_p...', url: '' }
+    ],
+  },
+  {
+    id: 'tc-21653-2',
+    testCaseId: 'TC2',
+    testModule: 'term loan',
+    featureTab: 'penalty',
+    testScenario: 'If no disbursement has occurred, penalty entries should not be displayed in cashflow.',
+    preconditions: 'Term Loan contract created in approved state without disbursement voucher.',
+    testCases: 'Verify that penalty entries are suppressed in cashflow when loan has zero disbursement.',
+    testInputs: 'TL-23-24-00002\ninterest - 10%',
+    expectedResult: 'If no disbursement has occurred, penalty entries should not be displayed in cashflow.',
+    actualResult: 'Penalty entries are not being displayed in cashflow.',
+    status: 'pass',
+    reviewStatus: 'Approved',
+    version: '1.0',
+    validationScenario: 'Pre-disbursement guard prevents premature penalty triggering.',
+    additionalCoverage: 'Contract lifecycle state validation.',
+    attachments: [
+      { id: 'att-2', name: 'no_disbursement_gua...', url: '' }
+    ],
+  },
+  {
+    id: 'tc-21653-3',
+    testCaseId: 'TC3',
+    testModule: 'term loan',
+    featureTab: 'penalty',
+    testScenario: 'The overdue report should display the deal with penalty entries whenever overdue occurs.',
+    preconditions: 'Financial Reports module configured with Overdue Report parameters.',
+    testCases: 'Verify that overdue report correctly consolidates all overdue deals with active penalty flags.',
+    testInputs: 'TL-23-24-00002\ninterest - 10%',
+    expectedResult: 'The overdue report should display the deal with penalty entries whenever overdue occurs.',
+    actualResult: 'The overdue report correctly displays the deal with penalty entries',
+    status: 'pass',
+    reviewStatus: 'Approved',
+    version: '1.0',
+    validationScenario: 'Overdue grid report reconciliation with staging cashflow table.',
+    additionalCoverage: 'Audit export consistency verified.',
+    attachments: [
+      { id: 'att-3', name: 'overdue_grid_breakd...', url: '' },
+      { id: 'att-4', name: 'exported_excel_audit...', url: '' }
+    ],
+  },
+];
 
 export const INITIAL_OBSERVATION_HEADER: import('../types').ObservationHeaderMeta = {
-  ticketName: '',
-  ticketNo: '',
+  ticketName: 'penalty overdue report',
+  ticketNo: '21653',
   qaOwner: 'Maseera Sayyed',
   clientName: 'Treasury Master',
   date: new Date().toISOString().split('T')[0],
 };
 
-export const INITIAL_OBSERVATIONS: import('../types').ObservationItem[] = [];
+export const INITIAL_OBSERVATIONS: import('../types').ObservationItem[] = [
+  {
+    id: 'obs-init-1',
+    serialNo: 'OBS-01',
+    ticketId: '21653',
+    ticketName: 'penalty overdue report',
+    type: 'Observation',
+    observationRFE: 'Cashflow penalty row calculation rounds off paise incorrectly on leap year dates.',
+    status: 'Open',
+    retesting: 1,
+    remark: 'Observed during 29-Feb cycle test execution.',
+    priority: 'High',
+    reportedBy: 'Maseera Sayyed',
+    createdDate: '2026-09-03',
+    attachments: [],
+  },
+  {
+    id: 'obs-init-2',
+    serialNo: 'RFE-01',
+    ticketId: '21653',
+    ticketName: 'penalty overdue report',
+    type: 'RFE',
+    observationRFE: 'Provide automated toggle in Term Loan settings to waive penalty for government holiday grace days.',
+    status: 'In Progress',
+    retesting: 1,
+    remark: 'Requested by Treasury Master team for RBI holiday adherence.',
+    priority: 'Medium',
+    reportedBy: 'Maseera Sayyed',
+    createdDate: '2026-09-04',
+    attachments: [],
+  },
+];
 
 export const INITIAL_DEV_TEST_HEADER: import('../types').DeveloperTestHeaderMeta = {
   ticketNo: '21653',

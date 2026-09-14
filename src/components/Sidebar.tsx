@@ -38,8 +38,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'developer-testing', label: 'Developer Testing', icon: Code2 },
     { id: 'ai-test-hub', label: 'QA AI Test Case', icon: Sparkles },
     { id: 'review-queue', label: 'QA Test Case Review', icon: ShieldCheck },
-    { id: 'observations', label: 'Observations', icon: AlertOctagon },
-    { id: 'rfe', label: 'RFE Module', icon: AlertOctagon },
+    { id: 'observations', label: 'Observations & RFE', icon: AlertOctagon },
     { id: 'modules', label: 'Modules', icon: FolderTree, badge: '18' },
     { id: 'qa-team', label: 'QA Team & Roles', icon: Users2 },
   ];

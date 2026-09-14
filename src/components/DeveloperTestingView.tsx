@@ -17,6 +17,9 @@ import {
   Eye,
   X,
   FileSpreadsheet,
+  ArrowLeft,
+  ChevronRight,
+  Filter,
 } from 'lucide-react';
 import {
   DeveloperTestHeaderMeta,
@@ -24,6 +27,7 @@ import {
   TicketSummary,
   FileAttachment,
   UserProfile,
+  AttachedDocOrImage,
 } from '../types';
 import { exportDeveloperTestingToExcel, getDeveloperTestingExcelBlob } from '../utils/excelExport';
 import { polishObservationText, correctSpelling } from '../utils/textPolisher';
@@ -38,31 +42,57 @@ import { CommonHeader } from './common/CommonHeader';
 import {
   generateDevTestingFromPoint,
   generateDevTestingFromTicket,
+  generateTicketDetailsWithAi,
+  generateScenariosFromInputsAndFiles,
+  checkIsDuplicate,
 } from '../utils/aiGenerator';
 import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 
 interface DeveloperTestingViewProps {
   tickets?: TicketSummary[];
+  modules?: { id: string; name: string }[];
   currentUser?: UserProfile;
   devTestingMap?: Record<string, DeveloperTestItem[]>;
   devTestingHeadersMap?: Record<string, DeveloperTestHeaderMeta>;
+  activeTicketNumber?: string;
+  onSelectTicket?: (ticketNo: string) => void;
   onUpdateDevTestingMap?: (
     ticketNo: string,
     items: DeveloperTestItem[],
     header?: DeveloperTestHeaderMeta
   ) => void;
+  onAddTicket?: (ticket: TicketSummary) => void;
 }
 
 export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   tickets = [],
+  modules = [
+    { id: 'term loan', name: 'Term Loan' },
+    { id: 'working capital', name: 'Working Capital' },
+    { id: 'cash credit', name: 'Cash Credit' },
+    { id: 'bank guarantee', name: 'Bank Guarantee' },
+    { id: 'trade finance', name: 'Trade Finance' },
+    { id: 'treasury', name: 'Treasury & FX' },
+  ],
   currentUser,
   devTestingMap = {},
   devTestingHeadersMap = {},
+  activeTicketNumber,
+  onSelectTicket,
   onUpdateDevTestingMap,
+  onAddTicket,
 }) => {
+  // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'dev-testing-screen' (Detail Screen)
+  const [hubMode, setHubMode] = useState<'tickets-table' | 'dev-testing-screen'>('tickets-table');
+
   // Selected Active Ticket
-  const defaultTicketNo = INITIAL_DEV_TEST_HEADER.ticketNo;
+  const defaultTicketNo = activeTicketNumber || (tickets[0]?.ticketNumber) || INITIAL_DEV_TEST_HEADER.ticketNo;
   const [selectedTicketNo, setSelectedTicketNo] = useState<string>(defaultTicketNo);
+
+  // Tickets List Filters
+  const [ticketSearch, setTicketSearch] = useState<string>('');
+  const [ticketModuleFilter, setTicketModuleFilter] = useState<string>('all');
+  const [ticketStatusFilter, setTicketStatusFilter] = useState<string>('all');
 
   // Match current ticket
   const currentTicket = useMemo(() => {
@@ -83,6 +113,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       developer: currentTicket?.developer || currentUser?.name || 'Kunal Joshi',
       devTestDate: new Date().toISOString().split('T')[0],
       dealId: currentTicket?.dealId || `DEAL-${selectedTicketNo}`,
+      description: currentTicket?.description || currentTicket?.featureName || '',
+      testingScenarios: currentTicket?.testingScenarios || currentTicket?.scenarioDetails || '',
       status: 'Draft',
     };
   });
@@ -102,9 +134,22 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }));
   });
 
+  // Add Ticket Modal State with Custom Module option
+  const [isAddTicketModalOpen, setIsAddTicketModalOpen] = useState<boolean>(false);
+  const [newTicketNumber, setNewTicketNumber] = useState<string>('');
+  const [newFeatureName, setNewFeatureName] = useState<string>('');
+  const [newModuleId, setNewModuleId] = useState<string>('term loan');
+  const [customModuleName, setCustomModuleName] = useState<string>('');
+  const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
+  const [newDeveloper, setNewDeveloper] = useState<string>(currentUser?.name || 'Kunal Joshi');
+  const [newQaAssignee, setNewQaAssignee] = useState<string>('Maseera Sayyed');
+  const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
+  const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
+
   // One-line input for instant AI generation
   const [singlePointInput, setSinglePointInput] = useState<string>('');
   const [isGeneratingAiPoint, setIsGeneratingAiPoint] = useState<boolean>(false);
+  const [isGeneratingAiScenarios, setIsGeneratingAiScenarios] = useState<boolean>(false);
 
   // UI state
   const [downloadSuccess, setDownloadSuccess] = useState<boolean>(false);
@@ -113,10 +158,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   const [notification, setNotification] = useState<string | null>(null);
   const [isFetchingFromAdo, setIsFetchingFromAdo] = useState<boolean>(false);
 
-  // Image Preview Modal state
-  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
-
-  // Sorting & Filtering
+  // Sorting & Filtering in table
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
@@ -127,17 +169,26 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     submissionState: '',
   });
 
-  // Sync when ticket changes
+  // Sync when activeTicketNumber changes from outside
+  useEffect(() => {
+    if (activeTicketNumber && activeTicketNumber !== selectedTicketNo) {
+      handleTicketChange(activeTicketNumber);
+    }
+  }, [activeTicketNumber]);
+
+  // Sync ticket change to state
   const handleTicketChange = (tNo: string) => {
     setSelectedTicketNo(tNo);
+    onSelectTicket?.(tNo);
     const found = tickets.find((t) => t.ticketNumber.toLowerCase() === tNo.toLowerCase());
     const existingHeader = devTestingHeadersMap[tNo];
     const existingItems = devTestingMap[tNo];
 
+    let newH: DeveloperTestHeaderMeta;
     if (existingHeader) {
-      setHeader(existingHeader);
+      newH = existingHeader;
     } else {
-      setHeader({
+      newH = {
         ticketNo: tNo,
         featureName: found?.featureName || 'Feature Verification',
         developer: found?.developer || currentUser?.name || 'Kunal Joshi',
@@ -146,31 +197,14 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         description: found?.description || found?.featureName || '',
         testingScenarios: found?.testingScenarios || found?.scenarioDetails || '',
         status: 'Draft',
-      });
+      };
     }
+    setHeader(newH);
 
     if (existingItems && existingItems.length > 0) {
       setItems(existingItems);
     } else {
-      setItems([
-        {
-          id: `dt-${Date.now()}-1`,
-          scenarioId: 'DEV-01',
-          dealId: found?.dealId || `DEAL-${tNo}`,
-          developerName: found?.developer || currentUser?.name || 'Kunal Joshi',
-          testingPoint: 'Verify that changing the Index Rate updates the Effective Rate.',
-          scenario: 'Verify that changing the Index Rate updates the Effective Rate.',
-          testDescription: 'Verify that changing the Index Rate updates the Effective Rate.',
-          testData: 'Index Rate: 8.5%, Spread: 1.5%',
-          expectedResult:
-            'Effective Rate is dynamically recalculated using the new Index Rate and updated on deal schedule without rounding discrepancies.',
-          actualResult: 'Verified & passed in dev workspace',
-          status: 'Passed',
-          submissionState: 'Draft',
-          remarks: 'Pre-QA developer verification',
-          attachments: [],
-        },
-      ]);
+      setItems([]);
     }
   };
 
@@ -181,11 +215,25 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     onUpdateDevTestingMap?.(newHeader.ticketNo, newItems, newHeader);
   };
 
-  // 1. One-Line Input AI Generation Action
+  // Switch to Detail Screen for ticket
+  const handleOpenDevTestingScreen = (ticket: TicketSummary) => {
+    handleTicketChange(ticket.ticketNumber);
+    setHubMode('dev-testing-screen');
+  };
+
+  // 1. One-Line Input AI Generation Action with duplicate check
   const handleAiGenerateSinglePoint = () => {
     if (!singlePointInput.trim()) {
       setNotification('Please enter a testing point first.');
       setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+
+    // Duplicate Check
+    const dupCheck = checkIsDuplicate(singlePointInput, items);
+    if (dupCheck.isDup) {
+      setNotification(`⚠️ Duplicate detected: This scenario is already covered in ${dupCheck.matchedWith}! Duplicate row was prevented.`);
+      setTimeout(() => setNotification(null), 5000);
       return;
     }
 
@@ -226,7 +274,50 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }, 400);
   };
 
-  // 2. Generate Developer Testing from Azure DevOps
+  // 1b. Multi-Scenario AI Generation using Description, Testing Scenarios & Attached Files / Screen Fields
+  const handleAiGenerateMultiScenarios = () => {
+    setIsGeneratingAiScenarios(true);
+    setTimeout(() => {
+      const result = generateScenariosFromInputsAndFiles({
+        ticket: currentTicket,
+        description: header.description || currentTicket?.description || '',
+        testingScenarios: header.testingScenarios || currentTicket?.testingScenarios || '',
+        attachedDocs: header.attachedDocs || [],
+        screenFields: header.screenFields || [],
+        targetMode: 'developer',
+        existingItems: items,
+      });
+
+      if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
+        setNotification(
+          `⚠️ All ${result.skippedDuplicates.length} candidate scenarios are already covered in the table! Duplicate rows were prevented.`
+        );
+        setTimeout(() => setNotification(null), 5000);
+        setIsGeneratingAiScenarios(false);
+        return;
+      }
+
+      if (result.newItems.length === 0) {
+        setNotification('Please enter a description, testing scenarios, or attach a screenshot/fields to generate points.');
+        setTimeout(() => setNotification(null), 4000);
+        setIsGeneratingAiScenarios(false);
+        return;
+      }
+
+      const updated = [...items, ...result.newItems];
+      saveStateToStore(updated, header);
+      setIsGeneratingAiScenarios(false);
+
+      const dupText =
+        result.skippedDuplicates.length > 0
+          ? ` (${result.skippedDuplicates.length} duplicate scenarios already covered were skipped)`
+          : '';
+      setNotification(`🚀 Generated & added ${result.newItems.length} Developer Testing Points into table!${dupText}`);
+      setTimeout(() => setNotification(null), 5000);
+    }, 400);
+  };
+
+  // 2. Generate Developer Testing from Azure DevOps / Ticket Info
   const handleGenerateFromAzureDevOpsTicket = async () => {
     setIsFetchingFromAdo(true);
     const res = await fetchWorkItemFromAzure({ workItemId: header.ticketNo });
@@ -247,7 +338,61 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     const merged = [...items, ...generatedItems];
     saveStateToStore(merged, header);
 
-    setNotification(`🚀 Generated ${generatedItems.length} Developer Testing Points from Azure DevOps Ticket #${header.ticketNo}!`);
+    setNotification(`🚀 Generated ${generatedItems.length} Developer Testing Points for Ticket #${header.ticketNo}!`);
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // 3. Quick AI generate points for specific ticket from tickets list
+  const handleQuickAiGenerateForTicket = (ticket: TicketSummary) => {
+    const generated = generateDevTestingFromTicket(ticket);
+    const existing = devTestingMap[ticket.ticketNumber] || [];
+    const merged = [...existing, ...generated];
+    const ticketHeader: DeveloperTestHeaderMeta = devTestingHeadersMap[ticket.ticketNumber] || {
+      ticketNo: ticket.ticketNumber,
+      featureName: ticket.featureName,
+      developer: ticket.developer || 'Kunal Joshi',
+      devTestDate: new Date().toISOString().split('T')[0],
+      dealId: ticket.dealId || `DEAL-${ticket.ticketNumber}`,
+      description: ticket.description || ticket.featureName,
+      testingScenarios: ticket.testingScenarios || '',
+      status: 'Draft',
+    };
+    onUpdateDevTestingMap?.(ticket.ticketNumber, merged, ticketHeader);
+    if (selectedTicketNo.toLowerCase() === ticket.ticketNumber.toLowerCase()) {
+      setItems(merged);
+      setHeader(ticketHeader);
+    }
+    setNotification(`✨ Auto-generated ${generated.length} Dev Testing Points for Ticket #${ticket.ticketNumber}!`);
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // 4. Bulk AI generate dev testing points for tickets with 0 points
+  const handleBulkAiGenerateDevPoints = () => {
+    let generatedCount = 0;
+    tickets.forEach((t) => {
+      const existing = devTestingMap[t.ticketNumber] || [];
+      if (existing.length === 0) {
+        const generated = generateDevTestingFromTicket(t);
+        const ticketHeader: DeveloperTestHeaderMeta = devTestingHeadersMap[t.ticketNumber] || {
+          ticketNo: t.ticketNumber,
+          featureName: t.featureName,
+          developer: t.developer || 'Kunal Joshi',
+          devTestDate: new Date().toISOString().split('T')[0],
+          dealId: t.dealId || `DEAL-${t.ticketNumber}`,
+          description: t.description || t.featureName,
+          testingScenarios: t.testingScenarios || '',
+          status: 'Draft',
+        };
+        onUpdateDevTestingMap?.(t.ticketNumber, generated, ticketHeader);
+        if (selectedTicketNo.toLowerCase() === t.ticketNumber.toLowerCase()) {
+          setItems(generated);
+          setHeader(ticketHeader);
+        }
+        generatedCount += generated.length;
+      }
+    });
+
+    setNotification(`✨ Bulk auto-generated developer testing points across all empty tickets!`);
     setTimeout(() => setNotification(null), 4000);
   };
 
@@ -284,16 +429,28 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     saveStateToStore([...items, newItem], header);
   };
 
+  // Duplicate Row
+  const handleDuplicateRow = (id: string) => {
+    const target = items.find((i) => i.id === id);
+    if (!target) return;
+    const nextNum = items.length + 1;
+    const duplicated: DeveloperTestItem = {
+      ...target,
+      id: `dt-${Date.now()}`,
+      scenarioId: `DEV-0${nextNum}`,
+      testingPoint: `${target.testingPoint} (Copy)`,
+    };
+    saveStateToStore([...items, duplicated], header);
+  };
+
   // Delete Row
   const handleDeleteRow = (id: string) => {
-    if (items.length <= 1) {
-      alert('At least one testing row must remain.');
-      return;
+    if (confirm('Delete this developer testing point?')) {
+      saveStateToStore(
+        items.filter((i) => i.id !== id),
+        header
+      );
     }
-    saveStateToStore(
-      items.filter((i) => i.id !== id),
-      header
-    );
   };
 
   // Attachments Handlers
@@ -337,7 +494,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     saveStateToStore(updated, header);
   };
 
-  // 3. Save Draft vs Submit Developer Testing
+  // Save Draft vs Submit Developer Testing
   const handleSaveDraft = () => {
     const newHeader: DeveloperTestHeaderMeta = {
       ...header,
@@ -373,18 +530,6 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Role and Submission Privacy filter:
-  // Before submission (Draft): Private to creating developer / Super Admin!
-  const isCreatorOrSuperAdmin = useMemo(() => {
-    if (!currentUser) return true;
-    if (currentUser.role === 'Super Admin') return true;
-    const currentName = currentUser.name.toLowerCase();
-    const devName = (header.developer || '').toLowerCase();
-    return currentName.includes('kunal') || currentName.includes('developer') || currentName === devName;
-  }, [currentUser, header.developer]);
-
-  const isVisibleToCurrentUser = header.status === 'Submitted' || isCreatorOrSuperAdmin;
-
   // Excel Export
   const handleDownloadExcel = async () => {
     try {
@@ -397,7 +542,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }
   };
 
-  // Sort & Filter logic
+  // Sort & Filter logic in Detail Screen
   const handleSort = (key: string) => {
     if (sortKey === key) {
       if (sortDirection === 'asc') setSortDirection('desc');
@@ -445,22 +590,558 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       });
   }, [items, globalSearch, columnFilters, sortKey, sortDirection]);
 
-  if (!isVisibleToCurrentUser) {
+  // Filtered Tickets for Tickets List Table
+  const filteredTickets = useMemo(() => {
+    return tickets.filter((t) => {
+      if (ticketSearch.trim()) {
+        const q = ticketSearch.toLowerCase();
+        const matches =
+          t.ticketNumber.toLowerCase().includes(q) ||
+          t.featureName.toLowerCase().includes(q) ||
+          t.moduleName.toLowerCase().includes(q) ||
+          t.qaAssignee.toLowerCase().includes(q) ||
+          t.developer.toLowerCase().includes(q) ||
+          (t.scenarioDetails || '').toLowerCase().includes(q) ||
+          (t.testingScenarios || '').toLowerCase().includes(q);
+        if (!matches) return false;
+      }
+
+      if (ticketModuleFilter !== 'all') {
+        const tMod = t.moduleName.toLowerCase();
+        const fMod = ticketModuleFilter.toLowerCase();
+        if (!tMod.includes(fMod) && !fMod.includes(tMod)) return false;
+      }
+
+      if (ticketStatusFilter !== 'all') {
+        if (t.status !== ticketStatusFilter) return false;
+      }
+
+      return true;
+    });
+  }, [tickets, ticketSearch, ticketModuleFilter, ticketStatusFilter]);
+
+  // Add Ticket Submit Handler (with Custom Module support)
+  const handleCreateTicketSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTicketNumber.trim() || !newFeatureName.trim()) {
+      alert('Please enter Ticket ID and Feature Name.');
+      return;
+    }
+
+    const effectiveModuleName =
+      newModuleId === 'other'
+        ? customModuleName.trim() || 'Custom Module'
+        : modules.find((m) => m.id === newModuleId)?.name || 'Term Loan';
+
+    const newTicket: TicketSummary = {
+      id: `ticket-${Date.now()}`,
+      ticketNumber: newTicketNumber.trim().replace('#', ''),
+      featureName: newFeatureName.trim(),
+      moduleId: newModuleId === 'other' ? 'custom' : newModuleId,
+      moduleName: effectiveModuleName,
+      developer: newDeveloper.trim() || 'Kunal Joshi',
+      qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
+      priority: newPriority,
+      status: 'Ready for QA',
+      testCasesCount: 0,
+      passedCount: 0,
+      failedCount: 0,
+      blockedCount: 0,
+      observationsCount: 0,
+      receivedDate: new Date().toISOString().split('T')[0],
+      scenarioDetails: newScenarioDetails.trim(),
+      testingScenarios: newScenarioDetails.trim(),
+    };
+
+    onAddTicket?.(newTicket);
+    handleOpenDevTestingScreen(newTicket);
+    setIsAddTicketModalOpen(false);
+
+    // Reset fields
+    setNewTicketNumber('');
+    setNewFeatureName('');
+    setCustomModuleName('');
+    setNewScenarioDetails('');
+    setNotification(`✅ Ticket #${newTicket.ticketNumber} added successfully!`);
+    setTimeout(() => setNotification(null), 4000);
+  };
+
+  // AI Polish & Details for Add Ticket Modal
+  const handleAiGenerateTicketModal = () => {
+    if (!newFeatureName.trim()) {
+      alert('Please enter a brief Feature / Task Name first.');
+      return;
+    }
+    setIsAiGeneratingTicket(true);
+    setTimeout(() => {
+      const selectedModName =
+        newModuleId === 'other'
+          ? customModuleName.trim() || 'Financial Module'
+          : modules.find((m) => m.id === newModuleId)?.name || 'Term Loan';
+
+      const generated = generateTicketDetailsWithAi(newFeatureName, selectedModName);
+      if (generated.suggestedTitle) {
+        setNewFeatureName(generated.suggestedTitle);
+      }
+      setNewScenarioDetails(generated.testingScenarios);
+      setNewPriority(generated.priority);
+      setIsAiGeneratingTicket(false);
+    }, 450);
+  };
+
+  // ==========================================
+  // VIEW 1: TICKETS LIST TABLE (Default Hub View)
+  // ==========================================
+  if (hubMode === 'tickets-table') {
     return (
-      <div className="p-8 max-w-4xl mx-auto space-y-4">
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 text-center space-y-3 shadow-2xs">
-          <Lock className="w-8 h-8 text-amber-600 mx-auto" />
-          <h2 className="text-base font-bold text-amber-900">Developer Testing Draft (Private)</h2>
-          <p className="text-xs text-amber-800 max-w-md mx-auto">
-            This Developer Testing record is currently in <strong>Draft state</strong> and private to the developer. It will become visible once submitted.
-          </p>
+      <div className="p-6 max-w-[1600px] mx-auto space-y-5 animate-fadeIn">
+        {/* Header Bar */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <span className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+              <Code2 className="w-5 h-5" />
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+                  Developer Testing Hub
+                </h1>
+                <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-200">
+                  Azure DevOps Integrated
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Browse Azure DevOps tickets below. Click any row or &quot;Open Test Points →&quot; to view, edit, and AI-generate developer unit and integration testing points.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handleBulkAiGenerateDevPoints}
+              className="px-3.5 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+              <span>✨ Bulk AI Generate Dev Points</span>
+            </button>
+
+            <button
+              onClick={() => setIsAddTicketModalOpen(true)}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Ticket</span>
+            </button>
+          </div>
         </div>
+
+        {/* Feedback Notification */}
+        {notification && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2 animate-fadeIn shadow-2xs">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{notification}</span>
+          </div>
+        )}
+
+        {/* Filter and Search Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs text-xs">
+          <div className="flex items-center gap-2 flex-1 max-w-md">
+            <div className="relative w-full">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search by Ticket ID, feature name, module, developer, QA..."
+                value={ticketSearch}
+                onChange={(e) => setTicketSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* Module Filter Dropdown */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-medium">Module:</span>
+              <select
+                value={ticketModuleFilter}
+                onChange={(e) => setTicketModuleFilter(e.target.value)}
+                className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="all">All Modules ({tickets.length})</option>
+                {modules.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Status Filter Pills */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+              {['all', 'Ready for QA', 'In Testing', 'Passed'].map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setTicketStatusFilter(st)}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold transition-colors cursor-pointer ${
+                    ticketStatusFilter === st
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {st === 'all' ? 'All' : st}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Tickets Table View */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
+              <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
+                <tr>
+                  <th className="p-2.5 w-32 border-r border-slate-700">Ticket ID</th>
+                  <th className="p-2.5 min-w-[240px] border-r border-slate-700">Feature / Task Name</th>
+                  <th className="p-2.5 w-40 border-r border-slate-700">Module</th>
+                  <th className="p-2.5 w-36 border-r border-slate-700">Developer</th>
+                  <th className="p-2.5 w-36 border-r border-slate-700">QA Assignee</th>
+                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Priority</th>
+                  <th className="p-2.5 w-28 text-center border-r border-slate-700">Status</th>
+                  <th className="p-2.5 w-32 text-center border-r border-slate-700">Dev Test Points</th>
+                  <th className="p-2.5 w-48 text-center">Action</th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-slate-200 text-slate-800">
+                {filteredTickets.map((t) => {
+                  const pointsCount = (devTestingMap[t.ticketNumber] || []).length;
+                  const tHeader = devTestingHeadersMap[t.ticketNumber];
+                  const submissionStatus = tHeader?.status || 'Draft';
+
+                  return (
+                    <tr
+                      key={t.id}
+                      onClick={() => handleOpenDevTestingScreen(t)}
+                      className="hover:bg-blue-50/40 cursor-pointer transition-colors group"
+                    >
+                      {/* Ticket ID */}
+                      <td className="p-2.5 border-r border-slate-100">
+                        <span className="font-mono font-bold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 inline-block">
+                          #{t.ticketNumber}
+                        </span>
+                      </td>
+
+                      {/* Feature Name */}
+                      <td className="p-2.5 border-r border-slate-100">
+                        <div className="font-bold text-slate-900 group-hover:text-blue-700 transition-colors">
+                          {t.featureName}
+                        </div>
+                        {t.testingScenarios && (
+                          <div className="text-[11px] text-slate-500 line-clamp-1 mt-0.5">
+                            {t.testingScenarios}
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Module */}
+                      <td className="p-2.5 border-r border-slate-100 font-medium text-slate-700">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-[11px]">
+                          {t.moduleName}
+                        </span>
+                      </td>
+
+                      {/* Developer */}
+                      <td className="p-2.5 border-r border-slate-100 font-semibold text-slate-800">
+                        {t.developer}
+                      </td>
+
+                      {/* QA Assignee */}
+                      <td className="p-2.5 border-r border-slate-100 text-slate-600">
+                        {t.qaAssignee}
+                      </td>
+
+                      {/* Priority */}
+                      <td className="p-2.5 border-r border-slate-100 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                            t.priority === 'Critical'
+                              ? 'bg-red-100 text-red-800'
+                              : t.priority === 'High'
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {t.priority}
+                        </span>
+                      </td>
+
+                      {/* Status */}
+                      <td className="p-2.5 border-r border-slate-100 text-center">
+                        <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                          {t.status}
+                        </span>
+                      </td>
+
+                      {/* Dev Test Points Count */}
+                      <td className="p-2.5 border-r border-slate-100 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded font-mono font-bold text-xs ${
+                            pointsCount > 0
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
+                        >
+                          {pointsCount} Points
+                        </span>
+                      </td>
+
+                      {/* Action */}
+                      <td
+                        className="p-2 text-center"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="flex items-center justify-center gap-1.5">
+                          <button
+                            onClick={() => handleOpenDevTestingScreen(t)}
+                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                          >
+                            <span>Open</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+
+                          <button
+                            onClick={() => handleQuickAiGenerateForTicket(t)}
+                            title="Generate AI Developer Testing Points for this ticket"
+                            className="p-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded cursor-pointer transition-colors"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {/* NO ITEM EMPTY STATE */}
+                {filteredTickets.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="p-14 text-center bg-slate-50/50">
+                      <div className="flex flex-col items-center justify-center space-y-2.5">
+                        <span className="px-4 py-1 bg-slate-100 text-slate-700 rounded-full font-bold text-xs tracking-wider uppercase border border-slate-200 shadow-2xs">
+                          NO item
+                        </span>
+                        <p className="text-xs text-slate-500 max-w-sm">
+                          No tickets found matching your search or filters. Click &quot;+ Add Ticket&quot; to create a new ticket or generate with AI.
+                        </p>
+                        <button
+                          onClick={() => setIsAddTicketModalOpen(true)}
+                          className="mt-1 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                        >
+                          + Add Ticket
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Add Ticket Modal with Other Option */}
+        {isAddTicketModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-5 space-y-4">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
+                    <Plus className="w-4 h-4" />
+                  </span>
+                  <h2 className="text-base font-bold text-slate-900">Add New Azure DevOps Ticket</h2>
+                </div>
+                <button
+                  onClick={() => setIsAddTicketModalOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateTicketSubmit} className="space-y-3.5 text-xs">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">
+                    Ticket ID / Work Item Number *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. 21655 or TL-B-20-00006"
+                    value={newTicketNumber}
+                    onChange={(e) => setNewTicketNumber(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold">
+                      Feature / Task Name *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAiGenerateTicketModal}
+                      disabled={isAiGeneratingTicket}
+                      className="text-[11px] text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-0.5 rounded font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Sparkles className="w-3 h-3 text-purple-600" />
+                      <span>{isAiGeneratingTicket ? 'Generating...' : '✨ AI Polish & Details'}</span>
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Penalty interest computation for Cash Credit"
+                    value={newFeatureName}
+                    onChange={(e) => setNewFeatureName(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Module *</label>
+                    <select
+                      value={newModuleId}
+                      onChange={(e) => {
+                        setNewModuleId(e.target.value);
+                        if (e.target.value !== 'other') {
+                          setCustomModuleName('');
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      {modules.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                      <option value="other">➕ Other (Custom Module)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Priority</label>
+                    <select
+                      value={newPriority}
+                      onChange={(e) => setNewPriority(e.target.value as any)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value="Critical">Critical</option>
+                      <option value="High">High</option>
+                      <option value="Medium">Medium</option>
+                      <option value="Low">Low</option>
+                    </select>
+                  </div>
+
+                  {newModuleId === 'other' && (
+                    <div className="col-span-2 bg-blue-50/60 p-2.5 rounded-lg border border-blue-200 animate-fadeIn">
+                      <label className="block text-slate-800 font-bold mb-1 text-[11px]">
+                        Specify Custom Module Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Collateral Management, Payment Gateway, Risk..."
+                        value={customModuleName}
+                        onChange={(e) => setCustomModuleName(e.target.value)}
+                        className="w-full px-2.5 py-1.5 bg-white border border-blue-400 rounded text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">Developer</label>
+                    <input
+                      type="text"
+                      value={newDeveloper}
+                      onChange={(e) => setNewDeveloper(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-slate-700 font-bold mb-1">QA Assignee</label>
+                    <input
+                      type="text"
+                      value={newQaAssignee}
+                      onChange={(e) => setNewQaAssignee(e.target.value)}
+                      className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">
+                    Testing Scenarios / Acceptance Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Enter testing scenarios, acceptance rules, or use AI Polish above..."
+                    value={newScenarioDetails}
+                    onChange={(e) => setNewScenarioDetails(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddTicketModalOpen(false)}
+                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer"
+                  >
+                    Create &amp; Open Ticket
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
+  // ==========================================
+  // VIEW 2: DEVELOPER TESTING DETAIL SCREEN
+  // ==========================================
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-5">
+    <div className="p-6 max-w-[1600px] mx-auto space-y-5 animate-fadeIn">
+      {/* Hub Back Breadcrumb */}
+      <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
+        <button
+          onClick={() => setHubMode('tickets-table')}
+          className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          <span>← Back to Tickets List</span>
+        </button>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span>Viewing Developer Testing for:</span>
+          <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+            Ticket #{header.ticketNo}
+          </span>
+          <span className="font-semibold text-slate-800">{header.featureName}</span>
+        </div>
+      </div>
+
       {/* Header Bar */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
         <div className="flex items-center gap-3">
@@ -496,7 +1177,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
             className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
-            <span>{isFetchingFromAdo ? 'Fetching Ticket...' : 'Generate from Ticket'}</span>
+            <span>{isFetchingFromAdo ? 'Fetching Ticket...' : '✨ AI Generate from Ticket'}</span>
           </button>
 
           <button
@@ -522,6 +1203,15 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
             <Download className="w-3.5 h-3.5" />
             <span>Export Excel</span>
           </button>
+
+          <button
+            onClick={() => setIsAdoModalOpen(true)}
+            title="Attach Developer Testing directly to Azure DevOps Work Item"
+            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+          >
+            <UploadCloud className="w-3.5 h-3.5 text-blue-200" />
+            <span>🚀 Azure DevOps</span>
+          </button>
         </div>
       </div>
 
@@ -543,10 +1233,24 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
       {/* COMMON MODULE HEADER */}
       <CommonHeader
+        mode="developer"
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
+        developerName={header.developer || currentTicket?.developer || 'Kunal Joshi'}
         description={header.description || currentTicket?.description || ''}
         testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}
+        attachedDocs={header.attachedDocs || []}
+        onUpdateAttachedDocs={(docs) => {
+          const next = { ...header, attachedDocs: docs };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        screenFields={header.screenFields || []}
+        onUpdateScreenFields={(fields) => {
+          const next = { ...header, screenFields: fields };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
         onSelectTicket={handleTicketChange}
         onChangeDescription={(val) => {
           const next = { ...header, description: val };
@@ -558,8 +1262,38 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           setHeader(next);
           saveStateToStore(items, next);
         }}
-        showGenerateButton={false}
+        onGenerateAi={handleAiGenerateMultiScenarios}
+        isGenerating={isGeneratingAiScenarios}
+        generateButtonText="✨ AI Auto-Generate Scenarios into Table"
+        showGenerateButton={true}
       />
+
+      {/* Quick Single Point Generator Bar */}
+      <div className="bg-indigo-50/60 border border-indigo-200 p-3.5 rounded-xl flex flex-col md:flex-row items-center gap-3">
+        <div className="flex-1 w-full">
+          <label className="block text-[11px] font-bold text-indigo-900 uppercase tracking-wide mb-1">
+            Quick generate expected result: Enter a testing point
+          </label>
+          <input
+            type="text"
+            placeholder="e.g. Verify that changing the Index Rate updates the Effective Rate..."
+            value={singlePointInput}
+            onChange={(e) => setSinglePointInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleAiGenerateSinglePoint();
+            }}
+            className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+        <button
+          onClick={handleAiGenerateSinglePoint}
+          disabled={isGeneratingAiPoint}
+          className="w-full md:w-auto mt-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>{isGeneratingAiPoint ? 'Generating...' : '✨ Generate Expected Result'}</span>
+        </button>
+      </div>
 
       {/* DEVELOPER TESTING TABLE */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
@@ -615,7 +1349,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
                 <th className="p-2.5 w-64 border-r border-slate-700 font-semibold">Evidence (Screenshots)</th>
 
-                <th className="p-2.5 w-20 text-center font-semibold">Action</th>
+                <th className="p-2.5 w-24 text-center font-semibold">Action</th>
               </tr>
             </thead>
 
@@ -688,6 +1422,13 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button
+                        onClick={() => handleDuplicateRow(item.id)}
+                        title="Duplicate row"
+                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => handleDeleteRow(item.id)}
                         title="Delete testing row"
                         className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
@@ -698,6 +1439,29 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   </td>
                 </tr>
               ))}
+
+              {/* NO ITEM EMPTY STATE IN TABLE */}
+              {filteredItems.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="p-12 text-center bg-slate-50/50">
+                    <div className="flex flex-col items-center justify-center space-y-2.5">
+                      <span className="px-4 py-1 bg-slate-100 text-slate-700 rounded-full font-bold text-xs tracking-wider uppercase border border-slate-200 shadow-2xs">
+                        NO item
+                      </span>
+                      <p className="text-xs text-slate-500 max-w-sm">
+                        No developer testing points found for Ticket #{header.ticketNo}. Generate test points instantly using AI or add testing rows manually.
+                      </p>
+                      <button
+                        onClick={handleGenerateFromAzureDevOpsTicket}
+                        className="mt-1 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>✨ AI Auto-Generate Dev Points for #{header.ticketNo}</span>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -718,6 +1482,20 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Azure DevOps Modal */}
+      <AzureDevopsModal
+        isOpen={isAdoModalOpen}
+        onClose={() => setIsAdoModalOpen(false)}
+        ticketNumber={header.ticketNo}
+        taskName={header.featureName}
+        getFileBlob={() => getDeveloperTestingExcelBlob(header, items)}
+        defaultComment={`Developer Testing points for "${header.featureName}" (Ticket #${header.ticketNo}) executed by ${header.developer}. Total points: ${items.length}.`}
+        onSuccessNotice={(msg) => {
+          setNotification(msg);
+          setTimeout(() => setNotification(null), 5000);
+        }}
+      />
     </div>
   );
 };

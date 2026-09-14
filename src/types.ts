@@ -108,6 +108,17 @@ export interface TestCaseRevision {
   createdAt: string;
 }
 
+export interface AttachedDocOrImage {
+  id: string;
+  name: string;
+  type: 'image' | 'excel' | 'word' | 'pdf' | 'text' | 'other';
+  url?: string;
+  size?: string;
+  uploadedAt?: string;
+  detectedFields?: string[];
+  extractedContent?: string;
+}
+
 export interface TestCaseHeaderMeta {
   ticketNo: string;
   clientName: string;
@@ -115,6 +126,7 @@ export interface TestCaseHeaderMeta {
   taskName: string;
   taskDoneBy: string; // Assigned QA / Submitted By
   signOffBy: string; // Senior QA / Submitted To
+  developer?: string;
   description?: string;
   testingScenarios?: string;
   reviewStatus?: TestCaseReviewStatus;
@@ -125,11 +137,17 @@ export interface TestCaseHeaderMeta {
   approvedBy?: string;
   approvedAt?: string;
   approvedVersion?: string;
+  reviewDoneBy?: string;
+  reviewDoneAt?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
   comments?: ReviewComment[];
   isEditingByQA?: boolean;
   isBeingReviewed?: boolean;
   revisionsHistory?: TestCaseRevision[];
   aiCoverageReport?: AiCoverageReport | null;
+  attachedDocs?: AttachedDocOrImage[];
+  screenFields?: string[];
 }
 
 export interface AiCoverageReport {
@@ -152,6 +170,7 @@ export interface TestCaseItem {
   testModule: string;
   featureTab: string;
   testScenario: string;
+  preconditions?: string;
   testCases: string;
   testInputs: string;
   expectedResult: string;
@@ -214,6 +233,8 @@ export interface DeveloperTestHeaderMeta {
   status?: 'Draft' | 'Submitted';
   submittedAt?: string;
   submittedBy?: string;
+  attachedDocs?: AttachedDocOrImage[];
+  screenFields?: string[];
 }
 
 export interface DeveloperTestItem {

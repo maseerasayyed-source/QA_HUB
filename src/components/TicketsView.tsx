@@ -1,9 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info } from 'lucide-react';
+import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2 } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { fetchWorkItemFromAzure, loadSavedAdoConfig, saveAdoConfig } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
+import { generateTicketDetailsWithAi } from '../utils/aiGenerator';
 
 interface TicketsViewProps {
   tickets: TicketSummary[];
@@ -37,9 +38,11 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newTicketId, setNewTicketId] = useState('');
   const [newFeatureName, setNewFeatureName] = useState('');
   const [newModuleId, setNewModuleId] = useState(modules[0]?.id || 'mod-1');
+  const [customModuleName, setCustomModuleName] = useState('');
   const [newDeveloper, setNewDeveloper] = useState('Kunal Joshi');
   const [newQaAssignee, setNewQaAssignee] = useState('Maseera Sayyed');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
+  const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState(false);
 
   // Azure DevOps Config & Fetch state
   const [adoOrg, setAdoOrg] = useState('quantumphinance');
@@ -164,6 +167,20 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     });
   }, [roleFilteredTickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
 
+  const handleAiGenerateTicketDetails = async () => {
+    if (!newFeatureName.trim()) {
+      alert('Please enter at least a partial Feature / Task Name first to generate AI details.');
+      return;
+    }
+    setIsAiGeneratingTicket(true);
+    const modName = newModuleId === 'other' ? (customModuleName || 'Other') : (modules.find(m => m.id === newModuleId)?.name || 'General');
+    const aiDetails = await generateTicketDetailsWithAi(newFeatureName, modName);
+    setIsAiGeneratingTicket(false);
+
+    if (aiDetails.suggestedTitle) setNewFeatureName(aiDetails.suggestedTitle);
+    if (aiDetails.priority) setNewPriority(aiDetails.priority);
+  };
+
   const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTicketId.trim() || !newFeatureName.trim()) {
@@ -171,13 +188,23 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       return;
     }
 
-    const mod = modules.find((m) => m.id === newModuleId) || modules[0];
+    let finalModuleId = newModuleId;
+    let finalModuleName = '';
+    if (newModuleId === 'other') {
+      finalModuleName = customModuleName.trim() || 'Other';
+      finalModuleId = `mod-custom-${Date.now()}`;
+    } else {
+      const mod = modules.find((m) => m.id === newModuleId) || modules[0];
+      finalModuleId = mod?.id || 'mod-1';
+      finalModuleName = mod?.name || 'General';
+    }
+
     const ticketToAdd: TicketSummary = {
       id: `t-${Date.now()}`,
       ticketNumber: newTicketId.trim(),
       featureName: newFeatureName.trim(),
-      moduleId: mod.id,
-      moduleName: mod.name,
+      moduleId: finalModuleId,
+      moduleName: finalModuleName,
       developer: newDeveloper.trim() || 'Kunal Joshi',
       qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
       signOffBy: 'Ashwini Poke',
@@ -191,15 +218,17 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       blockedCount: 0,
       observationsCount: 0,
       receivedDate: new Date().toISOString().split('T')[0],
-      description: `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${mod.name} module.`,
+      description: `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${finalModuleName} module.`,
       scenarioDetails: `Scenario 1: Verify core functionality of ${newFeatureName.trim()}.\nScenario 2: Boundary validation and invalid state checks.`,
-      impactPoints: [`${mod.name} Core Engine`, 'Financial Ledger & Reports'],
+      impactPoints: [`${finalModuleName} Core Engine`, 'Financial Ledger & Reports'],
+      testingScenarios: `Verify end-to-end user workflows for ${newFeatureName.trim()}.\nVerify input edge-cases and error validations.`,
     };
 
     onAddTicket?.(ticketToAdd);
     setIsNewTicketOpen(false);
     setNewTicketId('');
     setNewFeatureName('');
+    setCustomModuleName('');
   };
 
   return (
@@ -413,6 +442,21 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                   </td>
                 </tr>
               ))}
+
+              {filteredTickets.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="p-12 text-center bg-slate-50/40">
+                    <div className="flex flex-col items-center justify-center space-y-2">
+                      <span className="px-3.5 py-1 bg-slate-100 text-slate-700 rounded-full font-bold text-xs tracking-wider uppercase border border-slate-200">
+                        NO item
+                      </span>
+                      <p className="text-xs text-slate-500 max-w-sm">
+                        No tickets found matching your search or filters. Click &quot;+ Add Azure Ticket&quot; to create one.
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -554,9 +598,20 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
               </div>
 
               <div>
-                <label className="block text-slate-700 font-bold mb-1">
-                  Feature / Task Name
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-700 font-bold">
+                    Feature / Task Name
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleAiGenerateTicketDetails}
+                    disabled={isAiGeneratingTicket}
+                    className="text-[11px] text-purple-700 hover:text-purple-900 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-0.5 rounded font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Sparkles className="w-3 h-3 text-purple-600 animate-spin-slow" />
+                    <span>{isAiGeneratingTicket ? 'AI Generating...' : '✨ AI Polish & Details'}</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   required
@@ -572,7 +627,12 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                   <label className="block text-slate-700 font-bold mb-1">Module</label>
                   <select
                     value={newModuleId}
-                    onChange={(e) => setNewModuleId(e.target.value)}
+                    onChange={(e) => {
+                      setNewModuleId(e.target.value);
+                      if (e.target.value !== 'other') {
+                        setCustomModuleName('');
+                      }
+                    }}
                     className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                   >
                     {modules.map((m) => (
@@ -580,6 +640,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                         {m.name}
                       </option>
                     ))}
+                    <option value="other">➕ Other (Custom Module)</option>
                   </select>
                 </div>
 
@@ -596,6 +657,22 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                     <option value="Low">Low</option>
                   </select>
                 </div>
+
+                {newModuleId === 'other' && (
+                  <div className="col-span-2 bg-blue-50/60 p-2.5 rounded-lg border border-blue-200 animate-fadeIn">
+                    <label className="block text-slate-800 font-bold mb-1 text-[11px]">
+                      Specify Custom Module Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Collateral Management, Payment Gateway, Risk..."
+                      value={customModuleName}
+                      onChange={(e) => setCustomModuleName(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-blue-400 rounded text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
