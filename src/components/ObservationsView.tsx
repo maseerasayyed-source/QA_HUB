@@ -228,18 +228,19 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
     setIsAiGenerating(true);
     setTimeout(() => {
       const rawScenarios = generateScenariosFromInputsAndFiles({
+        ticket: currentTicket,
         description: opts.description || header.ticketName,
         testingScenarios: opts.testingScenarios,
         attachedDocs: opts.attachedDocs,
         screenFields: opts.screenFields,
-        moduleName: currentTicket?.moduleName || 'Treasury Master',
-        ticketNumber: selectedTicketNo,
+        targetMode: 'qa',
+        existingItems: observations.map((o) => ({ testScenario: o.observationRFE })),
       });
 
       const newItems: ObservationItem[] = [];
       let skippedCount = 0;
 
-      rawScenarios.forEach((sc, idx) => {
+      rawScenarios.newItems.forEach((sc, idx) => {
         const fullScenarioText = `${sc.testScenario} - ${sc.testCases}`;
 
         // Strict duplicate prevention against existing observations in the table
