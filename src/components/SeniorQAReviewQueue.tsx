@@ -31,7 +31,7 @@ import {
   DetailedAiQaReviewResult,
   checkIsDuplicate,
 } from '../utils/aiGenerator';
-import { parseUploadedDocOrImage } from '../utils/fileParser';
+import { parseUploadedFile } from '../utils/fileParser';
 import { CommonHeader } from './common/CommonHeader';
 import { polishObservationText } from '../utils/textPolisher';
 import {
@@ -295,11 +295,11 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   const handleReviewFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     setIsParsingReviewFiles(true);
-    const files = Array.from(e.target.files);
+    const files = Array.from(e.target.files) as File[];
     const parsedList: AttachedDocOrImage[] = [];
     for (const f of files) {
       try {
-        const parsed = await parseUploadedDocOrImage(f);
+        const parsed = await parseUploadedFile(f);
         parsedList.push(parsed);
       } catch (err) {
         console.error('File parsing error:', err);
@@ -329,13 +329,12 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
       ];
       const combinedFields = activeItem.header.screenFields || [];
 
-      const result = reviewTestCasesComprehensive({
-        ticket: activeItem.ticket,
-        testCases: activeItem.testCases,
-        attachedFiles: combinedDocs,
-        reviewerNotes: reviewerPoints,
-        screenFields: combinedFields,
-      });
+      const result = reviewTestCasesComprehensive(
+        activeItem.testCases,
+        activeItem.ticket,
+        combinedDocs[0]?.name,
+        currentUser?.name || 'Senior QA'
+      );
 
       setComprehensiveReviewResult(result);
       setIsReviewingWithAi(false);
