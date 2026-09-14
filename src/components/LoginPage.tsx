@@ -12,8 +12,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   requestedTargetTabLabel = 'QA Hub Workspace',
   onLoginSuccess,
 }) => {
-  const [fullName, setFullName] = useState<string>('Maseera Sayyed');
-  const [officialEmail, setOfficialEmail] = useState<string>('maseerasayyed@quantumphinance.com');
+  const [fullName, setFullName] = useState<string>('');
+  const [officialEmail, setOfficialEmail] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Validate Full Name: Only alphabets and spaces
@@ -156,7 +156,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Field 2: Official Email ID */}
           <div className="space-y-1">
-            <label className="block font-bold text-slate-700">
+            <label className="block font-bold text-slate-700" title="Format: name@quantumphinance.com">
               Official Email ID <span className="text-red-500">*</span>
             </label>
             <input
@@ -166,10 +166,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 setOfficialEmail(e.target.value);
                 if (errorMessage) setErrorMessage(null);
               }}
-              placeholder="e.g. maseerasayyed@quantumphinance.com"
+              placeholder="name@quantumphinance.com"
+              title="Format: name@quantumphinance.com"
               className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900 font-mono"
             />
-            <p className="text-[10px] text-slate-400">Must end with @quantumphinance.com (e.g. name@quantumphinance.com).</p>
+            <p className="text-[10px] text-slate-400" title="Format: name@quantumphinance.com">
+              Must end with @quantumphinance.com (e.g. name@quantumphinance.com)
+            </p>
           </div>
 
           {/* Note: NO Password field per requirement */}
@@ -181,54 +184,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <span>Authenticate &amp; Open {requestedTargetTabLabel}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
-
-          {/* Quick Select Preset Registered Official Users */}
-          <div className="pt-4 border-t border-slate-100 space-y-2">
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-              Quick Select Registered Official Users:
-            </label>
-
-            <div className="grid grid-cols-1 gap-1.5">
-              {REGISTERED_USERS.map((u) => (
-                <button
-                  type="button"
-                  key={u.email}
-                  onClick={() => handleQuickSelectUser(u)}
-                  className="w-full p-2.5 bg-slate-50 hover:bg-blue-50/70 border border-slate-200 hover:border-blue-400 rounded-xl flex items-center justify-between text-left transition-all cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <div
-                      className={`w-7 h-7 rounded-lg flex items-center justify-center font-bold text-white text-[11px] ${
-                        u.role === 'Super Admin'
-                          ? 'bg-purple-600'
-                          : u.role === 'Senior QA' || u.role === 'Admin'
-                          ? 'bg-emerald-600'
-                          : 'bg-blue-600'
-                      }`}
-                    >
-                      {u.name.slice(0, 2).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="font-bold text-slate-900 text-xs">{u.name}</div>
-                      <div className="text-[10px] text-slate-500 font-mono">{u.email}</div>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
-                      u.role === 'Super Admin'
-                        ? 'bg-purple-100 text-purple-800'
-                        : u.role === 'Senior QA' || u.role === 'Admin'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-blue-100 text-blue-800'
-                    }`}
-                  >
-                    {u.role}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
         </form>
 
         {/* Footer */}
