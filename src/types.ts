@@ -3,6 +3,7 @@ export type NavTab =
   | 'tickets'
   | 'ai-test-hub'
   | 'test-cases'
+  | 'review-queue'
   | 'observations'
   | 'developer-testing'
   | 'modules'
@@ -69,6 +70,32 @@ export interface TicketSummary {
   description?: string;
   scenarioDetails?: string;
   impactPoints?: string[];
+  solution?: string;
+  acceptanceCriteria?: string;
+  dealId?: string;
+}
+
+export type TestCaseReviewStatus = 'Draft' | 'Review Pending' | 'In Review' | 'Changes Required' | 'Approved';
+
+export interface ReviewComment {
+  id: string;
+  author: string;
+  authorEmail: string;
+  role: string;
+  text: string;
+  createdAt: string;
+}
+
+export interface TestCaseRevision {
+  id: string;
+  version: string; // e.g. "1.0", "1.1"
+  status: TestCaseReviewStatus;
+  testCases: TestCaseItem[];
+  approvedBy?: string;
+  approvedAt?: string;
+  approvedVersion?: string;
+  comments?: ReviewComment[];
+  createdAt: string;
 }
 
 export interface TestCaseHeaderMeta {
@@ -76,8 +103,17 @@ export interface TestCaseHeaderMeta {
   clientName: string;
   sha: string;
   taskName: string;
-  taskDoneBy: string;
-  signOffBy: string;
+  taskDoneBy: string; // Assigned QA
+  signOffBy: string; // Senior QA
+  reviewStatus?: TestCaseReviewStatus;
+  version?: string; // e.g. "1.0", "1.1"
+  approvedBy?: string;
+  approvedAt?: string;
+  approvedVersion?: string;
+  comments?: ReviewComment[];
+  isEditingByQA?: boolean;
+  isBeingReviewed?: boolean;
+  revisionsHistory?: TestCaseRevision[];
 }
 
 export interface TestCaseItem {
@@ -90,7 +126,11 @@ export interface TestCaseItem {
   testInputs: string;
   expectedResult: string;
   actualResult: string;
-  status: 'pass' | 'fail' | 'blocked' | 'not run';
+  status: 'pass' | 'fail' | 'blocked' | 'not run'; // Execution status
+  reviewStatus?: TestCaseReviewStatus;
+  version?: string;
+  validationScenario?: string;
+  additionalCoverage?: string;
   screenshot1?: string;
   attachments?: FileAttachment[];
   isAiGenerated?: boolean;
@@ -135,17 +175,60 @@ export interface DeveloperTestHeaderMeta {
   devTestDate: string;
   signOffBy?: string;
   shaCommit?: string;
+  dealId?: string;
+  status?: 'Draft' | 'Submitted';
+  submittedAt?: string;
+  submittedBy?: string;
 }
 
 export interface DeveloperTestItem {
   id: string;
   scenarioId: string;
+  dealId?: string;
+  developerName?: string;
+  testingPoint?: string;
   scenario: string;
   testDescription: string;
   testData: string;
   expectedResult: string;
   actualResult: string;
   status: 'Passed' | 'Failed' | 'In Progress' | 'Passed with Limitations';
+  submissionState?: 'Draft' | 'Submitted';
+  submittedAt?: string;
+  submittedBy?: string;
   attachments?: FileAttachment[];
+  screenshotName?: string;
+  screenshotUrl?: string;
   remarks: string;
+  isAiGenerated?: boolean;
+}
+
+export interface AiReviewIssue {
+  id: string;
+  testCaseId?: string;
+  type:
+    | 'Requirement Coverage'
+    | 'Positive Scenario'
+    | 'Negative Scenario'
+    | 'Validation'
+    | 'Boundary / Edge Case'
+    | 'Business Logic'
+    | 'Expected Result Clarity'
+    | 'Duplicate'
+    | 'Missing Scenario'
+    | 'UI / Functional Impact'
+    | 'Bulk Impact'
+    | 'Existing Functionality Impact';
+  title: string;
+  suggestion: string;
+}
+
+export interface AiReviewSummary {
+  ticketId: string;
+  totalReviewed: number;
+  goodCount: number;
+  duplicateCount: number;
+  missingValidationCount: number;
+  issues: AiReviewIssue[];
+  reviewedAt: string;
 }

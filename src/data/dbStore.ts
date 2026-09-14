@@ -1,4 +1,4 @@
-import { UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem } from '../types';
+import { UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem, DeveloperTestItem, DeveloperTestHeaderMeta } from '../types';
 import {
   INITIAL_USER,
   INITIAL_MODULES,
@@ -14,13 +14,16 @@ const STORAGE_KEYS = {
   TICKETS: 'qa_hub_tickets',
   MODULES: 'qa_hub_modules',
   TEST_CASES_MAP: 'qa_hub_test_cases_map',
+  TEST_CASE_HEADERS_MAP: 'qa_hub_test_case_headers_map',
   OBSERVATIONS_MAP: 'qa_hub_observations_map',
+  DEV_TESTING_MAP: 'qa_hub_dev_testing_map',
+  DEV_TESTING_HEADERS_MAP: 'qa_hub_dev_testing_headers_map',
 };
 
 // Registered Users & Roles according to user requirements:
 // Maseera -> Super Admin
-// Ashwini -> Admin
-// Others -> User
+// Ashwini -> Admin (or Senior QA)
+// Others -> User (QA or Developer)
 export const REGISTERED_USERS: UserProfile[] = [
   {
     name: 'Maseera Sayyed',
@@ -33,7 +36,7 @@ export const REGISTERED_USERS: UserProfile[] = [
   {
     name: 'Ashwini Poke',
     email: 'ashwinipoke@quantumphinance.com',
-    role: 'Admin',
+    role: 'Senior QA',
     department: 'Quality Assurance Management',
     status: 'Active',
     joiningDate: '2025-01-10',
@@ -59,14 +62,14 @@ export const REGISTERED_USERS: UserProfile[] = [
 /**
  * Determine Role based on official email ID:
  * - Maseera -> Super Admin
- * - Ashwini -> Admin
+ * - Ashwini -> Senior QA
  * - Others -> User (or QA / Developer)
  */
 export function getRoleByEmail(email: string): UserProfile['role'] {
   const norm = email.toLowerCase().trim();
   if (norm.includes('maseera')) return 'Super Admin';
-  if (norm.includes('ashwini')) return 'Admin';
-  return 'User';
+  if (norm.includes('ashwini')) return 'Senior QA';
+  return 'QA';
 }
 
 /**
@@ -137,6 +140,22 @@ export function loadInitialData() {
     console.error('Failed to parse test cases map from localStorage', e);
   }
 
+  // Load Test Case Headers Map (keyed by Ticket Number)
+  let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {};
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          testCaseHeadersMap = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse test case headers map from localStorage', e);
+  }
+
   // Load Observations Map (keyed by Ticket Number)
   let observationsMap: Record<string, ObservationItem[]> = {};
   try {
@@ -153,7 +172,48 @@ export function loadInitialData() {
     console.error('Failed to parse observations map from localStorage', e);
   }
 
-  return { user, modules, tickets, testCasesMap, observationsMap };
+  // Load Developer Testing Map (keyed by Ticket Number / Deal ID)
+  let devTestingMap: Record<string, DeveloperTestItem[]> = {};
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_MAP);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          devTestingMap = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse dev testing map from localStorage', e);
+  }
+
+  // Load Developer Testing Headers Map (keyed by Ticket Number)
+  let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {};
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          devTestingHeadersMap = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse dev testing headers map from localStorage', e);
+  }
+
+  return {
+    user,
+    modules,
+    tickets,
+    testCasesMap,
+    testCaseHeadersMap,
+    observationsMap,
+    devTestingMap,
+    devTestingHeadersMap,
+  };
 }
 
 /**
@@ -202,7 +262,7 @@ export function syncTicketCounts(
       passedCount,
       failedCount,
       blockedCount,
-      observationsCount: pendingObsCount, // exact pending observations count
+      observationsCount: pendingObsCount,
     };
   });
 }
@@ -219,14 +279,17 @@ export function saveUserSession(user: UserProfile) {
 }
 
 /**
- * Clears all sample tickets, test cases, and observations for actual model testing
+ * Clears all sample tickets, test cases, observations, and developer testing logs
  */
 export function clearSampleData() {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       localStorage.removeItem(STORAGE_KEYS.TICKETS);
       localStorage.removeItem(STORAGE_KEYS.TEST_CASES_MAP);
+      localStorage.removeItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
       localStorage.removeItem(STORAGE_KEYS.OBSERVATIONS_MAP);
+      localStorage.removeItem(STORAGE_KEYS.DEV_TESTING_MAP);
+      localStorage.removeItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
     }
   } catch (e) {
     console.error('Failed to clear sample data from localStorage', e);
@@ -234,7 +297,10 @@ export function clearSampleData() {
   return {
     tickets: [] as TicketSummary[],
     testCasesMap: {} as Record<string, TestCaseItem[]>,
+    testCaseHeadersMap: {} as Record<string, TestCaseHeaderMeta>,
     observationsMap: {} as Record<string, ObservationItem[]>,
+    devTestingMap: {} as Record<string, DeveloperTestItem[]>,
+    devTestingHeadersMap: {} as Record<string, DeveloperTestHeaderMeta>,
   };
 }
 
@@ -261,11 +327,44 @@ export function saveTestCasesMapToStorage(map: Record<string, TestCaseItem[]>) {
 }
 
 /**
+ * Save test case headers map to localStorage
+ */
+export function saveTestCaseHeadersMapToStorage(map: Record<string, TestCaseHeaderMeta>) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP, JSON.stringify(map));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
  * Save observations map to localStorage
  */
 export function saveObservationsMapToStorage(map: Record<string, ObservationItem[]>) {
   try {
     localStorage.setItem(STORAGE_KEYS.OBSERVATIONS_MAP, JSON.stringify(map));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
+ * Save developer testing map to localStorage
+ */
+export function saveDevTestingMapToStorage(map: Record<string, DeveloperTestItem[]>) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.DEV_TESTING_MAP, JSON.stringify(map));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
+ * Save developer testing headers map to localStorage
+ */
+export function saveDevTestingHeadersMapToStorage(map: Record<string, DeveloperTestHeaderMeta>) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP, JSON.stringify(map));
   } catch (e) {
     console.error(e);
   }
