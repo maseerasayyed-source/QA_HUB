@@ -14,6 +14,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 }) => {
   const [fullName, setFullName] = useState<string>('');
   const [officialEmail, setOfficialEmail] = useState<string>('');
+  const [selectedRole, setSelectedRole] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Validate Full Name: Only alphabets and spaces
@@ -74,38 +75,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    // Match registered user or create user profile
-    const matched = REGISTERED_USERS.find((u) => u.email.toLowerCase() === emailTrimmed);
-    let userProfile: UserProfile;
-
-    if (matched) {
-      userProfile = {
-        ...matched,
-        name: nameTrimmed, // preserve validated user name
-      };
-    } else {
-      const derivedRole = getRoleByEmail(emailTrimmed);
-      userProfile = {
-        name: nameTrimmed,
-        email: emailTrimmed,
-        role: derivedRole,
-        department: 'Quality Assurance',
-        status: 'Active',
-        joiningDate: new Date().toISOString().split('T')[0],
-      };
+    // 3. Validate Mandatory Role Selection
+    if (!selectedRole) {
+      setErrorMessage('Please select a mandatory Role before logging in.');
+      return;
     }
 
+    const userProfile: UserProfile = {
+      name: nameTrimmed,
+      email: emailTrimmed,
+      role: selectedRole,
+      department: selectedRole === 'QA' ? 'Quality Assurance' : selectedRole,
+      status: 'Active',
+      joiningDate: new Date().toISOString().split('T')[0],
+    };
+
     onLoginSuccess(userProfile);
-  };
-
-  // Quick Select Preset User
-  const handleQuickSelectUser = (user: UserProfile) => {
-    setFullName(user.name);
-    setOfficialEmail(user.email);
-    setErrorMessage(null);
-
-    // Perform login directly
-    onLoginSuccess(user);
   };
 
   return (
@@ -173,6 +158,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             <p className="text-[10px] text-slate-400" title="Format: name@quantumphinance.com">
               Must end with @quantumphinance.com (e.g. name@quantumphinance.com)
             </p>
+          </div>
+
+          {/* Field 3: Mandatory Role Selection */}
+          <div className="space-y-1">
+            <label className="block font-bold text-slate-700">
+              Role <span className="text-red-500">*</span>
+            </label>
+            <select
+              value={selectedRole}
+              onChange={(e) => {
+                setSelectedRole(e.target.value);
+                if (errorMessage) setErrorMessage(null);
+              }}
+              className="w-full px-3.5 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900 cursor-pointer"
+            >
+              <option value="">-- Select Mandatory Role --</option>
+              <option value="QA">QA</option>
+              <option value="BA">BA</option>
+              <option value="Developer">Developer</option>
+              <option value="Product Team">Product Team</option>
+            </select>
+            <p className="text-[10px] text-slate-400">Selecting a role is compulsory before proceeding.</p>
           </div>
 
           {/* Note: NO Password field per requirement */}
