@@ -1,4 +1,4 @@
-import { UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem, DeveloperTestItem, DeveloperTestHeaderMeta } from '../types';
+import { UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem, DeveloperTestItem, DeveloperTestHeaderMeta, AppSettings } from '../types';
 import {
   INITIAL_USER,
   INITIAL_MODULES,
@@ -18,6 +18,12 @@ const STORAGE_KEYS = {
   OBSERVATIONS_MAP: 'qa_hub_observations_map',
   DEV_TESTING_MAP: 'qa_hub_dev_testing_map',
   DEV_TESTING_HEADERS_MAP: 'qa_hub_dev_testing_headers_map',
+  APP_SETTINGS: 'qa_hub_app_settings',
+};
+
+export const DEFAULT_SETTINGS: AppSettings = {
+  theme: 'Default',
+  font: 'Inter',
 };
 
 // Registered Users & Roles according to user requirements:
@@ -204,6 +210,22 @@ export function loadInitialData() {
     console.error('Failed to parse dev testing headers map from localStorage', e);
   }
 
+  // Load App Settings
+  let settings: AppSettings = DEFAULT_SETTINGS;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.APP_SETTINGS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed === 'object') {
+          settings = { ...DEFAULT_SETTINGS, ...parsed };
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse app settings from localStorage', e);
+  }
+
   return {
     user,
     modules,
@@ -213,7 +235,16 @@ export function loadInitialData() {
     observationsMap,
     devTestingMap,
     devTestingHeadersMap,
+    settings,
   };
+}
+
+export function saveAppSettingsToStorage(settings: AppSettings) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.APP_SETTINGS, JSON.stringify(settings));
+  } catch (e) {
+    console.error(e);
+  }
 }
 
 /**
@@ -224,7 +255,7 @@ export function getPendingObservationsCount(
   observationsMap: Record<string, ObservationItem[]>
 ): number {
   const items = observationsMap[ticketNumber] || [];
-  return items.filter((obs) => obs.status === 'Pending').length;
+  return items.filter((obs) => obs.status === 'Open' || obs.status === 'In Progress' || (obs as any).status === 'Pending').length;
 }
 
 /**
@@ -254,7 +285,7 @@ export function syncTicketCounts(
     const passedCount = cases.filter((c) => c.status === 'pass').length;
     const failedCount = cases.filter((c) => c.status === 'fail').length;
     const blockedCount = cases.filter((c) => c.status === 'blocked').length;
-    const pendingObsCount = obs.filter((o) => o.status === 'Pending').length;
+    const pendingObsCount = obs.filter((o) => o.status === 'Open' || o.status === 'In Progress' || (o as any).status === 'Pending').length;
 
     return {
       ...t,

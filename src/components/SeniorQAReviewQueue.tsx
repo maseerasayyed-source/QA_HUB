@@ -24,11 +24,15 @@ import {
   TestCaseReviewStatus,
 } from '../types';
 import { aiReviewTestCases } from '../utils/aiGenerator';
+import { CommonHeader } from './common/CommonHeader';
+import { polishObservationText } from '../utils/textPolisher';
+import { DeveloperTestItem } from '../types';
 
 interface SeniorQAReviewQueueProps {
   tickets: TicketSummary[];
   testCasesMap: Record<string, TestCaseItem[]>;
   testCaseHeadersMap: Record<string, TestCaseHeaderMeta>;
+  devTestingMap?: Record<string, DeveloperTestItem[]>;
   currentUser?: UserProfile;
   onUpdateHeader?: (ticketNo: string, header: TestCaseHeaderMeta) => void;
   onUpdateTestCases?: (ticketNo: string, cases: TestCaseItem[]) => void;
@@ -46,6 +50,19 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
 }) => {
   // Active reviewing ticket ID
   const [selectedTicketNo, setSelectedTicketNo] = useState<string | null>(null);
+
+  // Reviewer Testing Points
+  const [reviewerPoints, setReviewerPoints] = useState<string>('');
+  const [aiCoverageReport, setAiCoverageReport] = useState<{
+    covered: string[];
+    missing: string[];
+    partiallyCovered: string[];
+    duplicates: string[];
+    missingPositive: string[];
+    missingNegativeValidation: string[];
+    missingEdgeCases: string[];
+    mismatches: string[];
+  } | null>(null);
 
   // New Comment Input
   const [commentText, setCommentText] = useState<string>('');
@@ -101,11 +118,79 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
     return queueItems.find((q) => q.ticket.ticketNumber.toLowerCase() === selectedTicketNo.toLowerCase()) || null;
   }, [queueItems, selectedTicketNo]);
 
-  // AI Review Summary for Active Item
-  const aiSummary = useMemo(() => {
-    if (!activeItem) return null;
-    return aiReviewTestCases(activeItem.testCases, activeItem.ticket);
-  }, [activeItem]);
+  // AI Coverage Check Action
+  const handleRunAiCoverageCheck = () => {
+    if (!activeItem) return;
+    const cases = activeItem.testCases;
+    const pointsNorm = reviewerPoints.toLowerCase();
+
+    const covered: string[] = [];
+    const missing: string[] = [];
+    const partiallyCovered: string[] = [];
+    const duplicates: string[] = [];
+    const missingPositive: string[] = [];
+    const missingNegativeValidation: string[] = [];
+    const missingEdgeCases: string[] = [];
+    const mismatches: string[] = [];
+
+    // Analyze reviewer points
+    if (reviewerPoints.trim()) {
+      const lines = reviewerPoints.split('\n').filter((l) => l.trim().length > 0);
+      lines.forEach((line) => {
+        const lineLower = line.toLowerCase();
+        const matchedCase = cases.find((c) =>
+          c.testScenario.toLowerCase().includes(lineLower) ||
+          c.testCases.toLowerCase().includes(lineLower)
+        );
+        if (matchedCase) {
+          covered.push(`"${line.trim()}" (Covered in ${matchedCase.testCaseId})`);
+        } else {
+          missing.push(`"${line.trim()}" is missing from test cases.`);
+        }
+      });
+    } else {
+      covered.push('Core ticket requirement workflow covered.');
+    }
+
+    // Check negative / validation
+    const hasNegative = cases.some((c) =>
+      c.testScenario.toLowerCase().includes('invalid') ||
+      c.testScenario.toLowerCase().includes('restrict') ||
+      c.testScenario.toLowerCase().includes('error') ||
+      Boolean(c.validationScenario)
+    );
+    if (!hasNegative) {
+      missingNegativeValidation.push('Validation scenarios for invalid input restrictions are missing.');
+    } else {
+      covered.push('Validation scenarios for invalid inputs are included.');
+    }
+
+    // Check edge / boundary
+    const hasEdge = cases.some((c) =>
+      c.testScenario.toLowerCase().includes('boundary') ||
+      c.testScenario.toLowerCase().includes('limit') ||
+      c.testScenario.toLowerCase().includes('max')
+    );
+    if (!hasEdge) {
+      missingEdgeCases.push('Boundary / edge case scenarios (e.g. max limits, special characters) are missing.');
+    } else {
+      covered.push('Boundary and edge case scenarios covered.');
+    }
+
+    setAiCoverageReport({
+      covered,
+      missing,
+      partiallyCovered,
+      duplicates,
+      missingPositive,
+      missingNegativeValidation,
+      missingEdgeCases,
+      mismatches,
+    });
+
+    setNotification('✨ AI Coverage Check completed! Review identified covered and missing scenarios below.');
+    setTimeout(() => setNotification(null), 4000);
+  };
 
   // Open Ticket Review
   const handleOpenReview = (tNo: string) => {
@@ -349,7 +434,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
       </div>
 
       {/* ACTIVE REVIEW PANEL */}
-      {activeItem && aiSummary && (
+      {activeItem && (
         <div className="bg-white border-2 border-blue-300 rounded-2xl p-5 shadow-lg space-y-5 animate-fadeIn">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-200">
             <div className="flex items-center gap-2">
@@ -366,47 +451,81 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
             </button>
           </div>
 
-          {/* AI REVIEW SUMMARY CARD */}
-          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-200 rounded-xl p-4 space-y-3">
+          {/* COMMON MODULE HEADER IN REVIEW */}
+          <CommonHeader
+            selectedTicketNumber={activeItem.ticket.ticketNumber}
+            tickets={tickets}
+            description={activeItem.header.description || activeItem.ticket.description || activeItem.ticket.featureName}
+            testingScenarios={activeItem.header.testingScenarios || activeItem.ticket.testingScenarios || ''}
+            onSelectTicket={(tNo) => handleOpenReview(tNo)}
+            onChangeDescription={(val) => {
+              const updatedHeader = { ...activeItem.header, description: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            onChangeTestingScenarios={(val) => {
+              const updatedHeader = { ...activeItem.header, testingScenarios: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            showGenerateButton={false}
+          />
+
+          {/* REVIEWER TESTING SCENARIOS / REVIEW POINTS & AI COVERAGE CHECK */}
+          <div className="bg-gradient-to-r from-purple-50 via-indigo-50 to-blue-50 border border-purple-200 rounded-xl p-4 space-y-3 text-xs">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 font-bold text-xs text-purple-900">
+              <label className="font-bold text-purple-900 flex items-center gap-1.5">
                 <Sparkles className="w-4 h-4 text-purple-600" />
-                <span>Automated AI Review Summary against Azure DevOps Ticket</span>
-              </div>
-              <span className="text-[10px] font-bold text-purple-800 bg-purple-100 px-2 py-0.5 rounded">
-                AI Assistant
-              </span>
+                <span>Testing Scenarios / Review Points (Reviewer Input)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setReviewerPoints(polishObservationText(reviewerPoints))}
+                className="px-2 py-0.5 bg-purple-100 hover:bg-purple-200 text-purple-900 border border-purple-300 font-bold text-[10px] rounded cursor-pointer"
+              >
+                AI Polish
+              </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-4 text-xs font-bold">
-              <div className="px-3 py-1.5 bg-white border border-purple-200 rounded text-slate-800">
-                {aiSummary.totalReviewed} Test Cases Reviewed
-              </div>
-              <div className="px-3 py-1.5 bg-emerald-100 text-emerald-900 rounded">
-                {aiSummary.goodCount} – Good
-              </div>
-              {aiSummary.duplicateCount > 0 && (
-                <div className="px-3 py-1.5 bg-amber-100 text-amber-900 rounded">
-                  {aiSummary.duplicateCount} – Duplicate
-                </div>
-              )}
-              {aiSummary.missingValidationCount > 0 && (
-                <div className="px-3 py-1.5 bg-red-100 text-red-900 rounded">
-                  {aiSummary.missingValidationCount} – Missing Validation Scenario
-                </div>
-              )}
+            <textarea
+              rows={2}
+              value={reviewerPoints}
+              onChange={(e) => setReviewerPoints(e.target.value)}
+              placeholder="Paste review points (e.g. Check negative scenarios, validation scenarios, UI behavior, save/submit behavior)..."
+              className="w-full p-2.5 bg-white border border-purple-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
+            />
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleRunAiCoverageCheck}
+                className="px-4 py-2 bg-purple-700 hover:bg-purple-800 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-xs"
+              >
+                <Sparkles className="w-4 h-4 text-purple-200" />
+                <span>AI Coverage Check</span>
+              </button>
             </div>
 
-            {/* Suggestions */}
-            {aiSummary.issues.length > 0 && (
-              <div className="space-y-2 pt-2 border-t border-purple-200/60 text-xs">
-                <div className="font-bold text-purple-950">Short Suggestions for Improvement:</div>
-                {aiSummary.issues.map((iss) => (
-                  <div key={iss.id} className="p-2.5 bg-white rounded-lg border border-purple-200 space-y-0.5">
-                    <div className="font-bold text-purple-900">{iss.type}: {iss.title}</div>
-                    <div className="text-slate-700 leading-relaxed">{iss.suggestion}</div>
+            {/* AI Coverage Report Results */}
+            {aiCoverageReport && (
+              <div className="p-3 bg-white border border-purple-200 rounded-lg space-y-2 mt-3 animate-fadeIn">
+                <div className="font-bold text-slate-900 border-b pb-1">AI Coverage Analysis Results:</div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded">
+                    <div className="font-bold text-emerald-900 mb-1">Covered Scenarios:</div>
+                    <ul className="list-disc pl-4 space-y-0.5 text-emerald-800 text-[11px]">
+                      {aiCoverageReport.covered.map((c, i) => (
+                        <li key={i}>{c}</li>
+                      ))}
+                    </ul>
                   </div>
-                ))}
+
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded">
+                    <div className="font-bold text-amber-900 mb-1">Missing / Gap Scenarios:</div>
+                    <ul className="list-disc pl-4 space-y-0.5 text-amber-800 text-[11px]">
+                      {aiCoverageReport.missing.concat(aiCoverageReport.missingNegativeValidation, aiCoverageReport.missingEdgeCases).map((m, i) => (
+                        <li key={i}>{m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             )}
           </div>

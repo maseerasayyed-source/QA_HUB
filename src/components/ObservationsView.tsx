@@ -25,6 +25,7 @@ import { INITIAL_OBSERVATION_HEADER, INITIAL_OBSERVATIONS } from '../data/initia
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { CommonHeader } from './common/CommonHeader';
 
 interface ObservationsViewProps {
   tickets?: TicketSummary[];
@@ -41,8 +42,8 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   onUpdateHeader,
   onUpdateObservations,
 }) => {
-  // Observation Sheet Header (Ticket Name, Number, QA Owner, Date)
-  const [header, setHeader] = useState<ObservationHeaderMeta>(initialHeader);
+  // Observation Sheet Header (Ticket Name, Number, QA Owner, Date, Testing Scenarios)
+  const [header, setHeader] = useState<ObservationHeaderMeta & { testingScenarios?: string }>(initialHeader);
 
   // Observation records (inline-editable)
   const [observations, setObservations] = useState<ObservationItem[]>(initialObservations);
@@ -154,11 +155,11 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       ticketName: header.ticketName,
       type: 'Observation',
       observationRFE: '',
-      screenshotName: '',
-      screenshotUrl: '',
+      status: 'Open',
+      retesting: 1,
+      fixedEvidence: [],
       attachments: [],
-      priority: 'High',
-      status: 'Pending',
+      remark: '',
       reportedBy: header.qaOwner,
       createdDate: new Date().toISOString().split('T')[0],
     };
@@ -174,8 +175,10 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       ...item,
       id: `obs-${Date.now()}`,
       serialNo: `OBS-0${observations.length + 1}`,
-      status: 'Pending',
+      status: 'Open',
+      retesting: 1,
       attachments: item.attachments ? [...item.attachments] : [],
+      fixedEvidence: item.fixedEvidence ? [...item.fixedEvidence] : [],
     };
     const next = [...observations];
     next.splice(index + 1, 0, clone);
@@ -419,97 +422,25 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         </div>
       )}
 
-      {/* Observation Excel Header Block (Rows 1-4) */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-2xs space-y-3">
-        <div className="flex items-center justify-between pb-2 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-red-600"></span>
-            <h2 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Observation Excel Header Information
-            </h2>
-          </div>
-          <span className="text-[11px] text-slate-400">
-            Exported to Top Rows of Observation Excel Sheet
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-          <div>
-            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
-              Ticket Number :
-            </label>
-            <div className="flex items-center gap-1.5">
-              <input
-                type="text"
-                value={header.ticketNo}
-                onChange={(e) => handleTicketChange(e.target.value)}
-                className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded font-mono font-bold text-blue-700 focus:outline-none focus:border-blue-500 focus:bg-white text-xs"
-              />
-              {tickets.length > 0 && (
-                <select
-                  value={header.ticketNo}
-                  onChange={(e) => handleTicketChange(e.target.value)}
-                  className="px-2 py-1.5 bg-slate-100 border border-slate-200 rounded text-xs text-slate-700 cursor-pointer"
-                >
-                  {tickets.map((t) => (
-                    <option key={t.id} value={t.ticketNumber}>
-                      #{t.ticketNumber}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
-              Ticket Name :
-            </label>
-            <input
-              type="text"
-              value={header.ticketName}
-              onChange={(e) => {
-                const next = { ...header, ticketName: e.target.value };
-                setHeader(next);
-                onUpdateHeader?.(next);
-              }}
-              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded font-semibold text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
-              QA Owner :
-            </label>
-            <input
-              type="text"
-              value={header.qaOwner}
-              onChange={(e) => {
-                const next = { ...header, qaOwner: e.target.value };
-                setHeader(next);
-                onUpdateHeader?.(next);
-              }}
-              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded font-semibold text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white text-xs"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">
-              Report Date :
-            </label>
-            <input
-              type="date"
-              value={header.date}
-              onChange={(e) => {
-                const next = { ...header, date: e.target.value };
-                setHeader(next);
-                onUpdateHeader?.(next);
-              }}
-              className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded font-medium text-slate-800 focus:outline-none focus:border-blue-500 focus:bg-white text-xs"
-            />
-          </div>
-        </div>
-      </div>
+      {/* COMMON MODULE HEADER */}
+      <CommonHeader
+        selectedTicketNumber={selectedTicketNo}
+        tickets={tickets}
+        description={header.ticketName}
+        testingScenarios={header.testingScenarios || ''}
+        onSelectTicket={handleTicketChange}
+        onChangeDescription={(val) => {
+          const next = { ...header, ticketName: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        onChangeTestingScenarios={(val) => {
+          const next = { ...header, testingScenarios: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        showGenerateButton={false}
+      />
 
       {/* Download Excel Button Placed DIRECTLY Above the Table */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
@@ -558,63 +489,14 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                 <th className="p-2.5 w-12 text-center border-r border-slate-700/60">#</th>
 
                 <ColumnHeader
-                  title="Observation / RFE ID"
-                  columnKey="serialNo"
-                  sortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  filterValue={columnFilters.serialNo}
-                  onFilterChange={handleFilterChange}
-                  className="w-40"
-                />
-
-                <ColumnHeader
-                  title="Type"
-                  columnKey="type"
-                  sortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  filterValue={columnFilters.type}
-                  onFilterChange={handleFilterChange}
-                  options={['Observation', 'RFE']}
-                  className="w-32"
-                />
-
-                <ColumnHeader
-                  title="Observations / RFE"
+                  title="Observation / RFE Point"
                   columnKey="observationRFE"
                   sortKey={sortKey}
                   sortDirection={sortDirection}
                   onSort={handleSort}
                   filterValue={columnFilters.observationRFE}
                   onFilterChange={handleFilterChange}
-                  subtitle="✨ Auto-polishes"
                   className="min-w-[340px]"
-                />
-
-                <ColumnHeader
-                  title="Screen shots / File Attach"
-                  columnKey="attachments"
-                  sortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  filterValue={columnFilters.attachments}
-                  onFilterChange={handleFilterChange}
-                  subtitle="Multiple / Ctrl+V"
-                  className="w-64"
-                />
-
-                <ColumnHeader
-                  title="Priority"
-                  columnKey="priority"
-                  sortKey={sortKey}
-                  sortDirection={sortDirection}
-                  onSort={handleSort}
-                  filterValue={columnFilters.priority}
-                  onFilterChange={handleFilterChange}
-                  options={['Critical', 'High', 'Medium', 'Low']}
-                  className="w-28"
-                  align="center"
                 />
 
                 <ColumnHeader
@@ -625,12 +507,28 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.status}
                   onFilterChange={handleFilterChange}
-                  options={['Fixed', 'Pending', 'Not required for this ticket']}
-                  className="w-48"
+                  options={['Open', 'In Progress', 'Fixed', 'Closed', 'Not an Issue', 'Deferred']}
+                  className="w-36"
                   align="center"
                 />
 
-                <th className="p-2.5 w-20 text-center font-semibold">Actions</th>
+                <th className="p-2.5 w-24 text-center border-r border-slate-700 font-semibold">Retesting</th>
+
+                <ColumnHeader
+                  title="Fixed Evidence"
+                  columnKey="attachments"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterValue={columnFilters.attachments}
+                  onFilterChange={handleFilterChange}
+                  subtitle="Upload / Ctrl+V Paste"
+                  className="w-64"
+                />
+
+                <th className="p-2.5 min-w-[200px] border-r border-slate-700 font-semibold">Remark</th>
+
+                <th className="p-2.5 w-24 text-center font-semibold">Actions</th>
               </tr>
             </thead>
 
@@ -642,54 +540,60 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                     {index + 1}
                   </td>
 
-                  {/* ID */}
-                  <td className="p-1 border-r border-slate-100">
-                    <input
-                      type="text"
-                      value={obs.serialNo}
-                      onChange={(e) => handleCellChange(obs.id, 'serialNo', e.target.value)}
-                      className="w-full px-1.5 py-1 font-mono font-bold text-red-600 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
-                    />
-                  </td>
-
-                  {/* Type Dropdown (Observation / RFE) */}
-                  <td className="p-1.5 border-r border-slate-100">
-                    <select
-                      value={obs.type || 'Observation'}
-                      onChange={(e) => handleCellChange(obs.id, 'type', e.target.value)}
-                      className={`w-full px-2 py-1 text-xs font-bold rounded border cursor-pointer focus:outline-none ${
-                        obs.type === 'RFE'
-                          ? 'bg-purple-50 text-purple-700 border-purple-300'
-                          : 'bg-amber-50 text-amber-800 border-amber-300'
-                      }`}
-                    >
-                      <option value="Observation">Observation</option>
-                      <option value="RFE">RFE</option>
-                    </select>
-                  </td>
-
-                  {/* Observations / RFE (Textarea with auto-polish on blur) */}
+                  {/* Observation / RFE Point */}
                   <td className="p-1 border-r border-slate-100 relative group/obsdesc">
                     <textarea
                       rows={2}
                       value={obs.observationRFE}
                       onChange={(e) => handleCellChange(obs.id, 'observationRFE', e.target.value)}
-                      onBlur={(e) => {
-                        const polished = correctSpelling(e.target.value);
-                        if (polished !== e.target.value) {
-                          handleCellChange(obs.id, 'observationRFE', polished);
-                        }
-                      }}
-                      placeholder="Describe the observation or RFE requirement..."
+                      placeholder="Enter Observation / RFE Point..."
                       className="w-full px-2 py-1 text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
                   </td>
 
-                  {/* Screen shots / File Attach (Multiple files + Ctrl+V paste support) */}
+                  {/* Status Dropdown */}
+                  <td className="p-1.5 border-r border-slate-100 text-center">
+                    <select
+                      value={obs.status || 'Open'}
+                      onChange={(e) => handleCellChange(obs.id, 'status', e.target.value)}
+                      className={`w-full px-2 py-1 text-xs font-bold rounded border cursor-pointer focus:outline-none ${
+                        obs.status === 'Fixed' || obs.status === 'Closed'
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                          : obs.status === 'In Progress'
+                          ? 'bg-blue-50 text-blue-700 border-blue-300'
+                          : 'bg-amber-50 text-amber-800 border-amber-300'
+                      }`}
+                    >
+                      <option value="Open">Open</option>
+                      <option value="In Progress">In Progress</option>
+                      <option value="Fixed">Fixed</option>
+                      <option value="Closed">Closed</option>
+                      <option value="Not an Issue">Not an Issue</option>
+                      <option value="Deferred">Deferred</option>
+                    </select>
+                  </td>
+
+                  {/* Retesting Dropdown Count */}
+                  <td className="p-1.5 border-r border-slate-100 text-center">
+                    <select
+                      value={obs.retesting || 1}
+                      onChange={(e) => handleCellChange(obs.id, 'retesting', parseInt(e.target.value, 10))}
+                      className="px-2 py-1 bg-slate-50 border border-slate-300 rounded font-mono font-bold text-xs cursor-pointer"
+                    >
+                      <option value={1}>1</option>
+                      <option value={2}>2</option>
+                      <option value={3}>3</option>
+                      <option value={4}>4</option>
+                      <option value={5}>5</option>
+                      <option value={6}>6</option>
+                    </select>
+                  </td>
+
+                  {/* Fixed Evidence */}
                   <td className="p-1 border-r border-slate-100">
                     <RowAttachmentsCell
-                      id={`obs-attachments-${obs.id}`}
-                      attachments={obs.attachments}
+                      id={`obs-fixed-att-${obs.id}`}
+                      attachments={obs.fixedEvidence || obs.attachments}
                       fallbackScreenshotName={obs.screenshotName}
                       fallbackScreenshotUrl={obs.screenshotUrl}
                       onAddAttachment={(file) => handleAddAttachment(obs.id, file)}
@@ -697,62 +601,30 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                     />
                   </td>
 
-                  {/* Priority */}
-                  <td className="p-1.5 border-r border-slate-100 text-center">
-                    <select
-                      value={obs.priority}
-                      onChange={(e) => handleCellChange(obs.id, 'priority', e.target.value)}
-                      className={`w-full px-1.5 py-1 text-xs font-bold rounded border cursor-pointer focus:outline-none ${
-                        obs.priority === 'Critical'
-                          ? 'bg-red-50 text-red-700 border-red-300'
-                          : obs.priority === 'High'
-                          ? 'bg-amber-50 text-amber-700 border-amber-300'
-                          : obs.priority === 'Medium'
-                          ? 'bg-blue-50 text-blue-700 border-blue-300'
-                          : 'bg-slate-100 text-slate-700 border-slate-300'
-                      }`}
-                    >
-                      <option value="Critical">Critical</option>
-                      <option value="High">High</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Low">Low</option>
-                    </select>
-                  </td>
-
-                  {/* Status: "Fixed" | "Pending" | "Not required for this ticket" */}
-                  <td className="p-1.5 border-r border-slate-100 text-center">
-                    <select
-                      value={obs.status}
-                      onChange={(e) => handleCellChange(obs.id, 'status', e.target.value)}
-                      className={`w-full px-2 py-1 text-xs font-bold rounded border cursor-pointer focus:outline-none ${
-                        obs.status === 'Fixed'
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                          : obs.status === 'Pending'
-                          ? 'bg-amber-50 text-amber-700 border-amber-300'
-                          : 'bg-slate-100 text-slate-600 border-slate-300'
-                      }`}
-                    >
-                      <option value="Fixed">Fixed</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Not required for this ticket">
-                        Not required for this ticket
-                      </option>
-                    </select>
+                  {/* Remark */}
+                  <td className="p-1 border-r border-slate-100">
+                    <input
+                      type="text"
+                      value={obs.remark || ''}
+                      onChange={(e) => handleCellChange(obs.id, 'remark', e.target.value)}
+                      placeholder="Add short remark..."
+                      className="w-full px-2 py-1 text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
+                    />
                   </td>
 
                   {/* Actions */}
                   <td className="p-1 text-center">
                     <div className="flex items-center justify-center gap-1">
                       <button
-                        onClick={() => handleDuplicateRow(obs.id)}
-                        title="Duplicate observation"
-                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
+                        onClick={() => handleCellChange(obs.id, 'observationRFE', polishObservationText(obs.observationRFE))}
+                        title="AI Polish row text"
+                        className="px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold rounded cursor-pointer hover:bg-purple-100"
                       >
-                        <Copy className="w-3.5 h-3.5" />
+                        Polish
                       </button>
                       <button
                         onClick={() => handleDeleteRow(obs.id)}
-                        title="Delete observation"
+                        title="Delete row"
                         className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

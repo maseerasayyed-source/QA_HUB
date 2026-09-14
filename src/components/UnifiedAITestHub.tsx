@@ -43,6 +43,7 @@ import {
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { CommonHeader } from './common/CommonHeader';
 import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 import { generateTestCaseFromOneLine, aiReviewTestCases } from '../utils/aiGenerator';
 
@@ -92,9 +93,22 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   // Test Cases List
   const [testCases, setTestCases] = useState<TestCaseItem[]>(initialTestCases);
 
-  // One-line input for Instant AI Test Case Generation
-  const [oneLineRequirement, setOneLineRequirement] = useState<string>('');
-  const [isGeneratingOneLine, setIsGeneratingOneLine] = useState<boolean>(false);
+  // Common Header State
+  const [headerDescription, setHeaderDescription] = useState<string>(
+    matchedTicket?.description || matchedTicket?.qaRequirementDoc || matchedTicket?.featureName || ''
+  );
+  const [headerTestingScenarios, setHeaderTestingScenarios] = useState<string>(
+    matchedTicket?.testingScenarios || matchedTicket?.scenarioDetails || ''
+  );
+
+  // AI Edit Modal State
+  const [editingRowForAi, setEditingRowForAi] = useState<TestCaseItem | null>(null);
+  const [aiModalTestingPoint, setAiModalTestingPoint] = useState<string>('');
+  const [isGeneratingAiModal, setIsGeneratingAiModal] = useState<boolean>(false);
+
+  // Submit For Approval Modal State
+  const [isSubmitModalOpen, setIsSubmitModalOpen] = useState<boolean>(false);
+  const [selectedReviewerEmail, setSelectedReviewerEmail] = useState<string>('ashwinipoke@quantumphinance.com');
 
   // UI & Search State
   const [filterModule, setFilterModule] = useState<string>('all');
@@ -153,12 +167,16 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         ...header,
         ticketNo: found.ticketNumber,
         taskName: found.featureName,
+        description: found.description || found.featureName,
+        testingScenarios: found.testingScenarios || found.scenarioDetails,
         clientName: found.clientName || header.clientName || 'Treasury Master',
         sha: found.shaCommit || header.sha,
         taskDoneBy: found.qaAssignee || header.taskDoneBy || 'Maseera Sayyed',
         signOffBy: found.signOffBy || header.signOffBy || 'Ashwini Poke',
       };
       setHeader(updatedHeader);
+      setHeaderDescription(found.description || found.featureName);
+      setHeaderTestingScenarios(found.testingScenarios || found.scenarioDetails || '');
       onUpdateHeader?.(updatedHeader);
     }
   };
@@ -179,65 +197,106 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     onUpdateTestCases?.(newCases);
   };
 
-  // 1. One-Line AI Test Case Generation
-  const handleGenerateOneLineTestCase = () => {
-    if (!oneLineRequirement.trim()) {
-      setNotification('Please enter a requirement line first.');
-      setTimeout(() => setNotification(null), 3000);
-      return;
-    }
+  // Common Header AI Generation Action
+  const handleCommonHeaderGenerateAi = () => {
+    const inputPrompt = headerTestingScenarios || headerDescription || matchedTicket?.featureName || 'Requirement verification';
+    const generated = generateTestCaseFromOneLine(
+      inputPrompt,
+      matchedTicket,
+      testCases.length + 1
+    );
 
-    setIsGeneratingOneLine(true);
-    setTimeout(() => {
-      const generated = generateTestCaseFromOneLine(
-        oneLineRequirement,
-        matchedTicket,
-        testCases.length + 1
-      );
+    const newCase: TestCaseItem = {
+      id: `tc-${Date.now()}`,
+      testCaseId: generated.testCaseId || `TC${testCases.length + 1}`,
+      testModule: generated.testModule || matchedTicket?.moduleName.toLowerCase() || 'term loan',
+      featureTab: generated.featureTab || 'general',
+      testScenario: generated.testScenario || inputPrompt,
+      testCases: generated.testCases || `Check that system handles ${inputPrompt}`,
+      testInputs: generated.testInputs || `Requirement: ${inputPrompt}`,
+      expectedResult: generated.expectedResult || 'System executes operation accurately.',
+      validationScenario: generated.validationScenario || '',
+      additionalCoverage: generated.additionalCoverage || '',
+      actualResult: 'Pending execution',
+      status: 'not run',
+      reviewStatus: 'Draft',
+      version: header.version || '1.0',
+      attachments: [],
+      isAiGenerated: true,
+    };
 
-      const newCase: TestCaseItem = {
-        id: `tc-${Date.now()}`,
-        testCaseId: generated.testCaseId || `TC${testCases.length + 1}`,
-        testModule: generated.testModule || matchedTicket?.moduleName.toLowerCase() || 'term loan',
-        featureTab: generated.featureTab || 'general',
-        testScenario: generated.testScenario || oneLineRequirement,
-        testCases: generated.testCases || `1. Execute verification for ${oneLineRequirement}`,
-        testInputs: generated.testInputs || `Requirement: ${oneLineRequirement}`,
-        expectedResult: generated.expectedResult || 'Expected system outcome',
-        validationScenario: generated.validationScenario || '',
-        additionalCoverage: generated.additionalCoverage || '',
-        actualResult: 'Pending execution',
-        status: 'not run',
-        reviewStatus: 'Draft',
-        version: header.version || '1.0',
-        attachments: [],
-        isAiGenerated: true,
-      };
-
-      const nextCases = [...testCases, newCase];
-      updateTestCases(nextCases);
-      setOneLineRequirement('');
-      setIsGeneratingOneLine(false);
-      setNotification('✨ AI Generated complete Test Case from your one-line input!');
-      setTimeout(() => setNotification(null), 4000);
-    }, 400);
+    const nextCases = [...testCases, newCase];
+    updateTestCases(nextCases);
+    setNotification('✨ AI Generated easy-to-understand professional test case!');
+    setTimeout(() => setNotification(null), 4000);
   };
 
-  // 2. Submit for Review
-  const handleSubmitForReview = () => {
+  // Row Action: AI Edit Modal trigger
+  const handleOpenAiEditModal = (row: TestCaseItem) => {
+    setEditingRowForAi(row);
+    setAiModalTestingPoint(row.testScenario || '');
+  };
+
+  const handleGenerateAiRowEdit = () => {
+    if (!editingRowForAi || !aiModalTestingPoint.trim()) return;
+    setIsGeneratingAiModal(true);
+    setTimeout(() => {
+      const gen = generateTestCaseFromOneLine(aiModalTestingPoint, matchedTicket, 1);
+      const updatedRow: TestCaseItem = {
+        ...editingRowForAi,
+        testScenario: gen.testScenario || aiModalTestingPoint,
+        testCases: gen.testCases || `Check that the system restricts transaction when limit is exceeded.`,
+        expectedResult: gen.expectedResult || `The system should process the request accurately.`,
+        actualResult: editingRowForAi.actualResult || 'Pending execution',
+      };
+
+      const nextCases = testCases.map((c) => (c.id === editingRowForAi.id ? updatedRow : c));
+      updateTestCases(nextCases);
+      setIsGeneratingAiModal(false);
+      setEditingRowForAi(null);
+      setNotification('✨ AI updated test case fields! All fields remain fully editable.');
+      setTimeout(() => setNotification(null), 4000);
+    }, 300);
+  };
+
+  // Row Action: AI Polish
+  const handleRowAiPolish = (rowId: string) => {
+    const target = testCases.find((c) => c.id === rowId);
+    if (!target) return;
+    const polished = polishTestCaseItem(target);
+    const nextCases = testCases.map((c) => (c.id === rowId ? polished : c));
+    updateTestCases(nextCases);
+    setNotification('✨ Polished test case language into simple, clear English!');
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  // Submit for Approval Action (Mandates reviewer selection)
+  const handleConfirmSubmitForApproval = () => {
     if (testCases.length === 0) {
-      alert('Please add at least one test case before submitting for review.');
+      alert('Please add at least one test case before submitting.');
       return;
     }
+    if (!selectedReviewerEmail) {
+      alert('Please select a reviewer before submitting.');
+      return;
+    }
+
+    const reviewerName = selectedReviewerEmail.includes('ashwini') ? 'Ashwini Poke' : 'Maseera Sayyed';
+    const nowStr = new Date().toLocaleString();
 
     const newHeader: TestCaseHeaderMeta = {
       ...header,
+      description: headerDescription,
+      testingScenarios: headerTestingScenarios,
       reviewStatus: 'Review Pending',
+      submittedBy: currentUser?.name || header.taskDoneBy || 'QA',
+      submittedTo: reviewerName,
+      submittedAt: nowStr,
+      signOffBy: reviewerName,
     };
     setHeader(newHeader);
     onUpdateHeader?.(newHeader);
 
-    // Update test cases status
     const updated = testCases.map((tc) => ({
       ...tc,
       reviewStatus: 'Review Pending' as TestCaseReviewStatus,
@@ -245,7 +304,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     setTestCases(updated);
     onUpdateTestCases?.(updated);
 
-    setNotification('🚀 Test Cases submitted for Senior QA Review! Status set to "Review Pending".');
+    setIsSubmitModalOpen(false);
+    setNotification(`🚀 Test Cases submitted to ${reviewerName} for review on ${nowStr}! Status set to "Review Pending".`);
     setTimeout(() => setNotification(null), 5000);
   };
 
@@ -454,32 +514,35 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             </button>
           ) : (
             <button
-              onClick={handleSubmitForReview}
+              onClick={() => setIsSubmitModalOpen(true)}
               disabled={isInReviewLocked}
               className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs cursor-pointer"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Submit for Review</span>
+              <span>Submit for Approval</span>
             </button>
           )}
-
-          <button
-            onClick={() => setShowHistoryDrawer(true)}
-            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold rounded-md flex items-center gap-1.5 cursor-pointer"
-          >
-            <History className="w-3.5 h-3.5 text-slate-600" />
-            <span>Version History ({header.revisionsHistory?.length || 0})</span>
-          </button>
-
-          <button
-            onClick={handleDownloadExcel}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Excel</span>
-          </button>
         </div>
       </div>
+
+      {/* COMMON MODULE HEADER */}
+      <CommonHeader
+        selectedTicketNumber={selectedTicketNumber}
+        tickets={tickets}
+        description={headerDescription}
+        testingScenarios={headerTestingScenarios}
+        onSelectTicket={handleSelectTicket}
+        onChangeDescription={(val) => {
+          setHeaderDescription(val);
+          setHeader((prev) => ({ ...prev, description: val }));
+        }}
+        onChangeTestingScenarios={(val) => {
+          setHeaderTestingScenarios(val);
+          setHeader((prev) => ({ ...prev, testingScenarios: val }));
+        }}
+        onGenerateAi={handleCommonHeaderGenerateAi}
+        generateButtonText="Generate AI"
+      />
 
       {/* Approval Banner if Approved */}
       {isApprovedAndReadOnly && (
@@ -532,46 +595,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         </div>
       )}
 
-      {/* ONE-LINE AI TEST CASE GENERATION CARD */}
-      {!isApprovedAndReadOnly && (
-        <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-slate-50 border border-blue-200 rounded-xl p-4 shadow-2xs space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-600" />
-              <h2 className="text-xs font-bold text-slate-900">One-Line AI Test Case Generator</h2>
-            </div>
-            <span className="text-[10px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded">
-              Instant Generation
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-600">
-            Provide one simple requirement/scenario (e.g. <em>"Verify that invalid GSTIN details are restricted during Fees upload."</em>):
-          </p>
-
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={oneLineRequirement}
-              onChange={(e) => setOneLineRequirement(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleGenerateOneLineTestCase();
-              }}
-              placeholder="e.g. Verify that invalid GSTIN details are restricted during Fees upload."
-              className="flex-1 px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
-            />
-
-            <button
-              onClick={handleGenerateOneLineTestCase}
-              disabled={isGeneratingOneLine || isInReviewLocked}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{isGeneratingOneLine ? 'Generating...' : 'AI Generate Test Case'}</span>
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* SPREADSHEET TABLE: QA Test Cases */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
@@ -744,12 +767,29 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   {/* Actions */}
                   <td className="p-1 text-center">
                     {!isApprovedAndReadOnly && isAssignedQaOrSuperAdmin && (
-                      <button
-                        onClick={() => handleDeleteRow(tc.id)}
-                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleOpenAiEditModal(tc)}
+                          title="AI Edit Modal"
+                          className="px-1.5 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 text-[10px] font-bold rounded cursor-pointer hover:bg-blue-100"
+                        >
+                          AI Edit
+                        </button>
+                        <button
+                          onClick={() => handleRowAiPolish(tc.id)}
+                          title="AI Polish row language"
+                          className="px-1.5 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 text-[10px] font-bold rounded cursor-pointer hover:bg-purple-100"
+                        >
+                          Polish
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRow(tc.id)}
+                          title="Delete row"
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -776,6 +816,100 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           </div>
         </div>
       </div>
+
+      {/* AI EDIT MODAL */}
+      {editingRowForAi && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Wand2 className="w-5 h-5 text-blue-600" />
+                <h2 className="text-base font-bold text-slate-900">AI Edit Test Case Row</h2>
+              </div>
+              <button onClick={() => setEditingRowForAi(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <label className="font-bold text-slate-800 block">Enter / Modify Testing Point:</label>
+              <textarea
+                rows={3}
+                value={aiModalTestingPoint}
+                onChange={(e) => setAiModalTestingPoint(e.target.value)}
+                placeholder="e.g. Check that system restricts the transaction when limit is exceeded."
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  onClick={() => setEditingRowForAi(null)}
+                  className="px-3.5 py-1.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleGenerateAiRowEdit}
+                  disabled={isGeneratingAiModal}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{isGeneratingAiModal ? 'Generating Fields...' : 'AI Generate All Fields'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBMIT FOR APPROVAL MODAL */}
+      {isSubmitModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden p-5 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Send className="w-5 h-5 text-blue-600" />
+                <h2 className="text-base font-bold text-slate-900">Submit Test Cases for Approval</h2>
+              </div>
+              <button onClick={() => setIsSubmitModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <label className="font-bold text-slate-800 block">Submit To Reviewer:</label>
+              <select
+                value={selectedReviewerEmail}
+                onChange={(e) => setSelectedReviewerEmail(e.target.value)}
+                className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-lg text-xs font-bold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+              >
+                <option value="ashwinipoke@quantumphinance.com">Ashwini Poke (Senior QA / Admin)</option>
+                <option value="maseerasayyed@quantumphinance.com">Maseera Sayyed (Super Admin)</option>
+              </select>
+
+              <p className="text-slate-500 text-[11px]">
+                The selected reviewer will receive this ticket in <strong>QA Test Case Review</strong> module for coverage check &amp; sign-off.
+              </p>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => setIsSubmitModalOpen(false)}
+                  className="px-3.5 py-1.5 bg-slate-100 text-slate-700 font-bold text-xs rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmSubmitForApproval}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-lg cursor-pointer shadow-xs flex items-center gap-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Submit</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Version History Modal */}
       {showHistoryDrawer && (
