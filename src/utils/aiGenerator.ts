@@ -144,9 +144,9 @@ export function generateDevTestingFromPoint(
  * 2. Generate Developer Testing Points from Azure DevOps ticket info
  */
 export function generateDevTestingFromTicket(ticket: TicketSummary): DeveloperTestItem[] {
-  const tNo = ticket.ticketNumber || '21653';
+  const tNo = ticket.ticketNumber || '';
   const feature = ticket.featureName || 'Feature Verification';
-  const dev = ticket.developer || 'Kunal Joshi';
+  const dev = ticket.developer || '';
   const deal = ticket.dealId || `DEAL-${tNo}`;
   const desc = ticket.description || ticket.qaRequirementDoc || ticket.acceptanceCriteria || feature;
 
@@ -668,10 +668,10 @@ export function generateScenariosFromInputsAndFiles(params: {
     existingItems = [],
   } = params;
 
-  const tNo = ticket?.ticketNumber || '21653';
+  const tNo = ticket?.ticketNumber || '';
   const feature = ticket?.featureName || 'Financial Feature';
   const mod = ticket?.moduleName || 'Term Loan';
-  const dev = ticket?.developer || 'Kunal Joshi';
+  const dev = ticket?.developer || '';
   const qa = ticket?.qaAssignee || 'Maseera Sayyed';
   const dealId = ticket?.dealId || `DEAL-${tNo}`;
 

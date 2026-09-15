@@ -74,7 +74,7 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
     (t) => t.ticketNumber.toLowerCase() === selectedTicketNumber.toLowerCase()
   );
 
-  const devName = developerName || currentTicket?.developer || 'Kunal Joshi';
+  const devName = developerName || currentTicket?.developer || '';
   const qaName = qaAssigneeName || currentTicket?.qaAssignee || 'Maseera Sayyed';
 
   const defaultBtnText =

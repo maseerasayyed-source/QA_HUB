@@ -39,8 +39,8 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newFeatureName, setNewFeatureName] = useState('');
   const [newModuleId, setNewModuleId] = useState(modules[0]?.id || 'mod-1');
   const [customModuleName, setCustomModuleName] = useState('');
-  const [newDeveloper, setNewDeveloper] = useState('Kunal Joshi');
-  const [newQaAssignee, setNewQaAssignee] = useState('Maseera Sayyed');
+  const [newDeveloper, setNewDeveloper] = useState('');
+  const [newQaAssignee, setNewQaAssignee] = useState(currentUser?.name || 'Maseera Sayyed');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState(false);
 
@@ -58,6 +58,8 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     if (saved.organization) setAdoOrg(saved.organization);
     if (saved.project) setAdoProject(saved.project);
     if (saved.personalAccessToken) setAdoPat(saved.personalAccessToken);
+    setNewDeveloper('');
+    setNewQaAssignee(currentUser?.name || 'Maseera Sayyed');
     setAdoFetchMessage(null);
     setIsNewTicketOpen(true);
   };
@@ -121,22 +123,26 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     }
   };
 
-  // User Role-based ticket filtering: Super Admin sees all, other users see only their assigned tickets
+  // User Role-based ticket filtering: Super Admin sees all, other users see only their created or assigned tickets
+  const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+
   const roleFilteredTickets = useMemo(() => {
-    if (!currentUser || currentUser.role === 'Super Admin') return tickets;
+    if (!currentUser || isSuperAdmin) return tickets;
     const normUser = (currentUser.name || '').toLowerCase().trim();
     const normEmail = (currentUser.email || '').toLowerCase().trim();
     return tickets.filter((t) => {
+      const creator = (t.createdBy || '').toLowerCase();
+      const creatorEmail = (t.creatorEmail || '').toLowerCase();
       const qa = (t.qaAssignee || '').toLowerCase();
       const dev = (t.developer || '').toLowerCase();
       return (
-        qa.includes(normUser) ||
-        dev.includes(normUser) ||
-        (normUser && normUser.includes(qa)) ||
-        (normEmail && normEmail.includes(qa))
+        (normUser && (creator.includes(normUser) || normUser.includes(creator))) ||
+        (normEmail && creatorEmail === normEmail) ||
+        (normUser && (qa.includes(normUser) || normUser.includes(qa))) ||
+        (normUser && (dev.includes(normUser) || normUser.includes(dev)))
       );
     });
-  }, [tickets, currentUser]);
+  }, [tickets, currentUser, isSuperAdmin]);
 
   // Unique QA assignees
   const qaAssignees = useMemo(() => {
@@ -205,9 +211,11 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       featureName: newFeatureName.trim(),
       moduleId: finalModuleId,
       moduleName: finalModuleName,
-      developer: newDeveloper.trim() || 'Kunal Joshi',
+      developer: newDeveloper.trim() || '',
       qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
-      signOffBy: 'Ashwini Poke',
+      createdBy: currentUser?.name || 'Maseera Sayyed',
+      creatorEmail: currentUser?.email || 'maseerasayyed@quantumphinance.com',
+      signOffBy: '',
       clientName: 'Treasury Master',
       shaCommit: `SHA-1: ${Math.random().toString(36).substring(2, 10)}`,
       priority: newPriority,
@@ -257,6 +265,33 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
             <Plus className="w-3.5 h-3.5" />
             <span>+ Add Azure DevOps Ticket</span>
           </button>
+        </div>
+      </div>
+
+      {/* Authority Level Info Banner */}
+      <div
+        className={`px-4 py-2.5 rounded-lg border text-xs flex items-center justify-between gap-3 ${
+          isSuperAdmin
+            ? 'bg-purple-50/80 border-purple-200 text-purple-900'
+            : 'bg-blue-50/80 border-blue-200 text-blue-900'
+        }`}
+      >
+        <div className="flex items-center gap-2">
+          <span
+            className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              isSuperAdmin ? 'bg-purple-600 text-white' : 'bg-blue-600 text-white'
+            }`}
+          >
+            {isSuperAdmin ? 'SUPER ADMIN' : `${currentUser?.role?.toUpperCase() || 'USER'} SCOPE`}
+          </span>
+          <span className="font-medium">
+            {isSuperAdmin
+              ? `Super Admin Authority Active: Viewing all tickets (${roleFilteredTickets.length}) across all Quantum Phinance team members.`
+              : `Scoped Workspace: Showing only tickets created by or assigned to you (${currentUser?.name}) (${roleFilteredTickets.length} tickets). Other team members' tickets are hidden.`}
+          </span>
+        </div>
+        <div className="text-[11px] text-slate-500 font-semibold hidden md:block">
+          Logged in as: <span className="font-bold text-slate-700">{currentUser?.name}</span>
         </div>
       </div>
 
@@ -732,7 +767,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                 sha: selectedAdoTicket.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
                 taskName: selectedAdoTicket.featureName,
                 taskDoneBy: selectedAdoTicket.qaAssignee || 'Maseera Sayyed',
-                signOffBy: selectedAdoTicket.signOffBy || 'Ashwini Poke',
+                signOffBy: selectedAdoTicket.signOffBy || '',
               },
               []
             )

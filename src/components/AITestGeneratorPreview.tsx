@@ -31,15 +31,15 @@ export const AITestGeneratorPreview: React.FC<AITestGeneratorPreviewProps> = ({
   onAppendTestCases,
   onNavigateToLibrary,
 }) => {
-  const [ticketId, setTicketId] = useState('21653');
-  const [featureName, setFeatureName] = useState('penalty overdue report');
+  const [ticketId, setTicketId] = useState('');
+  const [featureName, setFeatureName] = useState('');
   const [selectedModule, setSelectedModule] = useState('Term Loan');
   const [priority, setPriority] = useState('High');
   const [environment, setEnvironment] = useState('UAT / Staging');
   const [clientName, setClientName] = useState('Treasury Master');
   const [shaCommit, setShaCommit] = useState('SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*');
   const [qaAssignee, setQaAssignee] = useState('Maseera Sayyed');
-  const [signOffBy, setSignOffBy] = useState('Ashwini poke');
+  const [signOffBy, setSignOffBy] = useState('');
   const [requirement, setRequirement] = useState(
     'Verify penalty interest and principal calculation on overdue term loans, displaying penalty entries in cashflow and overdue report after loan disbursement.'
   );

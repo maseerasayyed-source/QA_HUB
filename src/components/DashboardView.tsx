@@ -45,25 +45,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedAdoTicket, setSelectedAdoTicket] = useState<TicketSummary | null>(null);
   const [adoNotice, setAdoNotice] = useState<string | null>(null);
 
-  // User role-based filtering logic: Super Admin sees all tickets; standard User / Admin sees tickets assigned to them
+  // User role-based filtering logic: Super Admin sees all tickets; standard User sees tickets created by or assigned to them
+  const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+
   const roleFilteredTickets = useMemo(() => {
-    if (!currentUser || currentUser.role === 'Super Admin') {
+    if (!currentUser || isSuperAdmin) {
       return tickets;
     }
     const userEmail = currentUser.email.toLowerCase().trim();
     const userName = currentUser.name.toLowerCase().trim();
 
     return tickets.filter((t) => {
+      const creator = (t.createdBy || '').toLowerCase();
+      const creatorEmail = (t.creatorEmail || '').toLowerCase();
       const qa = (t.qaAssignee || '').toLowerCase().trim();
       const dev = (t.developer || '').toLowerCase().trim();
       return (
-        qa.includes(userName) ||
-        userEmail.includes(qa) ||
-        dev.includes(userName) ||
-        userEmail.includes(dev)
+        (userName && (creator.includes(userName) || userName.includes(creator))) ||
+        (userEmail && creatorEmail === userEmail) ||
+        (userName && (qa.includes(userName) || userName.includes(qa))) ||
+        (userEmail && userEmail.includes(qa)) ||
+        (userName && (dev.includes(userName) || userName.includes(dev))) ||
+        (userEmail && userEmail.includes(dev))
       );
     });
-  }, [tickets, currentUser]);
+  }, [tickets, currentUser, isSuperAdmin]);
 
   // Extract unique QA assignees for filter
   const qaAssignees = useMemo(() => {
@@ -306,62 +312,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 </tr>
               </thead>
               <tbody className="text-xs divide-y divide-slate-100">
-                {filteredTickets.map((t) => (
-                  <tr
-                    key={t.id}
-                    onClick={() => {
-                      onSelectTicket(t);
-                      onNavigateTab('ai-test-hub');
-                    }}
-                    className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
-                  >
-                    <td className="p-2 font-mono text-blue-600 font-bold">{t.ticketNumber}</td>
-                    <td className="p-2">
-                      <div className="font-bold text-slate-900 truncate max-w-[180px]">{t.featureName}</div>
-                      <div className="text-[10px] text-slate-500">{t.moduleName} • QA: {t.qaAssignee}</div>
-                    </td>
-                    <td className="p-2 text-center">
-                      <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded font-mono font-bold text-[11px]">
-                        {t.testCasesCount} Cases
-                      </span>
-                    </td>
-                    <td className="p-2 text-center">
-                      <span
-                        className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
-                          t.observationsCount > 0
-                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                            : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        }`}
-                      >
-                        {t.observationsCount} Pending
-                      </span>
-                    </td>
-                    <td className="p-2 text-center">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                          t.priority === 'Critical'
-                            ? 'bg-red-100 text-red-600'
-                            : t.priority === 'High'
-                            ? 'bg-orange-100 text-orange-600'
-                            : 'bg-blue-100 text-blue-600'
-                        }`}
-                      >
-                        {t.priority.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="p-2 text-center">
-                      <button
-                        type="button"
-                        onClick={(e) => handleOpenAdoAttach(t, e)}
-                        title="Directly attach to Azure DevOps Work Item"
-                        className="px-2 py-1 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 mx-auto"
-                      >
-                        <UploadCloud className="w-3 h-3" />
-                        <span>Attach</span>
-                      </button>
+                {filteredTickets.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-8 text-center text-slate-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Ticket className="w-8 h-8 text-slate-300" />
+                        <p className="font-semibold text-slate-600">No tickets found</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs">
+                          All sample tickets have been removed. Create a new Azure DevOps ticket to begin testing.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => onNavigateTab('tickets')}
+                          className="mt-2 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold text-xs cursor-pointer shadow-xs transition-colors"
+                        >
+                          + Add Azure DevOps Ticket
+                        </button>
+                      </div>
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  filteredTickets.map((t) => (
+                    <tr
+                      key={t.id}
+                      onClick={() => {
+                        onSelectTicket(t);
+                        onNavigateTab('ai-test-hub');
+                      }}
+                      className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
+                    >
+                      <td className="p-2 font-mono text-blue-600 font-bold">{t.ticketNumber}</td>
+                      <td className="p-2">
+                        <div className="font-bold text-slate-900 truncate max-w-[180px]">{t.featureName}</div>
+                        <div className="text-[10px] text-slate-500">{t.moduleName} • QA: {t.qaAssignee}</div>
+                      </td>
+                      <td className="p-2 text-center">
+                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded font-mono font-bold text-[11px]">
+                          {t.testCasesCount} Cases
+                        </span>
+                      </td>
+                      <td className="p-2 text-center">
+                        <span
+                          className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                            t.observationsCount > 0
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}
+                        >
+                          {t.observationsCount} Pending
+                        </span>
+                      </td>
+                      <td className="p-2 text-center">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            t.priority === 'Critical'
+                              ? 'bg-red-100 text-red-600'
+                              : t.priority === 'High'
+                              ? 'bg-orange-100 text-orange-600'
+                              : 'bg-blue-100 text-blue-600'
+                          }`}
+                        >
+                          {t.priority.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="p-2 text-center">
+                        <button
+                          type="button"
+                          onClick={(e) => handleOpenAdoAttach(t, e)}
+                          title="Directly attach to Azure DevOps Work Item"
+                          className="px-2 py-1 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 mx-auto cursor-pointer"
+                        >
+                          <UploadCloud className="w-3 h-3" />
+                          <span>Attach</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -388,48 +415,58 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-[420px]">
-            {filteredTickets.map((t) => (
-              <div
-                key={t.id}
-                onClick={() => {
-                  onSelectTicket(t);
-                  onNavigateTab('observations');
-                }}
-                className="border border-slate-200 rounded-lg p-3 hover:border-blue-300 bg-slate-50/50 hover:bg-white transition-all cursor-pointer shadow-2xs"
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-mono font-bold text-blue-700">#{t.ticketNumber}</span>
-                    <span className="text-xs font-bold text-slate-800">{t.featureName}</span>
-                  </div>
-                  <span
-                    className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                      t.observationsCount > 0
-                        ? 'bg-red-100 text-red-700 border border-red-200'
-                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    }`}
-                  >
-                    {t.observationsCount} Pending Obs
-                  </span>
-                </div>
-
-                <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
-                  <span>Module: <strong className="text-slate-700">{t.moduleName}</strong></span>
-                  <span>QA Assignee: <strong className="text-slate-700">{t.qaAssignee}</strong></span>
-                  <span>Dev: <strong className="text-slate-700">{t.developer}</strong></span>
-                </div>
-
-                <div className="mt-2 flex items-center justify-between text-[11px] pt-2 border-t border-slate-200/60">
-                  <span className="text-slate-500 font-medium">
-                    Test Cases Written: <strong className="text-slate-800">{t.testCasesCount}</strong> ({t.passedCount} Passed)
-                  </span>
-                  <span className="text-blue-600 font-semibold group-hover:underline flex items-center gap-0.5">
-                    <span>Open Sheet</span>
-                    <ArrowUpRight className="w-3 h-3" />
-                  </span>
-                </div>
+            {filteredTickets.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center gap-2 h-full">
+                <AlertOctagon className="w-8 h-8 text-slate-300" />
+                <p className="font-semibold text-slate-600">No active observations</p>
+                <p className="text-[11px] text-slate-400 max-w-xs">
+                  Observations and RFEs will be tracked when you log them on your created tickets.
+                </p>
               </div>
-            ))}
+            ) : (
+              filteredTickets.map((t) => (
+                <div
+                  key={t.id}
+                  onClick={() => {
+                    onSelectTicket(t);
+                    onNavigateTab('observations');
+                  }}
+                  className="border border-slate-200 rounded-lg p-3 hover:border-blue-300 bg-slate-50/50 hover:bg-white transition-all cursor-pointer shadow-2xs"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-blue-700">#{t.ticketNumber}</span>
+                      <span className="text-xs font-bold text-slate-800">{t.featureName}</span>
+                    </div>
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                        t.observationsCount > 0
+                          ? 'bg-red-100 text-red-700 border border-red-200'
+                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      }`}
+                    >
+                      {t.observationsCount} Pending Obs
+                    </span>
+                  </div>
+
+                  <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
+                    <span>Module: <strong className="text-slate-700">{t.moduleName}</strong></span>
+                    <span>QA Assignee: <strong className="text-slate-700">{t.qaAssignee}</strong></span>
+                    <span>Dev: <strong className="text-slate-700">{t.developer}</strong></span>
+                  </div>
+
+                  <div className="mt-2 flex items-center justify-between text-[11px] pt-2 border-t border-slate-200/60">
+                    <span className="text-slate-500 font-medium">
+                      Test Cases Written: <strong className="text-slate-800">{t.testCasesCount}</strong> ({t.passedCount} Passed)
+                    </span>
+                    <span className="text-blue-600 font-semibold group-hover:underline flex items-center gap-0.5">
+                      <span>Open Sheet</span>
+                      <ArrowUpRight className="w-3 h-3" />
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
@@ -449,7 +486,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 sha: selectedAdoTicket.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
                 taskName: selectedAdoTicket.featureName,
                 taskDoneBy: selectedAdoTicket.qaAssignee || 'Maseera Sayyed',
-                signOffBy: selectedAdoTicket.signOffBy || 'Ashwini Poke',
+                signOffBy: selectedAdoTicket.signOffBy || '',
               },
               []
             )

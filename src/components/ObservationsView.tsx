@@ -122,7 +122,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const [newModuleId, setNewModuleId] = useState<string>('term loan');
   const [customModuleName, setCustomModuleName] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
-  const [newDeveloper, setNewDeveloper] = useState<string>('Kunal Joshi');
+  const [newDeveloper, setNewDeveloper] = useState<string>('');
   const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || 'Maseera Sayyed');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
@@ -583,7 +583,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       featureName: newFeatureName.trim(),
       moduleId: newModuleId === 'other' ? 'custom' : newModuleId,
       moduleName: effectiveModuleName,
-      developer: newDeveloper.trim() || 'Kunal Joshi',
+      developer: newDeveloper.trim() || '',
       qaAssignee: newQaAssignee.trim() || currentUser?.name || 'Maseera Sayyed',
       priority: newPriority,
       status: 'Ready for QA',
@@ -1188,7 +1188,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         mode="qa"
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
-        developerName={currentTicket?.developer || 'Kunal Joshi'}
+        developerName={currentTicket?.developer || ''}
         qaAssigneeName={currentTicket?.qaAssignee || header.qaOwner || 'Maseera Sayyed'}
         description={header.ticketName}
         testingScenarios={header.testingScenarios || ''}

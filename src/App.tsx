@@ -14,6 +14,9 @@ import {
   AppSettings,
   ColourTheme,
   FontStyle,
+  UserManualDoc,
+  DailyTaskItem,
+  UserNotepad,
 } from './types';
 import {
   loadInitialData,
@@ -26,6 +29,9 @@ import {
   saveDevTestingMapToStorage,
   saveDevTestingHeadersMapToStorage,
   saveAppSettingsToStorage,
+  saveUserManualsToStorage,
+  saveDailyTasksToStorage,
+  saveUserNotepadsToStorage,
   REGISTERED_USERS,
   syncTicketCounts,
   clearSampleData,
@@ -40,6 +46,8 @@ import { ObservationsView } from './components/ObservationsView';
 import { DeveloperTestingView } from './components/DeveloperTestingView';
 import { UnifiedAITestHub } from './components/UnifiedAITestHub';
 import { SeniorQAReviewQueue } from './components/SeniorQAReviewQueue';
+import { UserManualView } from './components/UserManualView';
+import { DailyTaskUpdatesView } from './components/DailyTaskUpdatesView';
 import { LoginPage } from './components/LoginPage';
 import { X, UserCheck, ShieldCheck, Mail, LogOut } from 'lucide-react';
 
@@ -80,47 +88,92 @@ export default function App() {
     Record<string, DeveloperTestHeaderMeta>
   >(dbState.devTestingHeadersMap || {});
 
+  // User Manuals, Daily Tasks, and User Notepads state
+  const [userManuals, setUserManuals] = useState<UserManualDoc[]>(
+    dbState.userManuals || []
+  );
+  const [dailyTasks, setDailyTasks] = useState<DailyTaskItem[]>(
+    dbState.dailyTasks || []
+  );
+  const [userNotepads, setUserNotepads] = useState<UserNotepad[]>(
+    dbState.userNotepads || []
+  );
+
   const [activeModuleFilter, setActiveModuleFilter] = useState<string>('all');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
 
+  // Authority Check:
+  // Maseera Sayyed -> Super Admin (sees all tickets across organization)
+  // Others -> View only tickets they created or are assigned to
+  const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+
+  const visibleTickets = React.useMemo(() => {
+    if (!currentUser) return [];
+    if (isSuperAdmin) {
+      return tickets;
+    }
+    const normName = (currentUser.name || '').toLowerCase().trim();
+    const normEmail = (currentUser.email || '').toLowerCase().trim();
+
+    return tickets.filter((t) => {
+      const creator = (t.createdBy || '').toLowerCase();
+      const creatorEmail = (t.creatorEmail || '').toLowerCase();
+      const qa = (t.qaAssignee || '').toLowerCase();
+      const dev = (t.developer || '').toLowerCase();
+
+      const isCreator =
+        (normName && (creator.includes(normName) || normName.includes(creator))) ||
+        (normEmail && creatorEmail === normEmail);
+
+      const isAssigned =
+        (normName && (qa.includes(normName) || normName.includes(qa))) ||
+        (normName && (dev.includes(normName) || normName.includes(dev)));
+
+      return isCreator || isAssigned;
+    });
+  }, [tickets, currentUser, isSuperAdmin]);
+
   // Selected Active Ticket ID
-  const [activeTicketNumber, setActiveTicketNumber] = useState<string>('21653');
+  const [activeTicketNumber, setActiveTicketNumber] = useState<string>('');
+
+  // Keep active ticket valid for currently visible tickets
+  useEffect(() => {
+    if (visibleTickets.length > 0) {
+      if (!visibleTickets.some((t) => t.ticketNumber.toLowerCase() === activeTicketNumber.toLowerCase())) {
+        setActiveTicketNumber(visibleTickets[0].ticketNumber);
+      }
+    } else {
+      setActiveTicketNumber('');
+    }
+  }, [visibleTickets, activeTicketNumber]);
 
   // Currently active ticket
   const currentTicket =
-    tickets.find((t) => t.ticketNumber.toLowerCase() === activeTicketNumber.toLowerCase()) ||
-    tickets[0];
+    visibleTickets.find((t) => t.ticketNumber.toLowerCase() === activeTicketNumber.toLowerCase()) ||
+    visibleTickets[0] ||
+    tickets[0] ||
+    undefined;
 
-  const testCaseHeader: TestCaseHeaderMeta = testCaseHeadersMap[activeTicketNumber] || {
-    ticketNo: currentTicket?.ticketNumber || '21653',
+  const testCaseHeader: TestCaseHeaderMeta = (activeTicketNumber && testCaseHeadersMap[activeTicketNumber]) || {
+    ticketNo: currentTicket?.ticketNumber || activeTicketNumber || '',
     clientName: currentTicket?.clientName || 'Treasury Master',
-    sha: currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
-    taskName: currentTicket?.featureName || 'penalty overdue report',
-    taskDoneBy: currentTicket?.qaAssignee || 'Maseera Sayyed',
-    signOffBy: currentTicket?.signOffBy || 'Ashwini Poke',
+    sha: currentTicket?.shaCommit || '',
+    taskName: currentTicket?.featureName || '',
+    taskDoneBy: currentTicket?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
+    signOffBy: currentTicket?.signOffBy || '',
     reviewStatus: 'Draft',
     version: '1.0',
   };
 
-  const testCasesList =
-    activeTicketNumber in testCasesMap
-      ? testCasesMap[activeTicketNumber]
-      : activeTicketNumber === '21653'
-      ? testCasesMap['21653'] || []
-      : [];
+  const testCasesList = (activeTicketNumber && testCasesMap[activeTicketNumber]) || [];
 
-  const observationsList =
-    activeTicketNumber in observationsMap
-      ? observationsMap[activeTicketNumber]
-      : activeTicketNumber === '21653'
-      ? observationsMap['21653'] || []
-      : [];
+  const observationsList = (activeTicketNumber && observationsMap[activeTicketNumber]) || [];
 
   const observationHeader: ObservationHeaderMeta = {
-    ticketName: currentTicket?.featureName || 'penalty overdue report',
-    ticketNo: currentTicket?.ticketNumber || '21653',
-    qaOwner: currentTicket?.qaAssignee || 'Maseera Sayyed',
+    ticketName: currentTicket?.featureName || '',
+    ticketNo: currentTicket?.ticketNumber || activeTicketNumber || '',
+    qaOwner: currentTicket?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
     clientName: currentTicket?.clientName || 'Treasury Master',
     date: new Date().toISOString().split('T')[0],
   };
@@ -198,9 +251,14 @@ export default function App() {
 
   // Handle Add New Ticket
   const handleAddTicket = (newTicket: TicketSummary) => {
-    const nextTickets = [newTicket, ...tickets];
+    const ticketWithCreator: TicketSummary = {
+      ...newTicket,
+      createdBy: newTicket.createdBy || currentUser?.name || 'Maseera Sayyed',
+      creatorEmail: newTicket.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
+    };
+    const nextTickets = [ticketWithCreator, ...tickets];
     setTickets(nextTickets);
-    setActiveTicketNumber(newTicket.ticketNumber);
+    setActiveTicketNumber(ticketWithCreator.ticketNumber);
     saveTicketsToStorage(nextTickets);
   };
 
@@ -221,6 +279,8 @@ export default function App() {
       'ai-test-hub': 'QA AI Test Case',
       'test-cases': 'Test Cases Workbench',
       'review-queue': 'QA Test Case Review',
+      'user-manual': 'User Manual (Word)',
+      'daily-updates': 'Daily Task Log',
       observations: 'Observations',
       rfe: 'RFE Module',
       modules: 'Modules',
@@ -260,7 +320,7 @@ export default function App() {
       case 'dashboard':
         return (
           <DashboardView
-            tickets={tickets}
+            tickets={visibleTickets}
             modules={modules}
             onSelectTicket={(ticket) => {
               setActiveTicketNumber(ticket.ticketNumber);
@@ -277,7 +337,7 @@ export default function App() {
       case 'tickets':
         return (
           <TicketsView
-            tickets={tickets}
+            tickets={visibleTickets}
             modules={modules}
             onSelectTicket={(t) => {
               setActiveTicketNumber(t.ticketNumber);
@@ -295,7 +355,7 @@ export default function App() {
       case 'developer-testing':
         return (
           <DeveloperTestingView
-            tickets={tickets}
+            tickets={visibleTickets}
             modules={modules}
             currentUser={currentUser}
             devTestingMap={devTestingMap}
@@ -313,7 +373,7 @@ export default function App() {
           <UnifiedAITestHub
             initialHeader={testCaseHeader}
             initialTestCases={testCasesList}
-            tickets={tickets}
+            tickets={visibleTickets}
             modules={modules}
             currentUser={currentUser}
             activeTicketNumber={activeTicketNumber}
@@ -334,7 +394,7 @@ export default function App() {
       case 'review-queue':
         return (
           <SeniorQAReviewQueue
-            tickets={tickets}
+            tickets={isSuperAdmin ? tickets : visibleTickets}
             testCasesMap={testCasesMap}
             testCaseHeadersMap={testCaseHeadersMap}
             currentUser={currentUser}
@@ -351,11 +411,45 @@ export default function App() {
           />
         );
 
+      case 'user-manual':
+        return (
+          <UserManualView
+            tickets={visibleTickets}
+            testCasesMap={testCasesMap}
+            modules={modules}
+            currentUser={currentUser}
+            userManuals={userManuals}
+            onSaveManuals={(newManuals) => {
+              setUserManuals(newManuals);
+              saveUserManualsToStorage(newManuals);
+            }}
+          />
+        );
+
+      case 'daily-updates':
+        return (
+          <DailyTaskUpdatesView
+            currentUser={currentUser}
+            tickets={visibleTickets}
+            modules={modules}
+            dailyTasks={dailyTasks}
+            userNotepads={userNotepads}
+            onSaveDailyTasks={(newTasks) => {
+              setDailyTasks(newTasks);
+              saveDailyTasksToStorage(newTasks);
+            }}
+            onSaveNotepads={(newNotepads) => {
+              setUserNotepads(newNotepads);
+              saveUserNotepadsToStorage(newNotepads);
+            }}
+          />
+        );
+
       case 'observations':
       case 'rfe':
         return (
           <ObservationsView
-            tickets={tickets}
+            tickets={visibleTickets}
             modules={modules}
             currentUser={currentUser}
             activeTicketNumber={activeTicketNumber}
@@ -459,6 +553,7 @@ export default function App() {
         onSelectTab={(tab) => handleNavigateTab(tab)}
         currentUser={currentUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        theme={settings.theme}
       />
 
       {/* 2. Main Workspace */}
@@ -470,6 +565,12 @@ export default function App() {
           modules={modules}
           onOpenGuide={() => setIsGuideOpen(true)}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          currentTheme={settings.theme}
+          onSelectTheme={(theme) => {
+            const updated = { ...settings, theme };
+            setSettings(updated);
+            saveAppSettingsToStorage(updated);
+          }}
         />
 
         <main className="flex-1 overflow-y-auto">
@@ -494,7 +595,7 @@ export default function App() {
             <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-blue-400" />
-                <h2 className="text-base font-bold">Switch Official User / Logout</h2>
+                <h2 className="text-base font-bold">Switch Account / Test Authority</h2>
               </div>
               <button
                 onClick={() => setIsLoginModalOpen(false)}
@@ -506,22 +607,79 @@ export default function App() {
 
             <div className="p-5 space-y-4 text-xs">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                <div className="font-bold text-slate-800">Currently Logged-In User:</div>
-                <div className="text-slate-600 mt-1">
-                  <strong>{currentUser.name}</strong> ({currentUser.email})
-                </div>
-                <div className="text-xs text-blue-700 font-bold mt-0.5">
-                  Role: {currentUser.role}
+                <div className="font-bold text-slate-800">Currently Logged-In:</div>
+                <div className="text-slate-700 mt-1 flex items-center justify-between">
+                  <div>
+                    <strong>{currentUser.name}</strong>
+                    <div className="text-[11px] text-slate-500">{currentUser.email}</div>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                      currentUser.role === 'Super Admin'
+                        ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                        : 'bg-blue-100 text-blue-800 border border-blue-200'
+                    }`}
+                  >
+                    {currentUser.role}
+                  </span>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100 flex justify-end">
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-2">
+                  Switch Active User &amp; Authority Scope:
+                </label>
+                <div className="space-y-2">
+                  {REGISTERED_USERS.map((user) => {
+                    const isCurrent = user.email.toLowerCase() === currentUser.email.toLowerCase();
+                    const isUserSuperAdmin = user.role === 'Super Admin';
+                    return (
+                      <button
+                        key={user.email}
+                        onClick={() => {
+                          handleLoginSuccess(user);
+                        }}
+                        className={`w-full text-left p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                          isCurrent
+                            ? 'bg-blue-50/80 border-blue-400 ring-2 ring-blue-500/20'
+                            : 'bg-white hover:bg-slate-50 border-slate-200'
+                        }`}
+                      >
+                        <div>
+                          <div className="flex items-center gap-1.5 font-bold text-slate-900">
+                            <span>{user.name}</span>
+                            {isUserSuperAdmin && (
+                              <span className="text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.2 rounded font-extrabold">
+                                👑 Super Admin
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500">{user.email}</div>
+                          <div className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                            {isUserSuperAdmin
+                              ? '• Full visibility: sees all tickets across all users'
+                              : `• Scoped visibility: sees only ${user.name.split(' ')[0]}'s tickets`}
+                          </div>
+                        </div>
+                        {isCurrent && (
+                          <span className="text-[10px] font-bold text-blue-700 bg-blue-100/80 px-2 py-0.5 rounded">
+                            Active
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">Quantum Phinance QA Hub</span>
                 <button
                   onClick={() => {
                     handleLogout();
                     setIsLoginModalOpen(false);
                   }}
-                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-lg cursor-pointer flex items-center gap-1.5"
+                  className="px-3.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 font-bold text-xs rounded-lg border border-red-200 cursor-pointer flex items-center gap-1.5 transition-colors"
                 >
                   <LogOut className="w-3.5 h-3.5" />
                   <span>Logout Session</span>

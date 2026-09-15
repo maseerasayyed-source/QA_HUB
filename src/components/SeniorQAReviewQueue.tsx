@@ -105,8 +105,8 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
         sha: t.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d',
         taskName: t.featureName,
         taskDoneBy: t.qaAssignee || 'Maseera Sayyed',
-        signOffBy: t.signOffBy || 'Ashwini Poke',
-        reviewStatus: (t.ticketNumber === '21653' ? 'Review Pending' : 'Draft') as TestCaseReviewStatus,
+        signOffBy: t.signOffBy || '',
+        reviewStatus: (t.reviewStatus || 'Draft') as TestCaseReviewStatus,
         version: '1.0',
       };
 
@@ -116,7 +116,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
         ticket: t,
         header: h,
         testCases: cases,
-        status: h.reviewStatus || (t.ticketNumber === '21653' ? 'Review Pending' : 'Draft'),
+        status: h.reviewStatus || (t.reviewStatus || 'Draft'),
       };
     });
   }, [tickets, testCaseHeadersMap, testCasesMap]);
@@ -235,11 +235,11 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   // Add Comment Action
   const handleAddComment = () => {
     if (!commentText.trim() || !activeItem) return;
-    const authorName = currentUser?.name || 'Ashwini Poke (Senior QA)';
+    const authorName = currentUser?.name || 'Senior QA';
     const newComment: ReviewComment = {
       id: `comment-${Date.now()}`,
       author: authorName,
-      authorEmail: currentUser?.email || 'ashwinipoke@quantumphinance.com',
+      authorEmail: currentUser?.email || 'qa@quantumphinance.com',
       role: currentUser?.role || 'Senior QA',
       text: commentText.trim(),
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -261,7 +261,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   const handleSendBack = () => {
     if (!activeItem) return;
     const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const authorName = currentUser?.name || 'Ashwini Poke (Senior QA)';
+    const authorName = currentUser?.name || 'Senior QA';
 
     let comments = activeItem.header.comments || [];
     if (commentText.trim()) {
@@ -270,7 +270,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
         {
           id: `comment-${Date.now()}`,
           author: authorName,
-          authorEmail: currentUser?.email || 'ashwinipoke@quantumphinance.com',
+          authorEmail: currentUser?.email || 'qa@quantumphinance.com',
           role: currentUser?.role || 'Senior QA',
           text: commentText.trim(),
           createdAt: nowStr,
@@ -394,7 +394,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   const handleApprove = () => {
     if (!activeItem) return;
     const nowStr = new Date().toLocaleDateString();
-    const authorName = currentUser?.name || 'Ashwini Poke (Senior QA)';
+    const authorName = currentUser?.name || 'Senior QA';
 
     const updatedHeader: TestCaseHeaderMeta = {
       ...activeItem.header,
@@ -582,7 +582,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
             mode="qa"
             selectedTicketNumber={activeItem.ticket.ticketNumber}
             tickets={tickets}
-            developerName={activeItem.ticket.developer || activeItem.header.developer || 'Kunal Joshi'}
+            developerName={activeItem.ticket.developer || activeItem.header.developer || ''}
             qaAssigneeName={activeItem.ticket.qaAssignee || activeItem.header.taskDoneBy || 'Maseera Sayyed'}
             reviewDoneBy={activeItem.header.reviewDoneBy || activeItem.header.approvedBy}
             reviewDoneAt={activeItem.header.reviewDoneAt || activeItem.header.approvedAt}

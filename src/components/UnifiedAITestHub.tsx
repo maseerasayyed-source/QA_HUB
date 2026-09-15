@@ -93,7 +93,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
   // Currently Selected Ticket Number
   const [selectedTicketNumber, setSelectedTicketNumber] = useState<string>(
-    activeTicketNumber || initialHeader.ticketNo || '21653'
+    activeTicketNumber || initialHeader.ticketNo || ''
   );
 
   // Synchronize when activeTicketNumber prop updates
@@ -107,20 +107,21 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const matchedTicket = useMemo(() => {
     return (
       tickets.find((t) => t.ticketNumber.toLowerCase() === selectedTicketNumber.toLowerCase()) ||
-      tickets[0]
+      tickets[0] ||
+      undefined
     );
   }, [tickets, selectedTicketNumber]);
 
   // Header Metadata - synchronized with testCaseHeadersMap
   const [header, setHeader] = useState<TestCaseHeaderMeta>(() => {
-    const existing = testCaseHeadersMap[selectedTicketNumber];
+    const existing = selectedTicketNumber ? testCaseHeadersMap[selectedTicketNumber] : undefined;
     if (existing) return existing;
     return {
       ...initialHeader,
-      ticketNo: matchedTicket?.ticketNumber || initialHeader.ticketNo || '21653',
-      taskName: matchedTicket?.featureName || initialHeader.taskName,
-      taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || 'Maseera Sayyed',
-      signOffBy: matchedTicket?.signOffBy || initialHeader.signOffBy || 'Ashwini Poke',
+      ticketNo: matchedTicket?.ticketNumber || initialHeader.ticketNo || '',
+      taskName: matchedTicket?.featureName || initialHeader.taskName || '',
+      taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || currentUser?.name || 'Maseera Sayyed',
+      signOffBy: matchedTicket?.signOffBy || initialHeader.signOffBy || '',
       reviewStatus: initialHeader.reviewStatus || 'Draft',
       version: initialHeader.version || '1.0',
       revisionsHistory: initialHeader.revisionsHistory || [],
@@ -174,8 +175,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [newModuleId, setNewModuleId] = useState<string>(modules[0]?.id || 'term-loan');
   const [customModuleName, setCustomModuleName] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
-  const [newDeveloper, setNewDeveloper] = useState<string>('Kunal Joshi');
-  const [newQaAssignee, setNewQaAssignee] = useState<string>('Maseera Sayyed');
+  const [newDeveloper, setNewDeveloper] = useState<string>('');
+  const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || 'Maseera Sayyed');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
 
@@ -186,7 +187,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState<boolean>(false);
   const [submittingTicket, setSubmittingTicket] = useState<TicketSummary | null>(null);
   const [selectedReviewerEmail, setSelectedReviewerEmail] = useState<string>(
-    'ashwinipoke@quantumphinance.com'
+    'maseerasayyed@quantumphinance.com'
   );
   const [customReviewerName, setCustomReviewerName] = useState<string>('');
   const [customReviewerEmail, setCustomReviewerEmail] = useState<string>('');
@@ -245,7 +246,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       clientName: ticket.clientName || header.clientName || 'Treasury Master',
       sha: ticket.shaCommit || header.sha,
       taskDoneBy: ticket.qaAssignee || header.taskDoneBy || 'Maseera Sayyed',
-      signOffBy: ticket.signOffBy || header.signOffBy || 'Ashwini Poke',
+      signOffBy: ticket.signOffBy || header.signOffBy || '',
     };
     setHeader(updatedHeader);
     setHeaderDescription(ticket.description || ticket.featureName);
@@ -319,7 +320,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       featureName: newFeatureName.trim(),
       moduleId: finalModuleId,
       moduleName: finalModuleName,
-      developer: newDeveloper.trim() || 'Kunal Joshi',
+      developer: newDeveloper.trim() || '',
       qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
       priority: newPriority,
       status: 'Ready for QA',
@@ -467,7 +468,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       sha: targetTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d',
       taskName: targetTicket?.featureName || 'Feature',
       taskDoneBy: targetTicket?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
-      signOffBy: targetTicket?.signOffBy || 'Ashwini Poke',
+      signOffBy: targetTicket?.signOffBy || '',
       reviewStatus: 'Draft' as TestCaseReviewStatus,
       version: '1.0',
     });
@@ -479,13 +480,11 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       return;
     }
 
-    let reviewerName = 'Ashwini Poke';
+    let reviewerName = 'Senior QA Lead';
     if (selectedReviewerEmail === 'custom') {
       reviewerName = customReviewerName.trim() || 'Senior QA Reviewer';
-    } else if (selectedReviewerEmail.includes('ashwini')) {
-      reviewerName = 'Ashwini Poke (Senior QA Lead)';
     } else if (selectedReviewerEmail.includes('maseera')) {
-      reviewerName = 'Maseera Sayyed (QA Lead)';
+      reviewerName = 'Maseera Sayyed (Super Admin)';
     }
 
     const nowStr = new Date().toLocaleString();
@@ -780,7 +779,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 {filteredTickets.map((t) => {
                   const casesCount = (testCasesMap[t.ticketNumber] || []).length || t.testCasesCount || 0;
                   const ticketHeader = testCaseHeadersMap[t.ticketNumber];
-                  const reviewStatus: TestCaseReviewStatus = ticketHeader?.reviewStatus || (t.ticketNumber === '21653' ? (header.ticketNo === '21653' ? header.reviewStatus : 'Draft') : 'Draft');
+                  const reviewStatus: TestCaseReviewStatus = ticketHeader?.reviewStatus || t.reviewStatus || 'Draft';
                   return (
                     <tr
                       key={t.id}
@@ -1261,7 +1260,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         mode="qa"
         selectedTicketNumber={selectedTicketNumber}
         tickets={tickets}
-        developerName={matchedTicket?.developer || header.developer || 'Kunal Joshi'}
+        developerName={matchedTicket?.developer || header.developer || ''}
         qaAssigneeName={matchedTicket?.qaAssignee || header.taskDoneBy || 'Maseera Sayyed'}
         reviewDoneBy={header.reviewDoneBy || header.approvedBy}
         reviewDoneAt={header.reviewDoneAt || header.approvedAt}
@@ -1317,7 +1316,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 </span>
               </div>
               <p className="text-emerald-800 mt-0.5">
-                Reviewed & Signed Off By: <strong>{header.reviewDoneBy || header.approvedBy || header.signOffBy || 'Ashwini Poke (Senior QA Lead)'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Certified Version: <strong>v{header.approvedVersion || header.version || '1.0'}</strong>
+                Reviewed & Signed Off By: <strong>{header.reviewDoneBy || header.approvedBy || header.signOffBy || 'QA Lead'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Certified Version: <strong>v{header.approvedVersion || header.version || '1.0'}</strong>
               </p>
             </div>
           </div>
@@ -1343,7 +1342,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 </span>
               </div>
               <p className="text-purple-800 mt-0.5">
-                Submitted by <strong>{header.submittedBy || header.taskDoneBy}</strong> to <strong>{header.submittedTo || header.signOffBy || 'Ashwini Poke'}</strong> on <strong>{header.submittedAt || 'Today'}</strong>. Suite contains <strong>{testCases.length} test cases</strong> awaiting formal QA evaluation.
+                Submitted by <strong>{header.submittedBy || header.taskDoneBy}</strong> to <strong>{header.submittedTo || header.signOffBy || 'Senior QA'}</strong> on <strong>{header.submittedAt || 'Today'}</strong>. Suite contains <strong>{testCases.length} test cases</strong> awaiting formal QA evaluation.
               </p>
             </div>
           </div>
@@ -1808,32 +1807,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 </label>
                 <div className="space-y-2">
                   <label
-                    onClick={() => setSelectedReviewerEmail('ashwinipoke@quantumphinance.com')}
-                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
-                      selectedReviewerEmail === 'ashwinipoke@quantumphinance.com'
-                        ? 'bg-blue-50/70 border-blue-400 ring-1 ring-blue-400'
-                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="radio"
-                        name="reviewerChoice"
-                        checked={selectedReviewerEmail === 'ashwinipoke@quantumphinance.com'}
-                        onChange={() => setSelectedReviewerEmail('ashwinipoke@quantumphinance.com')}
-                        className="text-blue-600"
-                      />
-                      <div>
-                        <div className="font-bold text-slate-900">Ashwini Poke</div>
-                        <div className="text-[11px] text-slate-500">Senior QA Lead • ashwinipoke@quantumphinance.com</div>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-                      Lead Reviewer
-                    </span>
-                  </label>
-
-                  <label
                     onClick={() => setSelectedReviewerEmail('maseerasayyed@quantumphinance.com')}
                     className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
                       selectedReviewerEmail === 'maseerasayyed@quantumphinance.com'
@@ -1851,11 +1824,11 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                       />
                       <div>
                         <div className="font-bold text-slate-900">Maseera Sayyed</div>
-                        <div className="text-[11px] text-slate-500">QA Specialist • maseerasayyed@quantumphinance.com</div>
+                        <div className="text-[11px] text-slate-500">Super Admin • maseerasayyed@quantumphinance.com</div>
                       </div>
                     </div>
-                    <span className="text-[10px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
-                      Peer Review
+                    <span className="text-[10px] font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded">
+                      Super Admin
                     </span>
                   </label>
 

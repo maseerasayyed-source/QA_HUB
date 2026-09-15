@@ -7,6 +7,8 @@ export type NavTab =
   | 'observations'
   | 'rfe'
   | 'developer-testing'
+  | 'user-manual'
+  | 'daily-updates'
   | 'modules'
   | 'qa-team'
   | 'reports'
@@ -15,7 +17,7 @@ export type NavTab =
 
 export type UserRole = 'Super Admin' | 'Senior QA' | 'QA' | 'Developer' | 'Viewer';
 
-export type ColourTheme = 'Default' | 'Blue' | 'Green' | 'Purple' | 'Dark';
+export type ColourTheme = 'Default' | 'Blue' | 'Green' | 'Purple' | 'Amber' | 'Dark';
 export type FontStyle = 'Inter' | 'Roboto' | 'Arial' | 'Poppins';
 
 export interface AppSettings {
@@ -49,6 +51,8 @@ export interface TicketSummary {
   moduleName: string;
   developer: string;
   qaAssignee: string;
+  createdBy?: string;
+  creatorEmail?: string;
   signOffBy?: string;
   clientName?: string;
   shaCommit?: string;
@@ -288,3 +292,75 @@ export interface AiReviewSummary {
   issues: AiReviewIssue[];
   reviewedAt: string;
 }
+
+// ==========================================
+// USER MANUAL MODULE INTERFACES
+// ==========================================
+export interface ManualStep {
+  stepNumber: number;
+  actionTitle: string;
+  actionDescription: string;
+  expectedScreenBehavior: string;
+  screenshotUrl?: string;
+  screenshotCaption?: string;
+}
+
+export interface AttachedExcelTestCase {
+  id: string;
+  testCaseId: string;
+  scenario: string;
+  descriptionOrSteps: string;
+  expectedResult: string;
+  actualResult?: string;
+  status?: string;
+}
+
+export interface UserManualDoc {
+  id: string;
+  ticketNumber: string;
+  title: string;
+  moduleName: string;
+  version: string;
+  authorName: string;
+  authorEmail: string;
+  clientName: string;
+  createdAt: string;
+  updatedAt: string;
+  overview: string;
+  prerequisites: string[];
+  workflowSteps: ManualStep[];
+  faqOrTroubleshooting: { question: string; answer: string }[];
+  attachedTestCasesSummary?: string;
+  attachedExcelFileName?: string;
+  attachedTestCases?: AttachedExcelTestCase[];
+}
+
+// ==========================================
+// DAILY TASK & WORK LOG MODULE INTERFACES
+// ==========================================
+export type DailyTaskStatus = 'Completed' | 'In Progress' | 'Pending' | 'Blocked';
+
+export interface DailyTaskItem {
+  id: string;
+  date: string; // YYYY-MM-DD
+  userEmail: string;
+  userName: string;
+  taskTitle: string;
+  ticketNo?: string;
+  moduleName?: string;
+  timeSpentHours: number;
+  timeSlot?: string; // e.g. "10:00 AM - 01:00 PM"
+  status: DailyTaskStatus;
+  notesOrRemarks: string;
+  createdAt: string;
+}
+
+export interface UserNotepad {
+  id: string;
+  userEmail: string;
+  title: string;
+  content: string;
+  category?: 'General' | 'Blocker' | 'Meeting' | 'Idea' | 'Daily Standup';
+  updatedAt: string;
+}
+

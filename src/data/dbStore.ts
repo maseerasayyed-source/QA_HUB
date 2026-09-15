@@ -1,4 +1,18 @@
-import { UserProfile, BeaconModule, TicketSummary, TestCaseHeaderMeta, TestCaseItem, ObservationHeaderMeta, ObservationItem, DeveloperTestItem, DeveloperTestHeaderMeta, AppSettings } from '../types';
+import {
+  UserProfile,
+  BeaconModule,
+  TicketSummary,
+  TestCaseHeaderMeta,
+  TestCaseItem,
+  ObservationHeaderMeta,
+  ObservationItem,
+  DeveloperTestItem,
+  DeveloperTestHeaderMeta,
+  AppSettings,
+  UserManualDoc,
+  DailyTaskItem,
+  UserNotepad,
+} from '../types';
 import {
   INITIAL_USER,
   INITIAL_MODULES,
@@ -21,6 +35,9 @@ const STORAGE_KEYS = {
   DEV_TESTING_MAP: 'qa_hub_dev_testing_map',
   DEV_TESTING_HEADERS_MAP: 'qa_hub_dev_testing_headers_map',
   APP_SETTINGS: 'qa_hub_app_settings',
+  USER_MANUALS: 'qa_hub_user_manuals',
+  DAILY_TASKS: 'qa_hub_daily_tasks',
+  USER_NOTEPADS: 'qa_hub_user_notepads',
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -28,10 +45,9 @@ export const DEFAULT_SETTINGS: AppSettings = {
   font: 'Inter',
 };
 
-// Registered Users & Roles according to user requirements:
-// Maseera -> Super Admin
-// Ashwini -> Senior QA
-// Others -> User (QA or Developer)
+// Registered Users & Roles:
+// Only Maseera Sayyed (Super Admin) is default registered.
+// Other users appear when they create an account / login with their official email.
 export const REGISTERED_USERS: UserProfile[] = [
   {
     name: 'Maseera Sayyed',
@@ -41,42 +57,16 @@ export const REGISTERED_USERS: UserProfile[] = [
     status: 'Active',
     joiningDate: '2025-01-15',
   },
-  {
-    name: 'Ashwini Poke',
-    email: 'ashwinipoke@quantumphinance.com',
-    role: 'Senior QA',
-    department: 'Quality Assurance Management',
-    status: 'Active',
-    joiningDate: '2025-01-10',
-  },
-  {
-    name: 'Kunal Joshi',
-    email: 'kunal.joshi@quantumphinance.com',
-    role: 'Developer',
-    department: 'Engineering',
-    status: 'Active',
-    joiningDate: '2025-02-01',
-  },
-  {
-    name: 'Kavita Roy',
-    email: 'kavita.roy@quantumphinance.com',
-    role: 'QA',
-    department: 'Quality Assurance',
-    status: 'Active',
-    joiningDate: '2025-03-01',
-  },
 ];
 
 /**
  * Determine Role based on official email ID:
  * - Maseera -> Super Admin
- * - Ashwini -> Senior QA
- * - Others -> User (or QA / Developer)
+ * - Others -> Selected role (e.g. QA, Developer, BA)
  */
 export function getRoleByEmail(email: string): UserProfile['role'] {
   const norm = email.toLowerCase().trim();
   if (norm.includes('maseera')) return 'Super Admin';
-  if (norm.includes('ashwini')) return 'Senior QA';
   return 'QA';
 }
 
@@ -84,6 +74,25 @@ export function getRoleByEmail(email: string): UserProfile['role'] {
  * Initialize / Load DB state from LocalStorage
  */
 export function loadInitialData() {
+  // Purge any legacy sample data so all modules start with 0 items
+  const CLEAN_SLATE_KEY = 'beacon_qa_clean_slate_v6';
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (!localStorage.getItem(CLEAN_SLATE_KEY)) {
+        localStorage.removeItem(STORAGE_KEYS.TICKETS);
+        localStorage.removeItem(STORAGE_KEYS.TEST_CASES_MAP);
+        localStorage.removeItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
+        localStorage.removeItem(STORAGE_KEYS.OBSERVATIONS_MAP);
+        localStorage.removeItem(STORAGE_KEYS.DEV_TESTING_MAP);
+        localStorage.removeItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
+        localStorage.removeItem(STORAGE_KEYS.MODULES);
+        localStorage.setItem(CLEAN_SLATE_KEY, 'true');
+      }
+    }
+  } catch (e) {
+    console.error('Failed to clean slate localStorage', e);
+  }
+
   // Load User Session
   let user: UserProfile | null = INITIAL_USER;
   try {
@@ -100,8 +109,8 @@ export function loadInitialData() {
     console.error('Failed to parse user from localStorage', e);
   }
 
-  // Load Modules
-  let modules: BeaconModule[] = INITIAL_MODULES;
+  // Load Modules (Ensure all 18 modules start with 0 active tickets)
+  let modules: BeaconModule[] = INITIAL_MODULES.map((m) => ({ ...m, activeTicketsCount: 0 }));
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.MODULES);
@@ -116,15 +125,21 @@ export function loadInitialData() {
     console.error('Failed to parse modules from localStorage', e);
   }
 
-  // Load Tickets
-  let tickets: TicketSummary[] = INITIAL_TICKETS;
+  // Load Tickets (0 dummy tickets allowed; filter out any old legacy 21653/21890 samples)
+  let tickets: TicketSummary[] = [];
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TICKETS);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          tickets = parsed;
+        if (Array.isArray(parsed)) {
+          tickets = parsed
+            .filter((t: TicketSummary) => t.ticketNumber !== '21653' && t.ticketNumber !== '21890')
+            .map((t: TicketSummary) => ({
+              ...t,
+              createdBy: t.createdBy || t.qaAssignee || 'Maseera Sayyed',
+              creatorEmail: t.creatorEmail || 'maseerasayyed@quantumphinance.com',
+            }));
         }
       }
     }
@@ -132,16 +147,17 @@ export function loadInitialData() {
     console.error('Failed to parse tickets from localStorage', e);
   }
 
-  // Load Test Cases Map
-  let testCasesMap: Record<string, TestCaseItem[]> = {
-    '21653': INITIAL_TEST_CASES,
-  };
+  // Load Test Cases Map (Start empty: user creates their own)
+  let testCasesMap: Record<string, TestCaseItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        if (parsed && typeof parsed === 'object') {
+          // Remove legacy sample 21653
+          delete parsed['21653'];
+          delete parsed['21890'];
           testCasesMap = parsed;
         }
       }
@@ -151,15 +167,15 @@ export function loadInitialData() {
   }
 
   // Load Test Case Headers Map
-  let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {
-    '21653': INITIAL_TEST_CASE_HEADER,
-  };
+  let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        if (parsed && typeof parsed === 'object') {
+          delete parsed['21653'];
+          delete parsed['21890'];
           testCaseHeadersMap = parsed;
         }
       }
@@ -169,15 +185,15 @@ export function loadInitialData() {
   }
 
   // Load Observations Map
-  let observationsMap: Record<string, ObservationItem[]> = {
-    '21653': INITIAL_OBSERVATIONS,
-  };
+  let observationsMap: Record<string, ObservationItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        if (parsed && typeof parsed === 'object') {
+          delete parsed['21653'];
+          delete parsed['21890'];
           observationsMap = parsed;
         }
       }
@@ -187,15 +203,15 @@ export function loadInitialData() {
   }
 
   // Load Developer Testing Map
-  let devTestingMap: Record<string, DeveloperTestItem[]> = {
-    '21653': INITIAL_DEV_TEST_ITEMS,
-  };
+  let devTestingMap: Record<string, DeveloperTestItem[]> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        if (parsed && typeof parsed === 'object') {
+          delete parsed['21653'];
+          delete parsed['21890'];
           devTestingMap = parsed;
         }
       }
@@ -205,15 +221,15 @@ export function loadInitialData() {
   }
 
   // Load Developer Testing Headers Map
-  let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {
-    '21653': INITIAL_DEV_TEST_HEADER,
-  };
+  let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {};
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+        if (parsed && typeof parsed === 'object') {
+          delete parsed['21653'];
+          delete parsed['21890'];
           devTestingHeadersMap = parsed;
         }
       }
@@ -238,6 +254,53 @@ export function loadInitialData() {
     console.error('Failed to parse app settings from localStorage', e);
   }
 
+  // Load User Manuals
+  let userManuals: UserManualDoc[] = [];
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.USER_MANUALS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          userManuals = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse user manuals from localStorage', e);
+  }
+
+  // Load Daily Tasks
+  let dailyTasks: DailyTaskItem[] = [];
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.DAILY_TASKS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          dailyTasks = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse daily tasks from localStorage', e);
+  }
+
+  // Load User Notepads
+  let userNotepads: UserNotepad[] = [];
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(STORAGE_KEYS.USER_NOTEPADS);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          userNotepads = parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to parse user notepads from localStorage', e);
+  }
 
   return {
     user,
@@ -249,6 +312,9 @@ export function loadInitialData() {
     devTestingMap,
     devTestingHeadersMap,
     settings,
+    userManuals,
+    dailyTasks,
+    userNotepads,
   };
 }
 
@@ -484,3 +550,37 @@ export function saveDevTestingHeadersMapToStorage(map: Record<string, DeveloperT
     console.error(e);
   }
 }
+
+/**
+ * Save user manuals to storage
+ */
+export function saveUserManualsToStorage(manuals: UserManualDoc[]) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.USER_MANUALS, JSON.stringify(manuals));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
+ * Save daily tasks to storage
+ */
+export function saveDailyTasksToStorage(tasks: DailyTaskItem[]) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.DAILY_TASKS, JSON.stringify(tasks));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/**
+ * Save user notepads to storage
+ */
+export function saveUserNotepadsToStorage(notepads: UserNotepad[]) {
+  try {
+    localStorage.setItem(STORAGE_KEYS.USER_NOTEPADS, JSON.stringify(notepads));
+  } catch (e) {
+    console.error(e);
+  }
+}
+

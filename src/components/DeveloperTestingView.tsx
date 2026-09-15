@@ -110,7 +110,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     return {
       ticketNo: currentTicket?.ticketNumber || defaultTicketNo,
       featureName: currentTicket?.featureName || (INITIAL_DEV_TEST_HEADER as any).ticketName || 'Feature Verification',
-      developer: currentTicket?.developer || currentUser?.name || 'Kunal Joshi',
+      developer: currentTicket?.developer || currentUser?.name || '',
       devTestDate: new Date().toISOString().split('T')[0],
       dealId: currentTicket?.dealId || `DEAL-${selectedTicketNo}`,
       description: currentTicket?.description || currentTicket?.featureName || '',
@@ -127,7 +127,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     return INITIAL_DEV_TEST_ITEMS.map((item) => ({
       ...item,
       dealId: currentTicket?.dealId || `DEAL-${selectedTicketNo}`,
-      developerName: currentTicket?.developer || currentUser?.name || 'Kunal Joshi',
+      developerName: currentTicket?.developer || currentUser?.name || '',
       testingPoint: item.scenario || 'Verify that changing the Index Rate updates the Effective Rate.',
       expectedResult: item.expectedResult,
       submissionState: 'Draft',
@@ -141,7 +141,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   const [newModuleId, setNewModuleId] = useState<string>('term loan');
   const [customModuleName, setCustomModuleName] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
-  const [newDeveloper, setNewDeveloper] = useState<string>(currentUser?.name || 'Kunal Joshi');
+  const [newDeveloper, setNewDeveloper] = useState<string>(currentUser?.name || '');
   const [newQaAssignee, setNewQaAssignee] = useState<string>('Maseera Sayyed');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
@@ -191,7 +191,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       newH = {
         ticketNo: tNo,
         featureName: found?.featureName || 'Feature Verification',
-        developer: found?.developer || currentUser?.name || 'Kunal Joshi',
+        developer: found?.developer || currentUser?.name || '',
         devTestDate: new Date().toISOString().split('T')[0],
         dealId: found?.dealId || `DEAL-${tNo}`,
         description: found?.description || found?.featureName || '',
@@ -243,7 +243,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         singlePointInput,
         header.ticketNo,
         header.dealId || `DEAL-${header.ticketNo}`,
-        header.developer || currentUser?.name || 'Kunal Joshi'
+        header.developer || currentUser?.name || ''
       );
 
       const nextNum = items.length + 1;
@@ -350,7 +350,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     const ticketHeader: DeveloperTestHeaderMeta = devTestingHeadersMap[ticket.ticketNumber] || {
       ticketNo: ticket.ticketNumber,
       featureName: ticket.featureName,
-      developer: ticket.developer || 'Kunal Joshi',
+      developer: ticket.developer || '',
       devTestDate: new Date().toISOString().split('T')[0],
       dealId: ticket.dealId || `DEAL-${ticket.ticketNumber}`,
       description: ticket.description || ticket.featureName,
@@ -376,7 +376,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         const ticketHeader: DeveloperTestHeaderMeta = devTestingHeadersMap[t.ticketNumber] || {
           ticketNo: t.ticketNumber,
           featureName: t.featureName,
-          developer: t.developer || 'Kunal Joshi',
+          developer: t.developer || '',
           devTestDate: new Date().toISOString().split('T')[0],
           dealId: t.dealId || `DEAL-${t.ticketNumber}`,
           description: t.description || t.featureName,
@@ -414,7 +414,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       id: `dt-${Date.now()}`,
       scenarioId: `DEV-0${nextNum}`,
       dealId: header.dealId || `DEAL-${header.ticketNo}`,
-      developerName: header.developer || currentUser?.name || 'Kunal Joshi',
+      developerName: header.developer || currentUser?.name || '',
       testingPoint: '',
       scenario: '',
       testDescription: '',
@@ -511,7 +511,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   const handleSubmitDevTesting = () => {
     const nowStr = new Date().toLocaleString();
-    const devName = currentUser?.name || header.developer || 'Kunal Joshi';
+    const devName = currentUser?.name || header.developer || 'Developer';
     const newHeader: DeveloperTestHeaderMeta = {
       ...header,
       status: 'Submitted',
@@ -639,7 +639,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       featureName: newFeatureName.trim(),
       moduleId: newModuleId === 'other' ? 'custom' : newModuleId,
       moduleName: effectiveModuleName,
-      developer: newDeveloper.trim() || 'Kunal Joshi',
+      developer: newDeveloper.trim() || '',
       qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
       priority: newPriority,
       status: 'Ready for QA',
@@ -1236,7 +1236,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         mode="developer"
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
-        developerName={header.developer || currentTicket?.developer || 'Kunal Joshi'}
+        developerName={header.developer || currentTicket?.developer || ''}
         description={header.description || currentTicket?.description || ''}
         testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}
         attachedDocs={header.attachedDocs || []}
@@ -1375,7 +1375,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <input
                       type="text"
-                      value={item.developerName || header.developer || 'Kunal Joshi'}
+                      value={item.developerName || header.developer || ''}
                       onChange={(e) => handleCellChange(item.id, 'developerName', e.target.value)}
                       className="w-full px-2 py-1 font-semibold text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
                     />

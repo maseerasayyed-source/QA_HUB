@@ -32,12 +32,12 @@ export const TestCasesView: React.FC<TestCasesViewProps> = ({
 }) => {
   const [headerMeta, setHeaderMeta] = useState<TestCaseHeaderMeta>(
     initialHeader || {
-      ticketNo: '21653',
+      ticketNo: '',
       clientName: 'Treasury Master',
-      sha: 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
-      taskName: 'penalty overdue report',
+      sha: '',
+      taskName: '',
       taskDoneBy: 'Maseera Sayyed',
-      signOffBy: 'Ashwini Poke',
+      signOffBy: '',
       reviewStatus: 'Draft',
       version: '1.0',
     }

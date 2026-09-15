@@ -8,14 +8,17 @@ import {
   Users2,
   Code2,
   ShieldCheck,
+  FileText,
+  CalendarCheck,
 } from 'lucide-react';
-import { NavTab, UserProfile } from '../types';
+import { NavTab, UserProfile, ColourTheme } from '../types';
 
 interface SidebarProps {
   activeTab: NavTab;
   onSelectTab: (tab: NavTab) => void;
   currentUser: UserProfile;
   onOpenLoginModal?: () => void;
+  theme?: ColourTheme;
 }
 
 interface NavItem {
@@ -30,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   currentUser,
   onOpenLoginModal,
+  theme = 'Default',
 }) => {
   // Navigation tabs list with font size greater than 15px (16.5px font-bold)
   const navItems: NavItem[] = [
@@ -38,9 +42,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'developer-testing', label: 'Developer Testing', icon: Code2 },
     { id: 'ai-test-hub', label: 'QA AI Test Case', icon: Sparkles },
     { id: 'review-queue', label: 'QA Test Case Review', icon: ShieldCheck },
+    { id: 'user-manual', label: 'User Manual (Word)', icon: FileText, badge: 'New' },
+    { id: 'daily-updates', label: 'Daily Task Log', icon: CalendarCheck, badge: 'New' },
     { id: 'observations', label: 'Observations & RFE', icon: AlertOctagon },
     { id: 'modules', label: 'Modules', icon: FolderTree, badge: '18' },
   ];
+
+  // Accent theme color map
+  const activeBgMap: Record<ColourTheme, string> = {
+    Default: 'bg-blue-600 text-white shadow-sm',
+    Blue: 'bg-sky-600 text-white shadow-sm',
+    Green: 'bg-emerald-600 text-white shadow-sm',
+    Purple: 'bg-purple-600 text-white shadow-sm',
+    Amber: 'bg-amber-600 text-white shadow-sm',
+    Dark: 'bg-slate-700 text-white shadow-sm',
+  };
+
+  const activeBadgeMap: Record<ColourTheme, string> = {
+    Default: 'bg-blue-700 text-white',
+    Blue: 'bg-sky-700 text-white',
+    Green: 'bg-emerald-700 text-white',
+    Purple: 'bg-purple-700 text-white',
+    Amber: 'bg-amber-700 text-white',
+    Dark: 'bg-slate-800 text-white',
+  };
 
   return (
     <aside className="w-64 bg-[#0F172A] flex flex-col flex-shrink-0 h-screen select-none border-r border-slate-800">
@@ -74,7 +99,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => onSelectTab(item.id)}
               className={`w-full flex items-center justify-between px-4 py-3 text-[16.5px] font-bold transition-colors cursor-pointer ${
                 isActive
-                  ? 'bg-blue-600 text-white shadow-sm'
+                  ? activeBgMap[theme] || 'bg-blue-600 text-white shadow-sm'
                   : 'text-slate-200 hover:bg-slate-800 hover:text-white'
               }`}
             >
@@ -86,7 +111,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span
                   className={`text-xs px-2 py-0.5 rounded font-mono font-bold ${
                     isActive
-                      ? 'bg-blue-700 text-white'
+                      ? activeBadgeMap[theme] || 'bg-blue-700 text-white'
                       : 'bg-slate-800 text-slate-300 border border-slate-700'
                   }`}
                 >
