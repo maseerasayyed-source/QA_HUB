@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { query } from './db';
+import { query, getDbStatus } from './db';
 
 export const apiRouter = express.Router();
 apiRouter.use(express.json());
@@ -78,15 +78,17 @@ apiRouter.post('/users/role', async (req: AuthenticatedRequest, res: Response) =
     return res.status(400).json({ error: 'userName and role required' });
   }
 
+  const existing = mockMemoryStore.users.find(u => u.name === userName);
+  if (existing) {
+    existing.role = role;
+  } else {
+    mockMemoryStore.users.push({ name: userName, role, email: '' });
+  }
+
   try {
     await query('INSERT INTO users (name, role) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET role = EXCLUDED.role', [userName, role]);
   } catch (err) {
-    const existing = mockMemoryStore.users.find(u => u.name === userName);
-    if (existing) {
-      existing.role = role;
-    } else {
-      mockMemoryStore.users.push({ name: userName, role, email: '' });
-    }
+    // in-memory store already updated
   }
 
   await logActivity(req.userContext?.userName || userName, req.userContext?.userRole || role, `User logged in / role assigned (${role})`, 'Auth');
@@ -175,3 +177,9 @@ apiRouter.get('/sync-state', async (_req: Request, res: Response) => {
     devTesting: mockMemoryStore.devTesting
   });
 });
+
+apiRouter.get('/db-status', async (_req: Request, res: Response) => {
+  const status = await getDbStatus();
+  return res.json(status);
+});
+

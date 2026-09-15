@@ -20,6 +20,14 @@ import {
   Filter,
   Check,
   X,
+  Clock,
+  CheckCircle,
+  ExternalLink,
+  ShieldCheck,
+  FileText,
+  CheckCheck,
+  Edit2,
+  ArrowUpRight,
 } from 'lucide-react';
 import {
   TestCaseHeaderMeta,
@@ -30,6 +38,7 @@ import {
   TestCaseReviewStatus,
   TestCaseRevision,
   AttachedDocOrImage,
+  ReviewComment,
 } from '../types';
 import { exportTestCasesToExcel } from '../utils/excelExport';
 import {
@@ -56,7 +65,9 @@ interface UnifiedAITestHubProps {
   currentUser?: UserProfile;
   activeTicketNumber?: string;
   testCasesMap?: Record<string, TestCaseItem[]>;
+  testCaseHeadersMap?: Record<string, TestCaseHeaderMeta>;
   onSelectTicket?: (ticketNumber: string) => void;
+  onNavigateTab?: (tab: any) => void;
   onUpdateHeader?: (header: TestCaseHeaderMeta) => void;
   onUpdateTestCases?: (testCases: TestCaseItem[], ticketNo?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
@@ -70,7 +81,9 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   currentUser,
   activeTicketNumber,
   testCasesMap = {},
+  testCaseHeadersMap = {},
   onSelectTicket,
+  onNavigateTab,
   onUpdateHeader,
   onUpdateTestCases,
   onAddTicket,
@@ -98,18 +111,29 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     );
   }, [tickets, selectedTicketNumber]);
 
-  // Header Metadata
-  const [header, setHeader] = useState<TestCaseHeaderMeta>(() => ({
-    ...initialHeader,
-    ticketNo: matchedTicket?.ticketNumber || initialHeader.ticketNo || '21653',
-    taskName: matchedTicket?.featureName || initialHeader.taskName,
-    taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || 'Maseera Sayyed',
-    signOffBy: matchedTicket?.signOffBy || initialHeader.signOffBy || 'Ashwini Poke',
-    reviewStatus: initialHeader.reviewStatus || 'Draft',
-    version: initialHeader.version || '1.0',
-    revisionsHistory: initialHeader.revisionsHistory || [],
-    comments: initialHeader.comments || [],
-  }));
+  // Header Metadata - synchronized with testCaseHeadersMap
+  const [header, setHeader] = useState<TestCaseHeaderMeta>(() => {
+    const existing = testCaseHeadersMap[selectedTicketNumber];
+    if (existing) return existing;
+    return {
+      ...initialHeader,
+      ticketNo: matchedTicket?.ticketNumber || initialHeader.ticketNo || '21653',
+      taskName: matchedTicket?.featureName || initialHeader.taskName,
+      taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || 'Maseera Sayyed',
+      signOffBy: matchedTicket?.signOffBy || initialHeader.signOffBy || 'Ashwini Poke',
+      reviewStatus: initialHeader.reviewStatus || 'Draft',
+      version: initialHeader.version || '1.0',
+      revisionsHistory: initialHeader.revisionsHistory || [],
+      comments: initialHeader.comments || [],
+    };
+  });
+
+  // Keep header synchronized when ticket changes or testCaseHeadersMap updates
+  useEffect(() => {
+    if (testCaseHeadersMap && testCaseHeadersMap[selectedTicketNumber]) {
+      setHeader(testCaseHeadersMap[selectedTicketNumber]);
+    }
+  }, [selectedTicketNumber, testCaseHeadersMap]);
 
   // Test Cases List for Current Ticket
   const [testCases, setTestCases] = useState<TestCaseItem[]>(() => {
@@ -158,14 +182,25 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   // Test Case Solution Modal State (from Image 3)
   const [editingSolutionCase, setEditingSolutionCase] = useState<TestCaseItem | null>(null);
 
-  // Submit For Approval Modal State
+  // Submit For Review Modal State
   const [isSubmitModalOpen, setIsSubmitModalOpen] = useState<boolean>(false);
+  const [submittingTicket, setSubmittingTicket] = useState<TicketSummary | null>(null);
   const [selectedReviewerEmail, setSelectedReviewerEmail] = useState<string>(
     'ashwinipoke@quantumphinance.com'
   );
+  const [customReviewerName, setCustomReviewerName] = useState<string>('');
+  const [customReviewerEmail, setCustomReviewerEmail] = useState<string>('');
+  const [submissionNotes, setSubmissionNotes] = useState<string>('');
+  const [submissionChecklist, setSubmissionChecklist] = useState({
+    positiveScenarios: true,
+    negativeValidation: true,
+    boundaryCoverage: true,
+    clearInputsOutputs: true,
+  });
 
   // Notification & Feedback
   const [notification, setNotification] = useState<string | null>(null);
+  const [notificationAction, setNotificationAction] = useState<{ label: string; tab: string } | null>(null);
   const [isAdoModalOpen, setIsAdoModalOpen] = useState<boolean>(false);
   const [isAiGeneratingSuite, setIsAiGeneratingSuite] = useState<boolean>(false);
 
@@ -398,37 +433,115 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     updateTestCases(updated);
   };
 
-  // Submit for Approval Action
-  const handleConfirmSubmitForApproval = () => {
-    if (testCases.length === 0) {
-      alert('Please add at least one test case before submitting.');
+  // Open Submit for Review Modal for specific ticket from tickets table
+  const handleOpenSubmitModalForTicket = (ticket: TicketSummary) => {
+    const cases = testCasesMap[ticket.ticketNumber] || (ticket.ticketNumber === header.ticketNo ? testCases : []);
+    if (cases.length === 0) {
+      handleOpenTestCasesScreen(ticket);
+      setNotification(`💡 Please generate or create test cases before submitting Ticket #${ticket.ticketNumber} for review.`);
+      setTimeout(() => setNotification(null), 4500);
       return;
     }
-    const reviewerName = selectedReviewerEmail.includes('ashwini') ? 'Ashwini Poke' : 'Maseera Sayyed';
-    const nowStr = new Date().toLocaleString();
+    setSubmittingTicket(ticket);
+    setIsSubmitModalOpen(true);
+  };
 
-    const newHeader: TestCaseHeaderMeta = {
-      ...header,
-      description: headerDescription,
-      testingScenarios: headerTestingScenarios,
+  // Open Submit for Review Modal from workbench
+  const handleOpenSubmitModalFromWorkbench = () => {
+    if (testCases.length === 0) {
+      setNotification('⚠️ Please add or generate at least one test case before submitting for review.');
+      setTimeout(() => setNotification(null), 4000);
+      return;
+    }
+    setSubmittingTicket(null);
+    setIsSubmitModalOpen(true);
+  };
+
+  // Submit for Test Case Review Action
+  const handleConfirmSubmitForApproval = () => {
+    const targetTicket = submittingTicket || matchedTicket;
+    const targetTicketNo = targetTicket?.ticketNumber || header.ticketNo;
+    const currentTicketHeader = testCaseHeadersMap[targetTicketNo] || (targetTicketNo === header.ticketNo ? header : {
+      ticketNo: targetTicketNo,
+      clientName: targetTicket?.clientName || 'Treasury Master',
+      sha: targetTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d',
+      taskName: targetTicket?.featureName || 'Feature',
+      taskDoneBy: targetTicket?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
+      signOffBy: targetTicket?.signOffBy || 'Ashwini Poke',
+      reviewStatus: 'Draft' as TestCaseReviewStatus,
+      version: '1.0',
+    });
+
+    const targetCases = testCasesMap[targetTicketNo] || (targetTicketNo === header.ticketNo ? testCases : []);
+
+    if (targetCases.length === 0) {
+      alert('Please add or generate test cases before submitting for review.');
+      return;
+    }
+
+    let reviewerName = 'Ashwini Poke';
+    if (selectedReviewerEmail === 'custom') {
+      reviewerName = customReviewerName.trim() || 'Senior QA Reviewer';
+    } else if (selectedReviewerEmail.includes('ashwini')) {
+      reviewerName = 'Ashwini Poke (Senior QA Lead)';
+    } else if (selectedReviewerEmail.includes('maseera')) {
+      reviewerName = 'Maseera Sayyed (QA Lead)';
+    }
+
+    const nowStr = new Date().toLocaleString();
+    const submitterName = currentUser?.name || currentTicketHeader.taskDoneBy || 'QA Lead';
+
+    // Prepare comments with submission note if provided
+    const newComments: ReviewComment[] = [...(currentTicketHeader.comments || [])];
+    if (submissionNotes.trim()) {
+      newComments.push({
+        id: `note-${Date.now()}`,
+        author: submitterName,
+        authorEmail: currentUser?.email || 'qa@quantumphinance.com',
+        role: currentUser?.role || 'QA Specialist',
+        text: `[Submission Note] ${submissionNotes.trim()}`,
+        createdAt: nowStr,
+      });
+    }
+
+    const updatedHeader: TestCaseHeaderMeta = {
+      ...currentTicketHeader,
+      ticketNo: targetTicketNo,
+      taskName: targetTicket?.featureName || currentTicketHeader.taskName,
+      description: targetTicket?.description || currentTicketHeader.description || headerDescription,
+      testingScenarios: targetTicket?.testingScenarios || currentTicketHeader.testingScenarios || headerTestingScenarios,
       reviewStatus: 'Review Pending',
-      submittedBy: currentUser?.name || header.taskDoneBy || 'QA',
+      submittedBy: submitterName,
       submittedTo: reviewerName,
       submittedAt: nowStr,
       signOffBy: reviewerName,
+      comments: newComments,
     };
-    setHeader(newHeader);
-    onUpdateHeader?.(newHeader);
 
-    const updated = testCases.map((tc) => ({
+    if (targetTicketNo === header.ticketNo) {
+      setHeader(updatedHeader);
+    }
+    onUpdateHeader?.(updatedHeader);
+
+    const updatedCases = targetCases.map((tc) => ({
       ...tc,
       reviewStatus: 'Review Pending' as TestCaseReviewStatus,
     }));
-    updateTestCases(updated);
+    updateTestCases(updatedCases, targetTicketNo);
 
     setIsSubmitModalOpen(false);
-    setNotification(`🚀 Test Cases submitted to ${reviewerName} for review!`);
-    setTimeout(() => setNotification(null), 5000);
+    setSubmittingTicket(null);
+    setSubmissionNotes('');
+
+    setNotification(`🚀 Test Suite for Ticket #${targetTicketNo} (${updatedCases.length} cases) submitted to ${reviewerName} for review!`);
+    setNotificationAction({
+      label: 'View in Senior QA Review Queue',
+      tab: 'review-queue',
+    });
+    setTimeout(() => {
+      setNotification(null);
+      setNotificationAction(null);
+    }, 8000);
   };
 
   // Post-Approval Revisioning
@@ -647,24 +760,27 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         {/* Tickets Table View with requested columns */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1100px]">
               <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
                 <tr>
-                  <th className="p-2.5 w-32 border-r border-slate-700">Ticket ID</th>
-                  <th className="p-2.5 min-w-[240px] border-r border-slate-700">Feature / Task Name</th>
-                  <th className="p-2.5 w-40 border-r border-slate-700">Module</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">QA Assignee</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">Developer</th>
+                  <th className="p-2.5 w-28 border-r border-slate-700">Ticket ID</th>
+                  <th className="p-2.5 min-w-[220px] border-r border-slate-700">Feature / Task Name</th>
+                  <th className="p-2.5 w-36 border-r border-slate-700">Module</th>
+                  <th className="p-2.5 w-32 border-r border-slate-700">QA Assignee</th>
+                  <th className="p-2.5 w-32 border-r border-slate-700">Developer</th>
                   <th className="p-2.5 w-24 text-center border-r border-slate-700">Priority</th>
-                  <th className="p-2.5 w-28 text-center border-r border-slate-700">Status</th>
+                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Status</th>
                   <th className="p-2.5 w-28 text-center border-r border-slate-700">Test Cases</th>
-                  <th className="p-2.5 w-48 text-center">Action</th>
+                  <th className="p-2.5 w-36 text-center border-r border-slate-700">Review Status</th>
+                  <th className="p-2.5 min-w-[180px] text-center">Action</th>
                 </tr>
               </thead>
 
               <tbody className="divide-y divide-slate-200 text-slate-800">
                 {filteredTickets.map((t) => {
                   const casesCount = (testCasesMap[t.ticketNumber] || []).length || t.testCasesCount || 0;
+                  const ticketHeader = testCaseHeadersMap[t.ticketNumber];
+                  const reviewStatus: TestCaseReviewStatus = ticketHeader?.reviewStatus || (t.ticketNumber === '21653' ? (header.ticketNo === '21653' ? header.reviewStatus : 'Draft') : 'Draft');
                   return (
                     <tr
                       key={t.id}
@@ -742,6 +858,31 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                         </span>
                       </td>
 
+                      {/* Review Status Column */}
+                      <td className="p-2.5 border-r border-slate-100 text-center">
+                        {reviewStatus === 'Approved' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 inline-flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" />
+                            <span>Approved</span>
+                          </span>
+                        ) : reviewStatus === 'Review Pending' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300 inline-flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-purple-600 animate-pulse" />
+                            <span>In Review</span>
+                          </span>
+                        ) : reviewStatus === 'Changes Required' ? (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-600" />
+                            <span>Changes Req</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 inline-flex items-center gap-1">
+                            <Edit3 className="w-3 h-3 text-slate-400" />
+                            <span>Draft</span>
+                          </span>
+                        )}
+                      </td>
+
                       {/* Action */}
                       <td
                         className="p-2 text-center"
@@ -751,10 +892,33 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                           <button
                             onClick={() => handleOpenTestCasesScreen(t)}
                             className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                            title="Open Test Case Suite Workbench"
                           >
                             <span>Open</span>
                             <ChevronRight className="w-3.5 h-3.5" />
                           </button>
+
+                          {/* Submit for Review Direct Button */}
+                          {casesCount > 0 && (reviewStatus === 'Draft' || reviewStatus === 'Changes Required') && (
+                            <button
+                              onClick={() => handleOpenSubmitModalForTicket(t)}
+                              className="px-2.5 py-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-all shadow-2xs whitespace-nowrap"
+                              title="Submit test cases for Senior QA Review"
+                            >
+                              <Send className="w-3 h-3" />
+                              <span>Submit Review</span>
+                            </button>
+                          )}
+
+                          {reviewStatus === 'Review Pending' && (
+                            <span
+                              className="px-2 py-1 bg-purple-50 text-purple-700 border border-purple-200 rounded text-[11px] font-semibold flex items-center gap-1 cursor-default"
+                              title="Pending Senior QA Review Queue"
+                            >
+                              <Clock className="w-3 h-3 text-purple-600" />
+                              <span>In Review</span>
+                            </span>
+                          )}
 
                           <button
                             onClick={() => handleAiGenerateFullSuite(t)}
@@ -772,7 +936,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 {/* NO ITEM EMPTY STATE */}
                 {filteredTickets.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-14 text-center bg-slate-50/50">
+                    <td colSpan={10} className="p-14 text-center bg-slate-50/50">
                       <div className="flex flex-col items-center justify-center space-y-2.5">
                         <span className="px-4 py-1 bg-slate-100 text-slate-700 rounded-full font-bold text-xs tracking-wider uppercase border border-slate-200 shadow-2xs">
                           NO item
@@ -1058,19 +1222,35 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           {isApprovedAndReadOnly ? (
             <button
               onClick={handleCreateNewRevision}
-              className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5" />
-              <span>Create New Revision</span>
+              <span>+ Create Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
             </button>
+          ) : header.reviewStatus === 'Review Pending' ? (
+            <div className="flex items-center gap-1.5">
+              <span className="px-3 py-1.5 bg-purple-50 text-purple-800 border border-purple-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs">
+                <Clock className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
+                <span>Submitted for Review</span>
+              </span>
+              {onNavigateTab && (
+                <button
+                  onClick={() => onNavigateTab('review-queue')}
+                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1 shadow-xs cursor-pointer whitespace-nowrap"
+                  title="Open in Senior QA Review Queue"
+                >
+                  <span>Review Queue</span>
+                  <ExternalLink className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           ) : (
             <button
-              onClick={() => setIsSubmitModalOpen(true)}
-              disabled={isInReviewLocked}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
+              onClick={handleOpenSubmitModalFromWorkbench}
+              className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-sm cursor-pointer transition-all transform active:scale-95"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>Submit for Approval</span>
+              <span>{header.reviewStatus === 'Changes Required' ? 'Resubmit for Review' : 'Submit for Test Case Review'}</span>
             </button>
           )}
         </div>
@@ -1122,32 +1302,137 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         showGenerateButton={true}
       />
 
-      {/* Approval Banner if Approved */}
-      {isApprovedAndReadOnly && (
-        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex items-center justify-between text-xs text-emerald-950 animate-fadeIn">
-          <div className="flex items-center gap-2">
-            <FileCheck2 className="w-5 h-5 text-emerald-600 shrink-0" />
+      {/* Dynamic Review Status Lifecycle Workflow Banner */}
+      {header.reviewStatus === 'Approved' ? (
+        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-emerald-950 animate-fadeIn shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+              <CheckCheck className="w-5 h-5" />
+            </div>
             <div>
-              <p className="font-bold text-sm">Test Case Approved</p>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-sm text-emerald-950">Test Case Suite Approved & Certified</p>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
+                  Ready for Test Execution
+                </span>
+              </div>
               <p className="text-emerald-800 mt-0.5">
-                Review Done By: <strong>{header.reviewDoneBy || header.approvedBy || 'Ashwini Poke (Senior QA)'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Approved Version: <strong>v{header.approvedVersion || header.version}</strong>
+                Reviewed & Signed Off By: <strong>{header.reviewDoneBy || header.approvedBy || header.signOffBy || 'Ashwini Poke (Senior QA Lead)'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Certified Version: <strong>v{header.approvedVersion || header.version || '1.0'}</strong>
               </p>
             </div>
           </div>
           <button
             onClick={handleCreateNewRevision}
-            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded cursor-pointer"
+            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0"
           >
-            + Create New Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>+ Create New Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
+          </button>
+        </div>
+      ) : header.reviewStatus === 'Review Pending' ? (
+        <div className="p-4 bg-purple-50 border border-purple-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-purple-950 animate-fadeIn shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+              <Clock className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-sm text-purple-950">Submitted for Test Case Review (Pending Sign-off)</p>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-200 text-purple-900">
+                  In Senior QA Queue
+                </span>
+              </div>
+              <p className="text-purple-800 mt-0.5">
+                Submitted by <strong>{header.submittedBy || header.taskDoneBy}</strong> to <strong>{header.submittedTo || header.signOffBy || 'Ashwini Poke'}</strong> on <strong>{header.submittedAt || 'Today'}</strong>. Suite contains <strong>{testCases.length} test cases</strong> awaiting formal QA evaluation.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {onNavigateTab && (
+              <button
+                onClick={() => onNavigateTab('review-queue')}
+                className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+              >
+                <span>Open Senior QA Review Queue</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button
+              onClick={handleOpenSubmitModalFromWorkbench}
+              className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-700 border border-purple-300 font-semibold rounded-lg cursor-pointer flex items-center gap-1 whitespace-nowrap"
+            >
+              <Edit2 className="w-3 h-3" />
+              <span>Edit Submission</span>
+            </button>
+          </div>
+        </div>
+      ) : header.reviewStatus === 'Changes Required' ? (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-950 animate-fadeIn shadow-xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="font-bold text-sm text-amber-950">Changes Requested by Senior QA Reviewer</p>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                  Needs Revision
+                </span>
+              </div>
+              <p className="text-amber-800 mt-0.5">
+                Senior QA requested updates for Ticket #{header.ticketNo}. Please review comments, update test cases in the table below, and click <strong>Resubmit for Review</strong>.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleOpenSubmitModalFromWorkbench}
+            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-xs whitespace-nowrap shrink-0"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Resubmit for Test Case Review</span>
+          </button>
+        </div>
+      ) : (
+        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-800 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="font-bold text-slate-900">
+                Draft Test Suite • <span className="text-blue-700">{testCases.length} Test Cases</span> configured for Ticket #{header.ticketNo}
+              </p>
+              <p className="text-slate-500 mt-0.5">
+                Generate or refine your test scenarios below. Once complete, submit this suite to Senior QA for formal review, sign-off, and release approval.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleOpenSubmitModalFromWorkbench}
+            className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 transition-all transform active:scale-95"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>Submit for Test Case Review</span>
           </button>
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Toast Notification with Action Link */}
       {notification && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2 animate-fadeIn shadow-2xs">
-          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>{notification}</span>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-3 animate-fadeIn shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="font-medium">{notification}</span>
+          </div>
+          {notificationAction && onNavigateTab && (
+            <button
+              onClick={() => onNavigateTab(notificationAction.tab)}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md flex items-center gap-1 cursor-pointer shrink-0 transition-colors shadow-2xs"
+            >
+              <span>{notificationAction.label}</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
 
@@ -1410,15 +1695,27 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
         {/* Bottom Bar */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-          {!isApprovedAndReadOnly && isAssignedQaOrSuperAdmin && (
-            <button
-              onClick={handleAddRow}
-              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded shadow-2xs flex items-center gap-1.5 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5 text-blue-600" />
-              <span>+ Insert Test Case Row</span>
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {!isApprovedAndReadOnly && isAssignedQaOrSuperAdmin && (
+              <button
+                onClick={handleAddRow}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded shadow-2xs flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-blue-600" />
+                <span>+ Insert Test Case Row</span>
+              </button>
+            )}
+
+            {!isApprovedAndReadOnly && testCases.length > 0 && (
+              <button
+                onClick={handleOpenSubmitModalFromWorkbench}
+                className="px-3.5 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded shadow-2xs flex items-center gap-1.5 cursor-pointer transition-all"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{header.reviewStatus === 'Changes Required' ? 'Resubmit for Review' : 'Submit for Test Case Review'}</span>
+              </button>
+            )}
+          </div>
 
           <div className="flex items-center gap-4 text-slate-500 font-medium">
             <span>Total: <strong className="text-slate-800">{testCases.length}</strong></span>
@@ -1449,68 +1746,254 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         />
       )}
 
-      {/* Submit for Review Modal */}
+      {/* Comprehensive Submit for Test Case Review Modal */}
       {isSubmitModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden p-5 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Send className="w-5 h-5 text-blue-600" />
-                <h2 className="text-base font-bold text-slate-900">Submit Test Cases for Review</h2>
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-6 space-y-4 max-h-[92vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-100 text-blue-700 rounded-xl">
+                  <Send className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900">Submit Test Cases for Review</h2>
+                  <p className="text-[11px] text-slate-500">Formal sign-off routing for Senior QA Review Queue</p>
+                </div>
               </div>
               <button
-                onClick={() => setIsSubmitModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                onClick={() => {
+                  setIsSubmitModalOpen(false);
+                  setSubmittingTicket(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-lg hover:bg-slate-100"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="space-y-3 text-xs">
-              <p className="text-slate-600">
-                Please select the Senior QA reviewer who will review and sign off on this test case suite.
-              </p>
+            <div className="space-y-4 text-xs overflow-y-auto pr-1">
+              {/* Ticket Context Card */}
+              {(() => {
+                const target = submittingTicket || matchedTicket;
+                const targetCases = testCasesMap[target?.ticketNumber || header.ticketNo] || (target?.ticketNumber === header.ticketNo ? testCases : []);
+                return (
+                  <div className="p-3.5 bg-gradient-to-r from-blue-50/80 to-indigo-50/80 border border-blue-200 rounded-xl space-y-2 text-slate-800">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono font-bold text-xs text-blue-800 bg-blue-100 px-2.5 py-0.5 rounded border border-blue-200">
+                        Ticket #{target?.ticketNumber || header.ticketNo}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-white text-indigo-800 border border-indigo-200 shadow-2xs">
+                        {targetCases.length} Test Cases Ready
+                      </span>
+                    </div>
+                    <p className="font-bold text-slate-900 text-xs">
+                      {target?.featureName || header.taskName}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1 border-t border-blue-100">
+                      <div>Module: <strong>{target?.moduleName || 'Term Loan'}</strong></div>
+                      <div>Submitter: <strong>{currentUser?.name || header.taskDoneBy || 'QA'}</strong></div>
+                      <div>Priority: <strong>{target?.priority || 'High'}</strong></div>
+                      <div>Version: <strong>v{header.version || '1.0'}</strong></div>
+                    </div>
+                  </div>
+                );
+              })()}
 
+              {/* Reviewer Selection */}
               <div>
-                <label className="font-bold text-slate-800 block mb-1">Select Senior QA Reviewer *</label>
-                <select
-                  value={selectedReviewerEmail}
-                  onChange={(e) => setSelectedReviewerEmail(e.target.value)}
-                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-lg text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="ashwinipoke@quantumphinance.com">
-                    Ashwini Poke (ashwinipoke@quantumphinance.com) – Senior QA Lead
-                  </option>
-                  <option value="maseerasayyed@quantumphinance.com">
-                    Maseera Sayyed (maseerasayyed@quantumphinance.com) – QA Specialist
-                  </option>
-                </select>
+                <label className="font-bold text-slate-800 block mb-1.5 flex items-center justify-between">
+                  <span>Select Senior QA Reviewer *</span>
+                  <span className="text-[11px] text-blue-600 font-normal">Will receive notification in review queue</span>
+                </label>
+                <div className="space-y-2">
+                  <label
+                    onClick={() => setSelectedReviewerEmail('ashwinipoke@quantumphinance.com')}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                      selectedReviewerEmail === 'ashwinipoke@quantumphinance.com'
+                        ? 'bg-blue-50/70 border-blue-400 ring-1 ring-blue-400'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="radio"
+                        name="reviewerChoice"
+                        checked={selectedReviewerEmail === 'ashwinipoke@quantumphinance.com'}
+                        onChange={() => setSelectedReviewerEmail('ashwinipoke@quantumphinance.com')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">Ashwini Poke</div>
+                        <div className="text-[11px] text-slate-500">Senior QA Lead • ashwinipoke@quantumphinance.com</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                      Lead Reviewer
+                    </span>
+                  </label>
+
+                  <label
+                    onClick={() => setSelectedReviewerEmail('maseerasayyed@quantumphinance.com')}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                      selectedReviewerEmail === 'maseerasayyed@quantumphinance.com'
+                        ? 'bg-blue-50/70 border-blue-400 ring-1 ring-blue-400'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="radio"
+                        name="reviewerChoice"
+                        checked={selectedReviewerEmail === 'maseerasayyed@quantumphinance.com'}
+                        onChange={() => setSelectedReviewerEmail('maseerasayyed@quantumphinance.com')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">Maseera Sayyed</div>
+                        <div className="text-[11px] text-slate-500">QA Specialist • maseerasayyed@quantumphinance.com</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded">
+                      Peer Review
+                    </span>
+                  </label>
+
+                  <label
+                    onClick={() => setSelectedReviewerEmail('custom')}
+                    className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer transition-all ${
+                      selectedReviewerEmail === 'custom'
+                        ? 'bg-blue-50/70 border-blue-400 ring-1 ring-blue-400'
+                        : 'bg-slate-50 border-slate-200 hover:bg-slate-100/70'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <input
+                        type="radio"
+                        name="reviewerChoice"
+                        checked={selectedReviewerEmail === 'custom'}
+                        onChange={() => setSelectedReviewerEmail('custom')}
+                        className="text-blue-600"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">Custom Senior QA Reviewer</div>
+                        <div className="text-[11px] text-slate-500">Specify external or alternate QA stakeholder</div>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                {/* Custom Reviewer Input Fields */}
+                {selectedReviewerEmail === 'custom' && (
+                  <div className="grid grid-cols-2 gap-2 mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700 block mb-1">Reviewer Name *</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sonal Sharma"
+                        value={customReviewerName}
+                        onChange={(e) => setCustomReviewerName(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-700 block mb-1">Reviewer Email *</label>
+                      <input
+                        type="email"
+                        placeholder="e.g. sonal@quantumphinance.com"
+                        value={customReviewerEmail}
+                        onChange={(e) => setCustomReviewerEmail(e.target.value)}
+                        className="w-full p-1.5 bg-white border border-slate-300 rounded text-xs focus:ring-1 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="bg-blue-50 p-3 rounded-lg border border-blue-200 text-blue-900 space-y-1">
-                <div className="font-bold">Submission Details:</div>
-                <div>• Ticket: #{header.ticketNo} ({header.taskName})</div>
-                <div>• Total Test Cases: {testCases.length}</div>
-                <div>• Version: v{header.version || '1.0'}</div>
+              {/* Pre-submission Quality Checklist */}
+              <div>
+                <label className="font-bold text-slate-800 block mb-1.5 flex items-center gap-1.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>QA Coverage & Quality Checklist</span>
+                </label>
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={submissionChecklist.positiveScenarios}
+                      onChange={(e) => setSubmissionChecklist(p => ({ ...p, positiveScenarios: e.target.checked }))}
+                      className="mt-0.5 text-blue-600 rounded"
+                    />
+                    <span className="text-slate-700">Positive and core functional workflows covered</span>
+                  </label>
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={submissionChecklist.negativeValidation}
+                      onChange={(e) => setSubmissionChecklist(p => ({ ...p, negativeValidation: e.target.checked }))}
+                      className="mt-0.5 text-blue-600 rounded"
+                    />
+                    <span className="text-slate-700">Negative validations, error messages, and boundary limits tested</span>
+                  </label>
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={submissionChecklist.boundaryCoverage}
+                      onChange={(e) => setSubmissionChecklist(p => ({ ...p, boundaryCoverage: e.target.checked }))}
+                      className="mt-0.5 text-blue-600 rounded"
+                    />
+                    <span className="text-slate-700">Test steps, pre-requisites, and expected outcomes clearly detailed</span>
+                  </label>
+
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={submissionChecklist.clearInputsOutputs}
+                      onChange={(e) => setSubmissionChecklist(p => ({ ...p, clearInputsOutputs: e.target.checked }))}
+                      className="mt-0.5 text-blue-600 rounded"
+                    />
+                    <span className="text-slate-700">Suite verified and ready for formal Senior QA sign-off</span>
+                  </label>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsSubmitModalOpen(false)}
-                  className="px-3.5 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-lg cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmSubmitForApproval}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-xs"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Submit to Reviewer</span>
-                </button>
+              {/* Submission Notes */}
+              <div>
+                <label className="font-bold text-slate-800 block mb-1">
+                  Submission Notes / Special Attention Areas (Optional)
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="e.g. Please verify repayment schedule formula, leap-year calculations, and moratorium penalty interest..."
+                  value={submissionNotes}
+                  onChange={(e) => setSubmissionNotes(e.target.value)}
+                  className="w-full p-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
               </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSubmitModalOpen(false);
+                  setSubmittingTicket(null);
+                }}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSubmitForApproval}
+                className="px-5 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-2 shadow-sm transition-all transform active:scale-95"
+              >
+                <Send className="w-4 h-4" />
+                <span>🚀 Confirm & Submit to Reviewer</span>
+              </button>
             </div>
           </div>
         </div>

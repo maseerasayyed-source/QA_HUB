@@ -7,6 +7,8 @@ import {
   INITIAL_TEST_CASES,
   INITIAL_OBSERVATION_HEADER,
   INITIAL_OBSERVATIONS,
+  INITIAL_DEV_TEST_HEADER,
+  INITIAL_DEV_TEST_ITEMS,
 } from './initialData';
 
 const STORAGE_KEYS = {
@@ -83,7 +85,7 @@ export function getRoleByEmail(email: string): UserProfile['role'] {
  */
 export function loadInitialData() {
   // Load User Session
-  let user: UserProfile | null = null;
+  let user: UserProfile | null = INITIAL_USER;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
@@ -115,13 +117,13 @@ export function loadInitialData() {
   }
 
   // Load Tickets
-  let tickets: TicketSummary[] = [];
+  let tickets: TicketSummary[] = INITIAL_TICKETS;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TICKETS);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
+        if (Array.isArray(parsed) && parsed.length > 0) {
           tickets = parsed;
         }
       }
@@ -131,13 +133,15 @@ export function loadInitialData() {
   }
 
   // Load Test Cases Map
-  let testCasesMap: Record<string, TestCaseItem[]> = {};
+  let testCasesMap: Record<string, TestCaseItem[]> = {
+    '21653': INITIAL_TEST_CASES,
+  };
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASES_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           testCasesMap = parsed;
         }
       }
@@ -147,13 +151,15 @@ export function loadInitialData() {
   }
 
   // Load Test Case Headers Map
-  let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {};
+  let testCaseHeadersMap: Record<string, TestCaseHeaderMeta> = {
+    '21653': INITIAL_TEST_CASE_HEADER,
+  };
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           testCaseHeadersMap = parsed;
         }
       }
@@ -163,13 +169,15 @@ export function loadInitialData() {
   }
 
   // Load Observations Map
-  let observationsMap: Record<string, ObservationItem[]> = {};
+  let observationsMap: Record<string, ObservationItem[]> = {
+    '21653': INITIAL_OBSERVATIONS,
+  };
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.OBSERVATIONS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           observationsMap = parsed;
         }
       }
@@ -179,13 +187,15 @@ export function loadInitialData() {
   }
 
   // Load Developer Testing Map
-  let devTestingMap: Record<string, DeveloperTestItem[]> = {};
+  let devTestingMap: Record<string, DeveloperTestItem[]> = {
+    '21653': INITIAL_DEV_TEST_ITEMS,
+  };
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           devTestingMap = parsed;
         }
       }
@@ -195,13 +205,15 @@ export function loadInitialData() {
   }
 
   // Load Developer Testing Headers Map
-  let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {};
+  let devTestingHeadersMap: Record<string, DeveloperTestHeaderMeta> = {
+    '21653': INITIAL_DEV_TEST_HEADER,
+  };
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const stored = localStorage.getItem(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === 'object') {
+        if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
           devTestingHeadersMap = parsed;
         }
       }

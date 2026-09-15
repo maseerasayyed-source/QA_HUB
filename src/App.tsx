@@ -318,9 +318,11 @@ export default function App() {
             currentUser={currentUser}
             activeTicketNumber={activeTicketNumber}
             testCasesMap={testCasesMap}
+            testCaseHeadersMap={testCaseHeadersMap}
             onSelectTicket={(tNo) => {
               setActiveTicketNumber(tNo);
             }}
+            onNavigateTab={handleNavigateTab}
             onUpdateHeader={handleUpdateTestCaseHeader}
             onUpdateTestCases={(newCases, tNo) => {
               handleUpdateTestCases(newCases, tNo);

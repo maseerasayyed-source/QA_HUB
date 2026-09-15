@@ -106,7 +106,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
         taskName: t.featureName,
         taskDoneBy: t.qaAssignee || 'Maseera Sayyed',
         signOffBy: t.signOffBy || 'Ashwini Poke',
-        reviewStatus: 'Review Pending' as TestCaseReviewStatus,
+        reviewStatus: (t.ticketNumber === '21653' ? 'Review Pending' : 'Draft') as TestCaseReviewStatus,
         version: '1.0',
       };
 
@@ -116,7 +116,7 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
         ticket: t,
         header: h,
         testCases: cases,
-        status: h.reviewStatus || 'Review Pending',
+        status: h.reviewStatus || (t.ticketNumber === '21653' ? 'Review Pending' : 'Draft'),
       };
     });
   }, [tickets, testCaseHeadersMap, testCasesMap]);
