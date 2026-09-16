@@ -207,3 +207,248 @@ apiRouter.get('/db-status', async (_req: Request, res: Response) => {
   return res.json(status);
 });
 
+// Azure DevOps Server Proxy Routes (Bypasses browser CORS and handles ADO authentication)
+let workspaceAdoToken =
+  process.env.AZURE_DEVOPS_PAT ||
+  process.env.ADO_PAT ||
+  '';
+let workspaceAdoOrg = 'quantumphinance';
+let workspaceAdoProject = 'Beacon Web';
+
+apiRouter.get('/azure/config-status', (_req: Request, res: Response) => {
+  return res.json({
+    hasToken: !!workspaceAdoToken,
+    organization: workspaceAdoOrg,
+    project: workspaceAdoProject,
+  });
+});
+
+apiRouter.post('/azure/save-config', (req: Request, res: Response) => {
+  const { pat, organization, project } = req.body;
+  if (typeof pat === 'string' && pat.trim()) {
+    workspaceAdoToken = pat.trim();
+  }
+  if (organization) workspaceAdoOrg = organization.trim();
+  if (project) workspaceAdoProject = project.trim();
+  return res.json({
+    success: true,
+    hasToken: !!workspaceAdoToken,
+    organization: workspaceAdoOrg,
+    project: workspaceAdoProject,
+  });
+});
+
+apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
+  try {
+    const { workItemId, organization, project, pat } = req.body;
+    const cleanId = String(workItemId || '').match(/\d{3,8}/)?.[0] || String(workItemId || '').trim();
+    const cleanOrg = (organization || workspaceAdoOrg || 'quantumphinance').trim();
+    const cleanProject = (project || workspaceAdoProject || 'Beacon').trim();
+    const token = (pat || workspaceAdoToken || process.env.AZURE_DEVOPS_PAT || process.env.ADO_PAT || '').trim();
+
+    if (!cleanId) {
+      return res.status(400).json({ success: false, message: 'Work Item / Ticket ID is required' });
+    }
+
+    const adoUrl = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(cleanProject)}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`;
+
+    const headers: Record<string, string> = {
+      'Accept': 'application/json',
+      'User-Agent': 'Beacon-QA-Hub/1.0',
+    };
+
+    if (token) {
+      headers['Authorization'] = `Basic ${Buffer.from(':' + token).toString('base64')}`;
+    }
+
+    const adoResponse = await fetch(adoUrl, { method: 'GET', headers });
+    const contentType = adoResponse.headers.get('content-type') || '';
+
+    // If Azure DevOps returns HTTP 203 or non-JSON content-type, it indicates redirection to Microsoft SSO / authentication required
+    if (adoResponse.status === 203 || !contentType.includes('application/json') || adoResponse.status === 401 || adoResponse.status === 403) {
+      return res.json({
+        success: false,
+        requiresPat: true,
+        statusCode: adoResponse.status,
+        ticketNumber: cleanId,
+        message: !token
+          ? `Azure DevOps organization '${cleanOrg}' requires a Personal Access Token (PAT). Please enter your PAT below with Work Items (Read) permission to fetch live data.`
+          : `Azure DevOps rejected access (${adoResponse.status}). Please verify that your PAT has 'Work Items (Read)' permission for ${cleanOrg}/${cleanProject}.`,
+      });
+    }
+
+    if (!adoResponse.ok) {
+      const errText = await adoResponse.text();
+      return res.json({
+        success: false,
+        statusCode: adoResponse.status,
+        ticketNumber: cleanId,
+        message: `Azure DevOps API returned ${adoResponse.status} ${adoResponse.statusText}.`,
+        errorDetail: errText.slice(0, 300),
+      });
+    }
+
+    const data = (await adoResponse.json()) as any;
+    const fields = data?.fields || {};
+
+    const title = fields['System.Title'] || `Ticket #${cleanId}`;
+    const rawDesc = fields['System.Description'] || fields['System.History'] || '';
+    const description = rawDesc.replace(/<[^>]*>?/gm, '').trim();
+    const areaPath = fields['System.AreaPath'] || fields['System.NodeName'] || '';
+    const assigneeObj = fields['System.AssignedTo'] || fields['Custom.AssignedQA'];
+    const assignee = typeof assigneeObj === 'object' ? assigneeObj?.displayName : String(assigneeObj || '');
+    const state = fields['System.State'] || 'Ready for QA';
+    const workType = fields['System.WorkItemType'] || 'User Story';
+
+    const rawPriority = fields['Microsoft.VSTS.Common.Priority'];
+    let priority: 'Critical' | 'High' | 'Medium' | 'Low' = 'High';
+    if (rawPriority === 1 || String(rawPriority) === '1' || String(rawPriority).toLowerCase().includes('critical')) {
+      priority = 'Critical';
+    } else if (rawPriority === 2 || String(rawPriority) === '2') {
+      priority = 'High';
+    } else if (rawPriority === 3 || String(rawPriority) === '3') {
+      priority = 'Medium';
+    } else if (rawPriority === 4 || String(rawPriority) === '4') {
+      priority = 'Low';
+    }
+
+    const assignedDevObj = fields['Custom.AssignedDeveloper'] || fields['Custom.Developer'];
+    const devName = typeof assignedDevObj === 'object' ? assignedDevObj?.displayName : String(assignedDevObj || '');
+    const createdByObj = fields['System.CreatedBy'];
+    const developer =
+      devName ||
+      (typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || ''));
+    const rawScenarios =
+      fields['Microsoft.VSTS.TCM.ReproSteps'] ||
+      fields['Microsoft.VSTS.Common.AcceptanceCriteria'] ||
+      description;
+    const testingScenarios = rawScenarios.replace(/<[^>]*>?/gm, '').trim();
+
+    return res.json({
+      success: true,
+      ticketNumber: cleanId,
+      title,
+      description,
+      areaPath,
+      assignee,
+      developer,
+      priority,
+      state,
+      workType,
+      testingScenarios,
+      rawFields: fields,
+      message: `Successfully fetched Ticket #${cleanId} from Azure DevOps!`,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Server error proxying request to Azure DevOps.',
+      errorDetail: err?.message || String(err),
+    });
+  }
+});
+
+apiRouter.post('/azure/attach', async (req: Request, res: Response) => {
+  try {
+    const { workItemId, organization, project, pat, fileName, fileBase64, comment } = req.body;
+    const cleanId = String(workItemId || '').match(/\d{3,8}/)?.[0] || String(workItemId || '').trim();
+    const cleanOrg = (organization || workspaceAdoOrg || 'quantumphinance').trim();
+    const cleanProject = (project || workspaceAdoProject || 'Beacon').trim();
+    const token = (pat || workspaceAdoToken || process.env.AZURE_DEVOPS_PAT || process.env.ADO_PAT || '').trim();
+
+    if (!cleanId || !fileName || !fileBase64) {
+      return res.status(400).json({ success: false, message: 'workItemId, fileName, and fileBase64 required' });
+    }
+    if (!token) {
+      return res
+        .status(401)
+        .json({ success: false, message: 'Personal Access Token (PAT) required to attach files to Azure DevOps' });
+    }
+
+    const authHeader = `Basic ${Buffer.from(':' + token).toString('base64')}`;
+    const fileBuffer = Buffer.from(fileBase64, 'base64');
+
+    // 1. Upload Attachment Binary
+    const uploadUrl = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
+      cleanProject
+    )}/_apis/wit/attachments?fileName=${encodeURIComponent(fileName)}&api-version=7.0`;
+    const uploadRes = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/octet-stream',
+      },
+      body: fileBuffer,
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      return res.status(uploadRes.status).json({
+        success: false,
+        message: `Attachment upload failed (${uploadRes.status} ${uploadRes.statusText})`,
+        errorDetail: errText,
+      });
+    }
+
+    const uploadData = (await uploadRes.json()) as any;
+    const attachmentUrl = uploadData?.url;
+
+    if (!attachmentUrl) {
+      return res.status(500).json({ success: false, message: 'Azure DevOps did not return an attachment URL' });
+    }
+
+    // 2. Link Attachment to Work Item via JSON Patch
+    const patchUrl = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
+      cleanProject
+    )}/_apis/wit/workitems/${cleanId}?api-version=7.0`;
+    const patchBody = [
+      {
+        op: 'add',
+        path: '/relations/-',
+        value: {
+          rel: 'AttachedFile',
+          url: attachmentUrl,
+          attributes: {
+            comment: comment || `QA Test Matrix exported from Beacon QA Hub at ${new Date().toLocaleString()}`,
+          },
+        },
+      },
+    ];
+
+    const patchRes = await fetch(patchUrl, {
+      method: 'PATCH',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/json-patch+json',
+      },
+      body: JSON.stringify(patchBody),
+    });
+
+    if (!patchRes.ok) {
+      const errText = await patchRes.text();
+      return res.status(patchRes.status).json({
+        success: false,
+        message: `Failed to link attachment to Work Item #${cleanId}`,
+        errorDetail: errText,
+      });
+    }
+
+    const workItemUrl = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
+      cleanProject
+    )}/_workitems/edit/${cleanId}`;
+
+    return res.json({
+      success: true,
+      message: `Successfully attached ${fileName} directly to Azure DevOps Ticket #${cleanId}!`,
+      workItemUrl,
+      attachmentUrl,
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Server error uploading attachment to Azure DevOps',
+      errorDetail: err?.message || String(err),
+    });
+  }
+});
+

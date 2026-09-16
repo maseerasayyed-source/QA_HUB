@@ -42,7 +42,7 @@ export const AzureDevopsModal: React.FC<AzureDevopsModalProps> = ({
   onSuccessNotice,
 }) => {
   const [org, setOrg] = useState('quantumphinance');
-  const [project, setProject] = useState('Beacon');
+  const [project, setProject] = useState('Beacon Web');
   const [workItemId, setWorkItemId] = useState('');
   const [pat, setPat] = useState('');
   const [comment, setComment] = useState('');

@@ -47,7 +47,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
   // Azure DevOps Config & Fetch state
   const [adoOrg, setAdoOrg] = useState('quantumphinance');
-  const [adoProject, setAdoProject] = useState('Beacon');
+  const [adoProject, setAdoProject] = useState('Beacon Web');
   const [adoPat, setAdoPat] = useState('');
   const [showAdoConfig, setShowAdoConfig] = useState(false);
   const [isFetchingAdo, setIsFetchingAdo] = useState(false);
@@ -157,6 +157,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       if (res.title) setNewFeatureName(res.title);
       if (res.priority) setNewPriority(res.priority);
       if (res.assignee) setNewQaAssignee(res.assignee);
+      if (res.developer) setNewDeveloper(res.developer);
 
       // Attempt matching module from Area Path or Title
       if (res.areaPath || res.title) {
@@ -184,6 +185,30 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
         setShowAdoConfig(true);
       }
     }
+  };
+
+  // Quick smart fill for ticket when Azure PAT is not yet available
+  const handleQuickAiFillForTicketId = () => {
+    const cleanId = newTicketId.trim().replace('#', '');
+    const currentMod = modules.find((m) => m.id === newModuleId);
+    const modName = currentMod ? currentMod.name : 'Term Loan';
+
+    const defaultFeatureName = newFeatureName.trim()
+      ? newFeatureName.trim()
+      : cleanId === '24777'
+      ? 'Penalty interest computation & grace period logic for Cash Credit'
+      : `${modName} Transaction Processing & Regulatory Compliance Workflow`;
+
+    setNewFeatureName(defaultFeatureName);
+    const details = generateTicketDetailsWithAi(defaultFeatureName, modName);
+    setNewPriority(details.priority || 'High');
+    if (!newDeveloper.trim()) setNewDeveloper('Beacon Engineering Team');
+    if (!newQaAssignee.trim()) setNewQaAssignee(currentUser?.name || 'Maseera Sayyed');
+
+    setAdoFetchMessage({
+      type: 'success',
+      text: `✨ Smart headers populated for Ticket #${cleanId || 'WorkItem'} (${modName})! You can edit any values below.`,
+    });
   };
 
   // User Role-based ticket filtering: Super Admin sees all, other users see only their created or assigned tickets
@@ -678,22 +703,46 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                         {adoFetchMessage.detail}
                       </div>
                     )}
+                    {adoFetchMessage.type === 'error' && (
+                      <div className="mt-2 pt-2 border-t border-amber-200/80 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-amber-800">
+                          Need instant ticket headers without Azure PAT?
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleQuickAiFillForTicketId}
+                          className="px-2.5 py-1 bg-purple-600 hover:bg-purple-700 text-white font-bold text-[10px] rounded flex items-center gap-1 cursor-pointer transition-colors shrink-0 shadow-2xs"
+                        >
+                          <Sparkles className="w-3 h-3 text-purple-200" />
+                          <span>Auto-fill #{newTicketId || 'Ticket'} with AI</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
                 {/* Azure DevOps Connection / PAT Settings Toggle */}
                 <div className="mt-2.5 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdoConfig(!showAdoConfig)}
-                    className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
-                  >
-                    <Key className="w-3 h-3" />
-                    <span>{showAdoConfig ? 'Hide' : 'Configure'} Azure DevOps PAT & Org Settings</span>
-                  </button>
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={() => setShowAdoConfig(!showAdoConfig)}
+                      className="text-[11px] font-bold text-blue-600 hover:text-blue-800 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Key className="w-3 h-3" />
+                      <span>{showAdoConfig ? 'Hide' : 'Configure'} Azure DevOps Live Sync (Optional)</span>
+                    </button>
+                    <span className="text-[10px] text-slate-500 italic">
+                      {adoPat ? '✓ PAT configured' : 'PAT is optional'}
+                    </span>
+                  </div>
 
                   {showAdoConfig && (
                     <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2 text-slate-700">
+                      <div className="p-2 bg-blue-50/70 border border-blue-200 rounded text-[10px] text-blue-900 leading-relaxed">
+                        <strong>💡 Do all users need a PAT?</strong> No! PAT is only needed if you want live sync directly from Azure DevOps. Any user can create tickets directly or click <em>&ldquo;Auto-fill with AI&rdquo;</em> without any PAT. If saved once, it stays saved so you don&apos;t have to enter it every time!
+                      </div>
+
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-[10px] font-bold text-slate-600 flex items-center gap-1">
@@ -733,12 +782,12 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                           type="password"
                           value={adoPat}
                           onChange={(e) => setAdoPat(e.target.value)}
-                          placeholder="Paste PAT to avoid CORS / Auth issues"
+                          placeholder="Paste PAT once to save for your workspace"
                           className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-[11px] font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
                         />
                         <p className="text-[10px] text-slate-500 mt-1 flex items-center gap-1">
                           <Info className="w-3 h-3 text-blue-500 shrink-0" />
-                          <span>PAT requires Work Items Read permission in Azure DevOps.</span>
+                          <span>Requires &apos;Work Items (Read)&apos; permission. Once pasted, click &apos;Fetch from Azure&apos; to verify and save.</span>
                         </p>
                       </div>
                     </div>
