@@ -451,7 +451,14 @@ export function getSavedUserRegistry(): SavedUserRecord[] {
           const map = new Map<string, SavedUserRecord>();
           defaultList.forEach((u) => map.set(u.email.toLowerCase(), u));
           parsed.forEach((u) => {
-            if (u && u.email) map.set(u.email.toLowerCase(), u);
+            if (u && u.email) {
+              const emailLower = u.email.toLowerCase();
+              const isMaseera = emailLower === 'maseerasayyed@quantumphinance.com' || emailLower.includes('maseera');
+              map.set(emailLower, {
+                ...u,
+                role: !isMaseera && u.role === 'Super Admin' ? 'QA' : u.role,
+              });
+            }
           });
           return Array.from(map.values());
         }
@@ -472,18 +479,23 @@ export function saveUserToRegistry(user: { email: string; name: string; role: Us
     const cleanEmail = user.email.toLowerCase().trim();
     const existingIndex = list.findIndex((u) => u.email.toLowerCase().trim() === cleanEmail);
 
+    const isMaseera = cleanEmail === 'maseerasayyed@quantumphinance.com' || cleanEmail.includes('maseera');
+    const safeRole = !isMaseera && user.role === 'Super Admin' ? 'QA' : user.role;
+
     if (existingIndex >= 0) {
       // Keep established role to enforce strict role permanence per user request
+      const existingRole = list[existingIndex].role;
+      const guardedRole = !isMaseera && existingRole === 'Super Admin' ? 'QA' : existingRole;
       list[existingIndex] = {
         email: cleanEmail,
         name: user.name || list[existingIndex].name,
-        role: list[existingIndex].role,
+        role: guardedRole,
       };
     } else {
       list.push({
         email: cleanEmail,
         name: user.name,
-        role: user.role,
+        role: safeRole,
       });
     }
 

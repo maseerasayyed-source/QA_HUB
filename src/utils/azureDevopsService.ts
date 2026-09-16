@@ -135,9 +135,12 @@ export async function fetchWorkItemFromAzure(params: {
 
   // 2. Direct Browser Fallback (Safely checks Content-Type so "<!DOCTYPE" HTML is never passed to json())
   try {
-    const url = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
-      cleanProject
-    )}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`;
+    const isInvalidProject = !cleanProject || cleanProject === 'QA HUB';
+    const url = isInvalidProject
+      ? `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/_apis/wit/workitems/${cleanId}?api-version=7.0`
+      : `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
+          cleanProject
+        )}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`;
 
     const headers: Record<string, string> = {
       Accept: 'application/json',

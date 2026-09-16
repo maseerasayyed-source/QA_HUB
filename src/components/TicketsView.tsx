@@ -118,7 +118,12 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const handleOpenNewTicketModal = () => {
     const saved = loadSavedAdoConfig();
     if (saved.organization) setAdoOrg(saved.organization);
-    if (saved.project) setAdoProject(saved.project);
+    // Auto-correct invalid project name (QA HUB is the GitHub app repo name, not an ADO project)
+    if (saved.project && saved.project !== 'QA HUB') {
+      setAdoProject(saved.project);
+    } else {
+      setAdoProject('Beacon Web');
+    }
     if (saved.personalAccessToken) setAdoPat(saved.personalAccessToken);
     setNewDeveloper('');
     setNewQaAssignee(currentUser?.name || 'Maseera Sayyed');

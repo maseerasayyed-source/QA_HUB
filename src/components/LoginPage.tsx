@@ -107,19 +107,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     const clean = rawEmail.trim().toLowerCase();
     const listToSearch = registryList || savedUsers;
+    const isMaseera = clean === 'maseerasayyed@quantumphinance.com' || clean.includes('maseera');
     const matched = listToSearch.find((u) => u.email.toLowerCase() === clean);
 
     if (matched) {
       // Auto-populate previously saved name and role
       setFullName(matched.name);
-      setSelectedRole(matched.role);
-      setLockedRole(matched.role);
+      const safeRole = !isMaseera && matched.role === 'Super Admin' ? 'QA' : matched.role;
+      setSelectedRole(safeRole);
+      setLockedRole(safeRole);
     } else {
       setLockedRole(null);
-      if (clean.includes('maseera')) {
+      if (isMaseera) {
         setFullName((prev) => prev || 'Maseera Sayyed');
         setSelectedRole('Super Admin');
         setLockedRole('Super Admin');
+      } else {
+        // If switching to another ID, ensure Super Admin is never kept
+        if (selectedRole === 'Super Admin') {
+          setSelectedRole('');
+        }
       }
     }
   };
@@ -186,8 +193,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
+    const isMaseera = cleanEmail === 'maseerasayyed@quantumphinance.com' || cleanEmail.includes('maseera');
     const matched = savedUsers.find((u) => u.email.toLowerCase() === cleanEmail);
-    const roleToAssign = forcedRole || (matched ? matched.role : (cleanEmail.includes('maseera') ? 'Super Admin' : 'QA'));
+    let roleToAssign = forcedRole || (matched ? matched.role : (isMaseera ? 'Super Admin' : 'QA'));
+    if (!isMaseera && roleToAssign === 'Super Admin') {
+      roleToAssign = 'QA';
+    }
 
     setIsSigningInWithGoogle(true);
 
@@ -243,6 +254,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
+    const isMaseera = emailTrimmed === 'maseerasayyed@quantumphinance.com' || emailTrimmed.includes('maseera');
+    if (!isMaseera && selectedRole === 'Super Admin') {
+      setErrorMessage('⛔ Access Restricted: "Super Admin" role is exclusively reserved for Maseera Sayyed.');
+      setSelectedRole('');
+      return;
+    }
+
     // 3. Strict Role Restriction Check for same email ID
     const matched = savedUsers.find((u) => u.email.toLowerCase() === emailTrimmed);
     if (matched && matched.role && selectedRole && selectedRole !== matched.role) {
@@ -253,7 +271,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       return;
     }
 
-    const roleToAssign = lockedRole || (matched ? matched.role : (selectedRole || (emailTrimmed.includes('maseera') ? 'Super Admin' : 'QA')));
+    let roleToAssign = lockedRole || (matched ? matched.role : (selectedRole || (isMaseera ? 'Super Admin' : 'QA')));
+    if (!isMaseera && roleToAssign === 'Super Admin') {
+      roleToAssign = 'QA';
+    }
 
     const userProfile: UserProfile = {
       name: nameTrimmed,
@@ -410,7 +431,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 }`}
               >
                 <option value="">-- Select Mandatory Role --</option>
-                <option value="Super Admin">Super Admin</option>
+                {/* Super Admin is strictly reserved for Maseera Sayyed (maseerasayyed@quantumphinance.com) */}
+                {(officialEmail.trim().toLowerCase().includes('maseera') || lockedRole === 'Super Admin') && (
+                  <option value="Super Admin">👑 Super Admin (Executive Authority)</option>
+                )}
                 <option value="QA">QA</option>
                 <option value="BA">BA</option>
                 <option value="Developer">Developer</option>

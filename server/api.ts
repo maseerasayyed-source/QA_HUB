@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { query, getDbStatus } from './db';
 
@@ -243,14 +244,12 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
     const { workItemId, organization, project, pat } = req.body;
     const cleanId = String(workItemId || '').match(/\d{3,8}/)?.[0] || String(workItemId || '').trim();
     const cleanOrg = (organization || workspaceAdoOrg || 'quantumphinance').trim();
-    const cleanProject = (project || workspaceAdoProject || 'Beacon').trim();
+    const requestedProject = (project || '').trim();
     const token = (pat || workspaceAdoToken || process.env.AZURE_DEVOPS_PAT || process.env.ADO_PAT || '').trim();
 
     if (!cleanId) {
       return res.status(400).json({ success: false, message: 'Work Item / Ticket ID is required' });
     }
-
-    const adoUrl = `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(cleanProject)}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`;
 
     const headers: Record<string, string> = {
       'Accept': 'application/json',
@@ -261,34 +260,77 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
       headers['Authorization'] = `Basic ${Buffer.from(':' + token).toString('base64')}`;
     }
 
-    const adoResponse = await fetch(adoUrl, { method: 'GET', headers });
-    const contentType = adoResponse.headers.get('content-type') || '';
+    // Attempt candidates in order:
+    // 1. Direct Organization-level URL (Works across ANY project in the org! E.g. InsightCorp, Beacon Web, SheetKraft)
+    // 2. Specific project candidates
+    const candidateUrls: string[] = [
+      `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/_apis/wit/workitems/${cleanId}?api-version=7.0`,
+    ];
 
-    // If Azure DevOps returns HTTP 203 or non-JSON content-type, it indicates redirection to Microsoft SSO / authentication required
-    if (adoResponse.status === 203 || !contentType.includes('application/json') || adoResponse.status === 401 || adoResponse.status === 403) {
-      return res.json({
-        success: false,
-        requiresPat: true,
-        statusCode: adoResponse.status,
-        ticketNumber: cleanId,
-        message: !token
-          ? `Azure DevOps organization '${cleanOrg}' requires a Personal Access Token (PAT). Please enter your PAT below with Work Items (Read) permission to fetch live data.`
-          : `Azure DevOps rejected access (${adoResponse.status}). Please verify that your PAT has 'Work Items (Read)' permission for ${cleanOrg}/${cleanProject}.`,
-      });
+    if (requestedProject && requestedProject !== 'QA HUB') {
+      candidateUrls.push(
+        `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(requestedProject)}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`
+      );
     }
 
-    if (!adoResponse.ok) {
-      const errText = await adoResponse.text();
+    const knownProjects = ['InsightCorp', 'Beacon Web', 'SheetKraft'];
+    for (const kp of knownProjects) {
+      candidateUrls.push(
+        `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(kp)}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`
+      );
+    }
+
+    let lastResponse: any = null;
+    let successfulData: any = null;
+
+    for (const url of candidateUrls) {
+      try {
+        const resp = await fetch(url, { method: 'GET', headers });
+        const cType = resp.headers.get('content-type') || '';
+
+        if (resp.status === 203 || resp.status === 401 || resp.status === 403) {
+          lastResponse = resp;
+          continue;
+        }
+
+        if (resp.ok && cType.includes('application/json')) {
+          const json = await resp.json();
+          if (json && json.id && json.fields) {
+            successfulData = json;
+            break;
+          }
+        } else {
+          lastResponse = resp;
+        }
+      } catch {
+        // try next candidate URL
+      }
+    }
+
+    if (!successfulData) {
+      if (lastResponse && (lastResponse.status === 203 || lastResponse.status === 401 || lastResponse.status === 403)) {
+        return res.json({
+          success: false,
+          requiresPat: true,
+          statusCode: lastResponse.status,
+          ticketNumber: cleanId,
+          message: !token
+            ? `Azure DevOps organization '${cleanOrg}' requires a Personal Access Token (PAT). Please enter your PAT below with Work Items (Read) permission to fetch live data.`
+            : `Azure DevOps rejected access (${lastResponse.status}). Please verify that your PAT has 'Work Items (Read)' permission for ${cleanOrg}.`,
+        });
+      }
+
+      const errText = lastResponse ? await lastResponse.text().catch(() => '') : '';
       return res.json({
         success: false,
-        statusCode: adoResponse.status,
+        statusCode: lastResponse ? lastResponse.status : 404,
         ticketNumber: cleanId,
-        message: `Azure DevOps API returned ${adoResponse.status} ${adoResponse.statusText}.`,
+        message: `Azure DevOps API returned 404. Work Item #${cleanId} does not exist in ${cleanOrg}.`,
         errorDetail: errText.slice(0, 300),
       });
     }
 
-    const data = (await adoResponse.json()) as any;
+    const data = successfulData as any;
     const fields = data?.fields || {};
 
     const title = fields['System.Title'] || `Ticket #${cleanId}`;
