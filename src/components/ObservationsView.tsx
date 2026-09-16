@@ -40,6 +40,7 @@ import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { CommonHeader } from './common/CommonHeader';
+import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 
 interface ObservationsViewProps {
   tickets?: TicketSummary[];
@@ -126,6 +127,69 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || 'Maseera Sayyed');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
+  const [fetchedHeaderNotice, setFetchedHeaderNotice] = useState<string | null>(null);
+
+  // System-wide tickets created on this client across all modules
+  const systemTicketsList = useMemo(() => {
+    const map = new Map<string, TicketSummary>();
+    (tickets || []).forEach((t) => {
+      if (t.ticketNumber) {
+        map.set(t.ticketNumber.trim().toLowerCase(), t);
+      }
+    });
+    const storedTickets = getAllCreatedTicketsOnSystem();
+    storedTickets.forEach((st) => {
+      if (st.ticketNumber && !map.has(st.ticketNumber.trim().toLowerCase())) {
+        map.set(st.ticketNumber.trim().toLowerCase(), st);
+      }
+    });
+    return Array.from(map.values());
+  }, [tickets]);
+
+  const handleSelectExistingTicket = (selectedId: string) => {
+    if (!selectedId) return;
+    const cleanId = selectedId.trim().toLowerCase().replace('#', '');
+    const matched = systemTicketsList.find(
+      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === cleanId
+    );
+    if (!matched) return;
+
+    setNewTicketNumber(matched.ticketNumber);
+    setNewFeatureName(matched.featureName || '');
+    if (matched.priority) setNewPriority(matched.priority);
+    if (matched.developer) setNewDeveloper(matched.developer);
+    if (matched.qaAssignee) setNewQaAssignee(matched.qaAssignee);
+    if (matched.scenarioDetails || matched.description) {
+      setNewScenarioDetails(matched.scenarioDetails || matched.description || '');
+    }
+    setFetchedHeaderNotice(
+      `✅ Headers auto-fetched from Ticket #${matched.ticketNumber} (${matched.moduleName || 'General'}). Select your target module below.`
+    );
+  };
+
+  const handleTicketNumberChange = (val: string) => {
+    setNewTicketNumber(val);
+    const clean = val.trim().toLowerCase().replace('#', '');
+    if (clean.length >= 2) {
+      const matched = systemTicketsList.find(
+        (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === clean
+      );
+      if (matched) {
+        setNewFeatureName(matched.featureName || '');
+        if (matched.priority) setNewPriority(matched.priority);
+        if (matched.developer) setNewDeveloper(matched.developer);
+        if (matched.qaAssignee) setNewQaAssignee(matched.qaAssignee);
+        if (matched.scenarioDetails || matched.description) {
+          setNewScenarioDetails(matched.scenarioDetails || matched.description || '');
+        }
+        setFetchedHeaderNotice(
+          `✅ Headers auto-fetched from existing Ticket #${matched.ticketNumber} (${matched.moduleName || 'General'}).`
+        );
+        return;
+      }
+    }
+    if (fetchedHeaderNotice) setFetchedHeaderNotice(null);
+  };
 
   // Sorting state in detail table
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -577,14 +641,18 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         ? customModuleName.trim() || 'Custom Module'
         : modules.find((m) => m.id === newModuleId)?.name || 'Term Loan';
 
+    const matchedExisting = systemTicketsList.find(
+      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === newTicketNumber.trim().toLowerCase().replace('#', '')
+    );
+
     const newTicket: TicketSummary = {
       id: `ticket-${Date.now()}`,
       ticketNumber: newTicketNumber.trim().replace('#', ''),
       featureName: newFeatureName.trim(),
       moduleId: newModuleId === 'other' ? 'custom' : newModuleId,
       moduleName: effectiveModuleName,
-      developer: newDeveloper.trim() || '',
-      qaAssignee: newQaAssignee.trim() || currentUser?.name || 'Maseera Sayyed',
+      developer: newDeveloper.trim() || (matchedExisting?.developer || ''),
+      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || 'Maseera Sayyed'),
       priority: newPriority,
       status: 'Ready for QA',
       testCasesCount: 0,
@@ -593,13 +661,16 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       blockedCount: 0,
       observationsCount: 0,
       receivedDate: new Date().toISOString().split('T')[0],
-      scenarioDetails: newScenarioDetails.trim(),
-      testingScenarios: newScenarioDetails.trim(),
+      scenarioDetails: newScenarioDetails.trim() || (matchedExisting?.scenarioDetails || ''),
+      testingScenarios: newScenarioDetails.trim() || (matchedExisting?.testingScenarios || ''),
+      clientName: matchedExisting?.clientName || 'Treasury Master',
+      description: matchedExisting?.description || `Observations ticket #${newTicketNumber.trim()} in ${effectiveModuleName}`,
     };
 
     onAddTicket?.(newTicket);
     handleOpenObservationScreen(newTicket);
     setIsAddTicketModalOpen(false);
+    setFetchedHeaderNotice(null);
 
     // Reset
     setNewTicketNumber('');
@@ -922,6 +993,44 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
               </div>
 
               <form onSubmit={handleCreateTicketSubmit} className="space-y-3.5 text-xs">
+                {/* Dropdown to select Ticket ID created on this system to reuse in another module */}
+                {systemTicketsList.length > 0 && (
+                  <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                        <Copy className="w-3.5 h-3.5 text-blue-600" />
+                        <span>Select Existing Ticket ID (Copy Headers across Modules)</span>
+                      </label>
+                      <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200">
+                        {systemTicketsList.length} tickets available
+                      </span>
+                    </div>
+                    <select
+                      value=""
+                      onChange={(e) => handleSelectExistingTicket(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                    >
+                      <option value="">-- Choose Ticket ID to copy headers --</option>
+                      {systemTicketsList.map((st) => (
+                        <option key={`obs-st-${st.id}-${st.ticketNumber}`} value={st.ticketNumber}>
+                          #{st.ticketNumber} — {st.featureName} (Module: {st.moduleName || 'General'})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-blue-700 leading-relaxed">
+                      Selecting a ticket automatically fills Title, Priority, Developer, QA, and Scenario headers. Select your target module below to link it.
+                    </p>
+                  </div>
+                )}
+
+                {/* Header Auto-fetch Notification Banner */}
+                {fetchedHeaderNotice && (
+                  <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-[11px] text-emerald-900 font-semibold flex items-start gap-1.5 animate-fadeIn">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <span>{fetchedHeaderNotice}</span>
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-slate-700 font-bold mb-1">
                     Ticket ID / Work Item Number *
@@ -929,11 +1038,19 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   <input
                     type="text"
                     required
+                    list="obs-existing-tickets-datalist"
                     placeholder="e.g. 21655 or TL-B-20-00006"
                     value={newTicketNumber}
-                    onChange={(e) => setNewTicketNumber(e.target.value)}
-                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={(e) => handleTicketNumberChange(e.target.value)}
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900"
                   />
+                  <datalist id="obs-existing-tickets-datalist">
+                    {systemTicketsList.map((st) => (
+                      <option key={`obs-dl-${st.ticketNumber}`} value={st.ticketNumber}>
+                        {st.featureName} ({st.moduleName})
+                      </option>
+                    ))}
+                  </datalist>
                 </div>
 
                 <div>

@@ -553,6 +553,7 @@ export default function App() {
         onSelectTab={(tab) => handleNavigateTab(tab)}
         currentUser={currentUser}
         onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onLogout={handleLogout}
         theme={settings.theme}
       />
 
@@ -565,6 +566,7 @@ export default function App() {
           modules={modules}
           onOpenGuide={() => setIsGuideOpen(true)}
           onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onLogout={handleLogout}
           currentTheme={settings.theme}
           onSelectTheme={(theme) => {
             const updated = { ...settings, theme };

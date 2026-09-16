@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   FileText,
   CalendarCheck,
+  LogOut,
 } from 'lucide-react';
 import { NavTab, UserProfile, ColourTheme } from '../types';
 
@@ -18,6 +19,7 @@ interface SidebarProps {
   onSelectTab: (tab: NavTab) => void;
   currentUser: UserProfile;
   onOpenLoginModal?: () => void;
+  onLogout?: () => void;
   theme?: ColourTheme;
 }
 
@@ -33,6 +35,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectTab,
   currentUser,
   onOpenLoginModal,
+  onLogout,
   theme = 'Default',
 }) => {
   // Navigation tabs list with font size greater than 15px (16.5px font-bold)
@@ -124,14 +127,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* User Footer & Authority Level Switcher */}
-      <div
-        onClick={onOpenLoginModal}
-        title="Click to change Official Email / Login Role"
-        className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between cursor-pointer hover:bg-slate-900 transition-colors"
-      >
-        <div className="flex items-center min-w-0">
+      <div className="p-3 bg-slate-950 border-t border-slate-800 flex items-center justify-between">
+        <div
+          onClick={onOpenLoginModal}
+          title="Click to change Official Email / Login Role"
+          className="flex items-center min-w-0 cursor-pointer flex-1 mr-2"
+        >
           <div
-            className={`w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-xs ${
+            className={`w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shrink-0 shadow-xs ${
               currentUser.role === 'Super Admin'
                 ? 'bg-purple-600'
                 : currentUser.role === 'Senior QA' || currentUser.role === 'Admin'
@@ -141,23 +144,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             {currentUser.name.slice(0, 2).toUpperCase()}
           </div>
-          <div className="ml-2.5 overflow-hidden">
-            <p className="text-sm font-bold text-white truncate">{currentUser.name}</p>
-            <p className="text-xs text-slate-400 truncate">{currentUser.email}</p>
+          <div className="ml-2 overflow-hidden">
+            <p className="text-xs font-bold text-white truncate">{currentUser.name}</p>
+            <p className="text-[10px] text-slate-400 truncate">{currentUser.email}</p>
           </div>
         </div>
 
-        <span
-          className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase shrink-0 ${
-            currentUser.role === 'Super Admin'
-              ? 'bg-purple-950 text-purple-300 border-purple-800'
-              : currentUser.role === 'Senior QA' || currentUser.role === 'Admin'
-              ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
-              : 'bg-slate-800 text-slate-300 border-slate-700'
-          }`}
-        >
-          {currentUser.role}
-        </span>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span
+            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase ${
+              currentUser.role === 'Super Admin'
+                ? 'bg-purple-950 text-purple-300 border-purple-800'
+                : currentUser.role === 'Senior QA' || currentUser.role === 'Admin'
+                ? 'bg-emerald-950 text-emerald-300 border-emerald-800'
+                : 'bg-slate-800 text-slate-300 border-slate-700'
+            }`}
+          >
+            {currentUser.role === 'Super Admin' ? 'Admin' : currentUser.role}
+          </span>
+
+          {onLogout && (
+            <button
+              onClick={onLogout}
+              title="Logout (Exit to Login Page)"
+              className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-slate-900 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
     </aside>
   );

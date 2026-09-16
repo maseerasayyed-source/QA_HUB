@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react';
-import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2 } from 'lucide-react';
+import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2, Copy, Layers } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { fetchWorkItemFromAzure, loadSavedAdoConfig, saveAdoConfig } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 import { generateTicketDetailsWithAi } from '../utils/aiGenerator';
+import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 
 interface TicketsViewProps {
   tickets: TicketSummary[];
@@ -52,6 +53,67 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [isFetchingAdo, setIsFetchingAdo] = useState(false);
   const [adoFetchMessage, setAdoFetchMessage] = useState<{ type: 'success' | 'error'; text: string; detail?: string } | null>(null);
 
+  // System-wide tickets created on this client system across all modules
+  const systemTicketsList = useMemo(() => {
+    const map = new Map<string, TicketSummary>();
+    tickets.forEach((t) => {
+      if (t.ticketNumber) {
+        map.set(t.ticketNumber.trim().toLowerCase(), t);
+      }
+    });
+    const storedTickets = getAllCreatedTicketsOnSystem();
+    storedTickets.forEach((st) => {
+      if (st.ticketNumber && !map.has(st.ticketNumber.trim().toLowerCase())) {
+        map.set(st.ticketNumber.trim().toLowerCase(), st);
+      }
+    });
+    return Array.from(map.values());
+  }, [tickets]);
+
+  const [fetchedHeaderNotice, setFetchedHeaderNotice] = useState<string | null>(null);
+
+  // Auto-fetch headers when selecting an existing ticket from dropdown
+  const handleSelectExistingTicket = (selectedId: string) => {
+    if (!selectedId) return;
+    const cleanId = selectedId.trim().toLowerCase().replace('#', '');
+    const matched = systemTicketsList.find(
+      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === cleanId
+    );
+    if (!matched) return;
+
+    setNewTicketId(matched.ticketNumber);
+    setNewFeatureName(matched.featureName || '');
+    if (matched.priority) setNewPriority(matched.priority);
+    if (matched.developer) setNewDeveloper(matched.developer);
+    if (matched.qaAssignee) setNewQaAssignee(matched.qaAssignee);
+
+    setFetchedHeaderNotice(
+      `✅ Headers auto-fetched from Ticket #${matched.ticketNumber} (Originally in: ${matched.moduleName || 'General'}). Select your target module below to link it.`
+    );
+  };
+
+  // Handle typing ticket ID: auto-fetch headers if matches an existing ticket
+  const handleTicketIdChange = (val: string) => {
+    setNewTicketId(val);
+    const clean = val.trim().toLowerCase().replace('#', '');
+    if (clean.length >= 2) {
+      const matched = systemTicketsList.find(
+        (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === clean
+      );
+      if (matched) {
+        setNewFeatureName(matched.featureName || '');
+        if (matched.priority) setNewPriority(matched.priority);
+        if (matched.developer) setNewDeveloper(matched.developer);
+        if (matched.qaAssignee) setNewQaAssignee(matched.qaAssignee);
+        setFetchedHeaderNotice(
+          `✅ Headers auto-fetched from existing Ticket #${matched.ticketNumber} (${matched.moduleName || 'General'}).`
+        );
+        return;
+      }
+    }
+    if (fetchedHeaderNotice) setFetchedHeaderNotice(null);
+  };
+
   // Load ADO settings when opening modal
   const handleOpenNewTicketModal = () => {
     const saved = loadSavedAdoConfig();
@@ -61,6 +123,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     setNewDeveloper('');
     setNewQaAssignee(currentUser?.name || 'Maseera Sayyed');
     setAdoFetchMessage(null);
+    setFetchedHeaderNotice(null);
     setIsNewTicketOpen(true);
   };
 
@@ -205,19 +268,23 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       finalModuleName = mod?.name || 'General';
     }
 
+    const matchedExisting = systemTicketsList.find(
+      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === newTicketId.trim().toLowerCase().replace('#', '')
+    );
+
     const ticketToAdd: TicketSummary = {
       id: `t-${Date.now()}`,
       ticketNumber: newTicketId.trim(),
       featureName: newFeatureName.trim(),
       moduleId: finalModuleId,
       moduleName: finalModuleName,
-      developer: newDeveloper.trim() || '',
-      qaAssignee: newQaAssignee.trim() || 'Maseera Sayyed',
+      developer: newDeveloper.trim() || (matchedExisting?.developer || ''),
+      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || 'Maseera Sayyed'),
       createdBy: currentUser?.name || 'Maseera Sayyed',
       creatorEmail: currentUser?.email || 'maseerasayyed@quantumphinance.com',
       signOffBy: '',
-      clientName: 'Treasury Master',
-      shaCommit: `SHA-1: ${Math.random().toString(36).substring(2, 10)}`,
+      clientName: matchedExisting?.clientName || 'Treasury Master',
+      shaCommit: matchedExisting?.shaCommit || `SHA-1: ${Math.random().toString(36).substring(2, 10)}`,
       priority: newPriority,
       status: 'Ready for QA',
       testCasesCount: 0,
@@ -226,14 +293,15 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       blockedCount: 0,
       observationsCount: 0,
       receivedDate: new Date().toISOString().split('T')[0],
-      description: `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${finalModuleName} module.`,
-      scenarioDetails: `Scenario 1: Verify core functionality of ${newFeatureName.trim()}.\nScenario 2: Boundary validation and invalid state checks.`,
-      impactPoints: [`${finalModuleName} Core Engine`, 'Financial Ledger & Reports'],
-      testingScenarios: `Verify end-to-end user workflows for ${newFeatureName.trim()}.\nVerify input edge-cases and error validations.`,
+      description: matchedExisting?.description || `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${finalModuleName} module.`,
+      scenarioDetails: matchedExisting?.scenarioDetails || `Scenario 1: Verify core functionality of ${newFeatureName.trim()}.\nScenario 2: Boundary validation and invalid state checks.`,
+      impactPoints: matchedExisting?.impactPoints || [`${finalModuleName} Core Engine`, 'Financial Ledger & Reports'],
+      testingScenarios: matchedExisting?.testingScenarios || `Verify end-to-end user workflows for ${newFeatureName.trim()}.\nVerify input edge-cases and error validations.`,
     };
 
     onAddTicket?.(ticketToAdd);
     setIsNewTicketOpen(false);
+    setFetchedHeaderNotice(null);
     setNewTicketId('');
     setNewFeatureName('');
     setCustomModuleName('');
@@ -515,6 +583,44 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
             </div>
 
             <form onSubmit={handleCreateTicket} className="p-5 space-y-3.5 text-xs">
+              {/* Dropdown to select Ticket ID created on this system to reuse in another module */}
+              {systemTicketsList.length > 0 && (
+                <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-blue-950 flex items-center gap-1.5">
+                      <Copy className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Select Existing Ticket ID (Copy Headers to Another Module)</span>
+                    </label>
+                    <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full border border-blue-200">
+                      {systemTicketsList.length} tickets on this system
+                    </span>
+                  </div>
+                  <select
+                    value=""
+                    onChange={(e) => handleSelectExistingTicket(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="">-- Choose Ticket ID to copy headers across modules --</option>
+                    {systemTicketsList.map((st) => (
+                      <option key={`${st.id}-${st.ticketNumber}`} value={st.ticketNumber}>
+                        #{st.ticketNumber} — {st.featureName} (Module: {st.moduleName || 'General'})
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-blue-700 leading-relaxed">
+                    Selecting a ticket automatically fetches its title, priority, developer, and QA assignee headers. You can then choose a different module below to link it.
+                  </p>
+                </div>
+              )}
+
+              {/* Header Auto-fetch Notification Banner */}
+              {fetchedHeaderNotice && (
+                <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-lg text-[11px] text-emerald-900 font-semibold flex items-start gap-1.5 animate-fadeIn">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{fetchedHeaderNotice}</span>
+                </div>
+              )}
+
               <div>
                 <label className="block text-slate-700 font-bold mb-1">
                   Azure DevOps Ticket ID / Work Item #
@@ -523,11 +629,19 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                   <input
                     type="text"
                     required
+                    list="existing-tickets-datalist"
                     placeholder="e.g. 21654 or BCN-4920"
                     value={newTicketId}
-                    onChange={(e) => setNewTicketId(e.target.value)}
-                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={(e) => handleTicketIdChange(e.target.value)}
+                    className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold focus:outline-none focus:ring-1 focus:ring-blue-500 text-slate-900"
                   />
+                  <datalist id="existing-tickets-datalist">
+                    {systemTicketsList.map((st) => (
+                      <option key={`dl-${st.ticketNumber}`} value={st.ticketNumber}>
+                        {st.featureName} ({st.moduleName})
+                      </option>
+                    ))}
+                  </datalist>
                   <button
                     type="button"
                     onClick={handleFetchFromAzure}

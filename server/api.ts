@@ -7,11 +7,11 @@ apiRouter.use(express.json());
 // In-memory fallback data cache if PostgreSQL is offline during development
 const mockMemoryStore = {
   users: [
-    { name: 'Maseera Sayyed', role: 'Super Admin', email: 'maseera@company.com' },
-    { name: 'QA User', role: 'QA', email: 'qa@company.com' },
-    { name: 'BA User', role: 'BA', email: 'ba@company.com' },
-    { name: 'Developer User', role: 'Developer', email: 'dev@company.com' },
-    { name: 'Product User', role: 'Product Team', email: 'product@company.com' }
+    { name: 'Maseera Sayyed', role: 'Super Admin', email: 'maseerasayyed@quantumphinance.com' },
+    { name: 'QA User', role: 'QA', email: 'qa@quantumphinance.com' },
+    { name: 'BA User', role: 'BA', email: 'ba@quantumphinance.com' },
+    { name: 'Developer User', role: 'Developer', email: 'dev@quantumphinance.com' },
+    { name: 'Product User', role: 'Product Team', email: 'product@quantumphinance.com' }
   ],
   activityLogs: [] as any[],
   tickets: [] as any[],
@@ -73,26 +73,50 @@ apiRouter.get('/users', async (_req: Request, res: Response) => {
 });
 
 apiRouter.post('/users/role', async (req: AuthenticatedRequest, res: Response) => {
-  const { userName, role } = req.body;
+  const { userName, role, email } = req.body;
   if (!userName || !role) {
     return res.status(400).json({ error: 'userName and role required' });
   }
 
-  const existing = mockMemoryStore.users.find(u => u.name === userName);
+  const cleanEmail = (email || '').toLowerCase().trim();
+
+  // Role Restriction check: if same email already has a saved role, block any attempt to change role
+  if (cleanEmail) {
+    const existingByEmail = mockMemoryStore.users.find(
+      u => u.email && u.email.toLowerCase().trim() === cleanEmail
+    );
+    if (existingByEmail && existingByEmail.role && existingByEmail.role !== role) {
+      return res.status(403).json({
+        error: `Access Restricted: Email ${cleanEmail} is already registered with role '${existingByEmail.role}'. You cannot login with role '${role}'.`,
+        registeredRole: existingByEmail.role
+      });
+    }
+  }
+
+  const existing = mockMemoryStore.users.find(
+    u => (cleanEmail && u.email && u.email.toLowerCase() === cleanEmail) || u.name === userName
+  );
+
   if (existing) {
-    existing.role = role;
+    if (cleanEmail && !existing.email) existing.email = cleanEmail;
+    // Keep role fixed once established
+    existing.role = existing.role || role;
+    if (userName && !existing.name) existing.name = userName;
   } else {
-    mockMemoryStore.users.push({ name: userName, role, email: '' });
+    mockMemoryStore.users.push({ name: userName, role, email: cleanEmail });
   }
 
   try {
-    await query('INSERT INTO users (name, role) VALUES ($1, $2) ON CONFLICT (name) DO UPDATE SET role = EXCLUDED.role', [userName, role]);
+    await query(
+      'INSERT INTO users (name, role, email) VALUES ($1, $2, $3) ON CONFLICT (name) DO UPDATE SET email = EXCLUDED.email',
+      [userName, existing ? existing.role : role, cleanEmail]
+    );
   } catch (err) {
     // in-memory store already updated
   }
 
-  await logActivity(req.userContext?.userName || userName, req.userContext?.userRole || role, `User logged in / role assigned (${role})`, 'Auth');
-  return res.json({ status: 'ok', name: userName, role });
+  await logActivity(req.userContext?.userName || userName, req.userContext?.userRole || role, `User logged in / verified (${role})`, 'Auth');
+  return res.json({ status: 'ok', name: userName, role: existing ? existing.role : role, email: cleanEmail });
 });
 
 // Activity logs (Super Admin tracking with RBAC permission validation)

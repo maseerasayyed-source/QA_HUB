@@ -94,19 +94,25 @@ export function loadInitialData() {
   }
 
   // Load User Session
-  let user: UserProfile | null = INITIAL_USER;
+  // REQUIREMENT: Whenever any user opens the link, the login page must open!
+  // Session is maintained in sessionStorage so new tabs/fresh link opens prompt for login.
+  let user: UserProfile | null = null;
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const storedUser = localStorage.getItem(STORAGE_KEYS.USER);
-      if (storedUser) {
-        const parsed = JSON.parse(storedUser);
-        if (parsed && typeof parsed === 'object' && parsed.email) {
-          user = parsed;
+    if (typeof window !== 'undefined') {
+      // Clear legacy permanent auto-login if present
+      localStorage.removeItem(STORAGE_KEYS.USER);
+      if (window.sessionStorage) {
+        const sessionUser = sessionStorage.getItem('qa_hub_active_session_user');
+        if (sessionUser) {
+          const parsed = JSON.parse(sessionUser);
+          if (parsed && typeof parsed === 'object' && parsed.email) {
+            user = parsed;
+          }
         }
       }
     }
   } catch (e) {
-    console.error('Failed to parse user from localStorage', e);
+    console.error('Failed to parse user session', e);
   }
 
   // Load Modules (Ensure all 18 modules start with 0 active tickets)
@@ -422,20 +428,128 @@ export async function fetchInitialDataFromBackend() {
   return null;
 }
 
+export interface SavedUserRecord {
+  email: string;
+  name: string;
+  role: UserProfile['role'];
+}
+
+export const USER_REGISTRY_KEY = 'qa_hub_registered_users_registry';
+
 /**
- * Save user session to localStorage and sync with backend
+ * Retrieve all registered users saved on this system, defaulting to Maseera Sayyed (Super Admin)
+ */
+export function getSavedUserRegistry(): SavedUserRecord[] {
+  const defaultList: SavedUserRecord[] = [
+    {
+      name: 'Maseera Sayyed',
+      email: 'maseerasayyed@quantumphinance.com',
+      role: 'Super Admin',
+    },
+  ];
+
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const stored = localStorage.getItem(USER_REGISTRY_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const map = new Map<string, SavedUserRecord>();
+          defaultList.forEach((u) => map.set(u.email.toLowerCase(), u));
+          parsed.forEach((u) => {
+            if (u && u.email) map.set(u.email.toLowerCase(), u);
+          });
+          return Array.from(map.values());
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to get user registry', e);
+  }
+  return defaultList;
+}
+
+/**
+ * Save / lock a user with their chosen role in the persistent registry
+ */
+export function saveUserToRegistry(user: { email: string; name: string; role: UserProfile['role'] }): void {
+  try {
+    const list = getSavedUserRegistry();
+    const cleanEmail = user.email.toLowerCase().trim();
+    const existingIndex = list.findIndex((u) => u.email.toLowerCase().trim() === cleanEmail);
+
+    if (existingIndex >= 0) {
+      // Keep established role to enforce strict role permanence per user request
+      list[existingIndex] = {
+        email: cleanEmail,
+        name: user.name || list[existingIndex].name,
+        role: list[existingIndex].role,
+      };
+    } else {
+      list.push({
+        email: cleanEmail,
+        name: user.name,
+        role: user.role,
+      });
+    }
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      localStorage.setItem(USER_REGISTRY_KEY, JSON.stringify(list));
+    }
+  } catch (e) {
+    console.error('Failed to save user to registry', e);
+  }
+}
+
+/**
+ * Get all ticket headers created on this system across all modules
+ */
+export function getAllCreatedTicketsOnSystem(): TicketSummary[] {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem(STORAGE_KEYS.TICKETS);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed;
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Failed to get tickets on system', e);
+  }
+  return [];
+}
+
+/**
+ * Save user session to sessionStorage and sync with backend
  */
 export function saveUserSession(user: UserProfile) {
   try {
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+    if (typeof window !== 'undefined') {
+      if (window.sessionStorage) {
+        sessionStorage.setItem('qa_hub_active_session_user', JSON.stringify(user));
+      }
+      if (window.localStorage) {
+        localStorage.setItem('qa_hub_last_user', JSON.stringify(user));
+      }
+    }
+
+    // Persist in local user registry
+    saveUserToRegistry({
+      email: user.email,
+      name: user.name,
+      role: user.role,
+    });
+
     fetch('/api/users/role', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-user-name': user.name,
-        'x-user-role': user.role
+        'x-user-role': user.role,
       },
-      body: JSON.stringify({ userName: user.name, role: user.role })
+      body: JSON.stringify({ userName: user.name, role: user.role, email: user.email }),
     }).catch(() => {});
   } catch (e) {
     console.error(e);
@@ -443,12 +557,17 @@ export function saveUserSession(user: UserProfile) {
 }
 
 /**
- * Logout / clear user session from localStorage
+ * Logout / clear user session
  */
 export function logoutUserSession() {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.removeItem(STORAGE_KEYS.USER);
+    if (typeof window !== 'undefined') {
+      if (window.sessionStorage) {
+        sessionStorage.removeItem('qa_hub_active_session_user');
+      }
+      if (window.localStorage) {
+        localStorage.removeItem(STORAGE_KEYS.USER);
+      }
     }
   } catch (e) {
     console.error(e);

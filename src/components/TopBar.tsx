@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette } from 'lucide-react';
+import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette, LogOut } from 'lucide-react';
 import { UserProfile, ColourTheme } from '../types';
 
 interface TopBarProps {
@@ -9,6 +9,7 @@ interface TopBarProps {
   modules: { id: string; name: string }[];
   onOpenGuide: () => void;
   onOpenLoginModal?: () => void;
+  onLogout?: () => void;
   currentTheme?: ColourTheme;
   onSelectTheme?: (theme: ColourTheme) => void;
 }
@@ -20,6 +21,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   modules,
   onOpenGuide,
   onOpenLoginModal,
+  onLogout,
   currentTheme = 'Default',
   onSelectTheme,
 }) => {
@@ -116,6 +118,17 @@ export const TopBar: React.FC<TopBarProps> = ({
           <BookOpen className="w-3.5 h-3.5" />
           <span>Guide</span>
         </button>
+
+        {onLogout && (
+          <button
+            onClick={onLogout}
+            title="Log Out (Return to Login Screen)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer text-xs"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Logout</span>
+          </button>
+        )}
       </div>
     </header>
   );
