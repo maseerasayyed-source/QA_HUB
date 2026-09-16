@@ -94,25 +94,19 @@ export function loadInitialData() {
   }
 
   // Load User Session
-  // REQUIREMENT: Whenever any user opens the link, the login page must open!
-  // Session is maintained in sessionStorage so new tabs/fresh link opens prompt for login.
+  // REQUIREMENT: Whenever any user opens the link, the login page must always open!
+  // Do NOT auto-login so the user always sees the Login Page (with Sign in with Google).
   let user: UserProfile | null = null;
   try {
     if (typeof window !== 'undefined') {
-      // Clear legacy permanent auto-login if present
       localStorage.removeItem(STORAGE_KEYS.USER);
+      localStorage.removeItem('qa_hub_current_user');
       if (window.sessionStorage) {
-        const sessionUser = sessionStorage.getItem('qa_hub_active_session_user');
-        if (sessionUser) {
-          const parsed = JSON.parse(sessionUser);
-          if (parsed && typeof parsed === 'object' && parsed.email) {
-            user = parsed;
-          }
-        }
+        sessionStorage.removeItem('qa_hub_active_session_user');
       }
     }
   } catch (e) {
-    console.error('Failed to parse user session', e);
+    console.error('Failed to reset user session', e);
   }
 
   // Load Modules (Ensure all 18 modules start with 0 active tickets)

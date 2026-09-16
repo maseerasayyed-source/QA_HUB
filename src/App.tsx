@@ -58,8 +58,8 @@ export default function App() {
   // App Settings (Theme & Font)
   const [settings, setSettings] = useState<AppSettings>(dbState.settings || { theme: 'Default', font: 'Inter' });
 
-  // Current logged in user (null if not authenticated)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(dbState.user);
+  // Current logged in user (null by default so the LoginPage opens first whenever opened from a link)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
   // Active navigation tab
   const [activeTab, setActiveTab] = useState<NavTab>('ai-test-hub');
