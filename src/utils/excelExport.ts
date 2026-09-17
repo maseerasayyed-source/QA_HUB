@@ -513,8 +513,9 @@ export async function getObservationsExcelBlob(
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const cleanTicket = headerMeta.ticketNo ? headerMeta.ticketNo.replace(/[^a-zA-Z0-9_-]/g, '_') : 'ticket';
-  const fileName = customFileName || `Observations_${cleanTicket}.xlsx`;
+  const fileName =
+    customFileName ||
+    formatStandardFileName(headerMeta.ticketNo, headerMeta.ticketName || 'Observations', 'xlsx');
   return { blob, fileName, buffer };
 }
 
