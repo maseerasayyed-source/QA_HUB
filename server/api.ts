@@ -355,12 +355,87 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
       priority = 'Low';
     }
 
-    const assignedDevObj = fields['Custom.AssignedDeveloper'] || fields['Custom.Developer'];
-    const devName = typeof assignedDevObj === 'object' ? assignedDevObj?.displayName : String(assignedDevObj || '');
+    // 1. Extract Business Analyst (BA) / Creator
     const createdByObj = fields['System.CreatedBy'];
-    const developer =
-      devName ||
-      (typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || ''));
+    const createdByName =
+      typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || '');
+    const explicitBa =
+      fields['Custom.BusinessAnalyst'] ||
+      fields['Custom.BA'] ||
+      fields['Custom.Analyst'] ||
+      fields['Custom.BAOwner'] ||
+      fields['Custom.RequirementOwner'];
+    const businessAnalyst =
+      (typeof explicitBa === 'object' ? explicitBa?.displayName : String(explicitBa || '')) ||
+      createdByName;
+
+    // 2. Extract Assigned Developer (check all standard & custom developer fields)
+    const devCandidates = [
+      fields['Custom.AssignedDeveloper'],
+      fields['Custom.Developer'],
+      fields['Custom.DevelopedBy'],
+      fields['Custom.DeveloperName'],
+      fields['Custom.Dev'],
+      fields['Custom.DevOwner'],
+      fields['Custom.Coder'],
+      fields['Microsoft.VSTS.Common.Developer'],
+    ];
+
+    let developer = '';
+    for (const cand of devCandidates) {
+      if (cand) {
+        const name = typeof cand === 'object' ? cand?.displayName : String(cand || '');
+        if (name && name.trim()) {
+          developer = name.trim();
+          break;
+        }
+      }
+    }
+
+    // If still not found, search all keys in fields for developer/dev keys
+    if (!developer) {
+      for (const [key, val] of Object.entries(fields)) {
+        const lowerKey = key.toLowerCase();
+        if (
+          (lowerKey.includes('developer') || lowerKey.includes('developedby') || lowerKey.endsWith('.dev')) &&
+          !lowerKey.includes('ba') &&
+          !lowerKey.includes('analyst') &&
+          !lowerKey.includes('qa') &&
+          !lowerKey.includes('tester') &&
+          !lowerKey.includes('created') &&
+          val
+        ) {
+          const name = typeof val === 'object' ? (val as any)?.displayName : String(val || '');
+          if (name && name.trim()) {
+            developer = name.trim();
+            break;
+          }
+        }
+      }
+    }
+
+    // If developer is still not found, check System.AssignedTo ONLY IF it is not the BA and not the QA
+    const assignedToObj = fields['System.AssignedTo'];
+    const assignedToName =
+      typeof assignedToObj === 'object' ? assignedToObj?.displayName : String(assignedToObj || '');
+    const qaObj = fields['Custom.AssignedQA'] || fields['Custom.QA'] || fields['Microsoft.VSTS.Common.Tester'];
+    const qaName = typeof qaObj === 'object' ? qaObj?.displayName : String(qaObj || '');
+
+    if (!developer && assignedToName) {
+      const isAssignedToBA =
+        businessAnalyst && assignedToName.toLowerCase() === businessAnalyst.toLowerCase();
+      const isAssignedToQA = qaName && assignedToName.toLowerCase() === qaName.toLowerCase();
+      if (!isAssignedToBA && !isAssignedToQA) {
+        developer = assignedToName;
+      }
+    }
+
+    // CRITICAL: developer must NEVER default to the Business Analyst / System.CreatedBy!
+    if (businessAnalyst && developer && developer.toLowerCase() === businessAnalyst.toLowerCase()) {
+      // The BA was erroneously placed in developer field, clear it so user can specify or it stays unassigned
+      developer = '';
+    }
+
     const rawScenarios =
       fields['Microsoft.VSTS.TCM.ReproSteps'] ||
       fields['Microsoft.VSTS.Common.AcceptanceCriteria'] ||
@@ -373,8 +448,9 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
       title,
       description,
       areaPath,
-      assignee,
-      developer,
+      assignee: qaName || assignee,
+      developer: developer || '',
+      businessAnalyst: businessAnalyst || '',
       priority,
       state,
       workType,

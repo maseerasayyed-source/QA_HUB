@@ -26,6 +26,7 @@ export interface FetchWorkItemResult {
   areaPath?: string;
   assignee?: string;
   developer?: string;
+  businessAnalyst?: string;
   priority?: 'Critical' | 'High' | 'Medium' | 'Low';
   state?: string;
   workType?: string;
@@ -203,10 +204,83 @@ export async function fetchWorkItemFromAzure(params: {
       priority = 'Low';
     }
 
+    // 1. Extract Business Analyst (BA) / Creator
     const createdByObj = fields['System.CreatedBy'];
-    const developer =
-      fields['Custom.Developer'] ||
-      (typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || ''));
+    const createdByName =
+      typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || '');
+    const explicitBa =
+      fields['Custom.BusinessAnalyst'] ||
+      fields['Custom.BA'] ||
+      fields['Custom.Analyst'] ||
+      fields['Custom.BAOwner'] ||
+      fields['Custom.RequirementOwner'];
+    const businessAnalyst =
+      (typeof explicitBa === 'object' ? explicitBa?.displayName : String(explicitBa || '')) ||
+      createdByName;
+
+    // 2. Extract Assigned Developer
+    const devCandidates = [
+      fields['Custom.AssignedDeveloper'],
+      fields['Custom.Developer'],
+      fields['Custom.DevelopedBy'],
+      fields['Custom.DeveloperName'],
+      fields['Custom.Dev'],
+      fields['Custom.DevOwner'],
+      fields['Custom.Coder'],
+      fields['Microsoft.VSTS.Common.Developer'],
+    ];
+
+    let developer = '';
+    for (const cand of devCandidates) {
+      if (cand) {
+        const name = typeof cand === 'object' ? cand?.displayName : String(cand || '');
+        if (name && name.trim()) {
+          developer = name.trim();
+          break;
+        }
+      }
+    }
+
+    if (!developer) {
+      for (const [key, val] of Object.entries(fields)) {
+        const lowerKey = key.toLowerCase();
+        if (
+          (lowerKey.includes('developer') || lowerKey.includes('developedby') || lowerKey.endsWith('.dev')) &&
+          !lowerKey.includes('ba') &&
+          !lowerKey.includes('analyst') &&
+          !lowerKey.includes('qa') &&
+          !lowerKey.includes('tester') &&
+          !lowerKey.includes('created') &&
+          val
+        ) {
+          const name = typeof val === 'object' ? (val as any)?.displayName : String(val || '');
+          if (name && name.trim()) {
+            developer = name.trim();
+            break;
+          }
+        }
+      }
+    }
+
+    const assignedToObj = fields['System.AssignedTo'];
+    const assignedToName =
+      typeof assignedToObj === 'object' ? assignedToObj?.displayName : String(assignedToObj || '');
+    const qaObj = fields['Custom.AssignedQA'] || fields['Custom.QA'] || fields['Microsoft.VSTS.Common.Tester'];
+    const qaName = typeof qaObj === 'object' ? qaObj?.displayName : String(qaObj || '');
+
+    if (!developer && assignedToName) {
+      const isAssignedToBA =
+        businessAnalyst && assignedToName.toLowerCase() === businessAnalyst.toLowerCase();
+      const isAssignedToQA = qaName && assignedToName.toLowerCase() === qaName.toLowerCase();
+      if (!isAssignedToBA && !isAssignedToQA) {
+        developer = assignedToName;
+      }
+    }
+
+    if (businessAnalyst && developer && developer.toLowerCase() === businessAnalyst.toLowerCase()) {
+      developer = '';
+    }
+
     const state = fields['System.State'] || 'Ready for QA';
     const rawScenarios =
       fields['Microsoft.VSTS.TCM.ReproSteps'] ||
@@ -221,8 +295,9 @@ export async function fetchWorkItemFromAzure(params: {
       title,
       description,
       areaPath,
-      assignee,
-      developer,
+      assignee: qaName || assignee,
+      developer: developer || '',
+      businessAnalyst: businessAnalyst || '',
       priority,
       state,
       testingScenarios,

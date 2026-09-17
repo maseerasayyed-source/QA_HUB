@@ -198,7 +198,9 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
       setAdoFetchMessage({
         type: 'success',
-        text: `Fetched directly from Azure DevOps: "${res.title}"`,
+        text: `Fetched directly from Azure DevOps: "${res.title}"${
+          res.developer ? ` • Dev: ${res.developer}` : ''
+        }${res.businessAnalyst ? ` • BA: ${res.businessAnalyst}` : ''}`,
       });
     } else {
       setAdoFetchMessage({

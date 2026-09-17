@@ -395,7 +395,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         ...currentTicket,
         ticketNumber: res.ticketNumber || header.ticketNo,
         featureName: res.title || header.featureName,
-        developer: res.assignee || header.developer,
+        developer: res.developer || header.developer,
         description: res.description || currentTicket?.description,
       };
     }
