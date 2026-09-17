@@ -495,12 +495,19 @@ apiRouter.post('/azure/attach', async (req: Request, res: Response) => {
   }
 });
 
-// AI Generation via server-side Gemini SDK (lazy initialized)
+// AI Generation via server-side Gemini SDK (lazy initialized with required telemetry headers)
 let aiClient: GoogleGenAI | null = null;
 
 function getAiClient(): GoogleGenAI | null {
   if (!aiClient && process.env.GEMINI_API_KEY) {
-    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    aiClient = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
   }
   return aiClient;
 }
@@ -518,13 +525,107 @@ apiRouter.post('/ai/generate-test-cases', async (req: Request, res: Response) =>
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.8-flash',
       contents: prompt || `Generate comprehensive QA test cases for: ${JSON.stringify(ticketDetails || {})}`,
+      config: {
+        systemInstruction:
+          'You are an expert QA Engineer for enterprise financial software (Beacon / Quantum Phinance). Generate detailed, highly professional test cases. Output clear, well-structured text or markdown.',
+      },
     });
 
     return res.json({
       success: true,
       text: response.text,
+    });
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      fallback: true,
+      error: err?.message || String(err),
+    });
+  }
+});
+
+// Dedicated Multilingual & Logical Test Case Solution Field Generator
+apiRouter.post('/ai/generate-test-case-solution', async (req: Request, res: Response) => {
+  try {
+    const { scenario: userScenario, ticket, moduleName, featureName } = req.body;
+    const rawInput = (userScenario || ticket?.testingScenarios || ticket?.featureName || '').trim();
+
+    const ai = getAiClient();
+    if (!ai) {
+      return res.json({
+        success: false,
+        fallback: true,
+        message: 'GEMINI_API_KEY not configured on server (falling back to client NLP engine)',
+      });
+    }
+
+    const promptText = `The QA user provided the following test scenario/command (which may be written in Hinglish, Hindi, Gujarati, informal English, shorthand, or technical slang):
+"""${rawInput}"""
+
+Ticket Context:
+- Ticket Number: #${ticket?.ticketNumber || 'General'}
+- Feature/Task: ${featureName || ticket?.featureName || 'General Feature'}
+- Module: ${moduleName || ticket?.moduleName || 'Financial Module'}
+- Client: ${ticket?.clientName || 'Treasury Master'}
+
+CRITICAL INSTRUCTIONS:
+1. "scenario": Translate/rephrase the user's scenario into clear, standard, grammatically correct, professional QA English. Start with "Verify that..." (e.g., if user writes "Verify that agr user already dev roleka hai and next time login me role QA mention krta hai to validation avega", translate to "Verify that an appropriate validation error is displayed when a user already registered with the Developer role attempts to log in selecting the QA role.").
+2. "preconditions": Provide realistic, concise preconditions tailored to this specific scenario (e.g. active user account with specified role, seeded test deal, module permissions).
+3. "steps": Provide realistic, sequential numbered steps (1. ... 2. ... 3. ... 4. ...) directly testing the specified condition.
+4. "inputs": Provide realistic, scenario-specific test inputs/data (e.g. specific roles, test email, boundary numbers, invalid values).
+5. "expectedResult": MUST BE LOGICAL, ACCURATE, AND HIGHLY APPROPRIATE TO THE SCENARIO:
+   - If the scenario tests validation, negative input, role mismatch, duplicate entry, or restriction: The expected result MUST state that the system blocks the action, rejects the input, displays an explicit validation message, and protects the system state. DO NOT say "Operation succeeds without exceptions"!
+   - If the scenario tests a calculation/formula/leap year: The expected result MUST state the exact calculation outcome and accuracy.
+   - If the scenario tests a deletion or modal: The expected result MUST state that a confirmation prompt appears and data is only removed upon user confirmation.
+   - If the scenario is positive: The expected result MUST state successful completion, confirmation toast, and accurate database update.
+
+Return ONLY a valid JSON object with the following string fields:
+{
+  "scenario": "...",
+  "preconditions": "...",
+  "steps": "...",
+  "inputs": "...",
+  "expectedResult": "..."
+}`;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: promptText,
+      config: {
+        responseMimeType: 'application/json',
+        systemInstruction:
+          'You are a Senior Principal QA Engineer. You understand all Indian languages (Hinglish, Hindi, Gujarati, Marathi) and informal QA shorthand. You always output pristine, professional, easy-to-understand English with mathematically and logically sound Expected Results.',
+      },
+    });
+
+    const responseText = response.text?.trim() || '{}';
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      // Fallback if parsing fails
+      parsed = {};
+    }
+
+    if (parsed.scenario && parsed.expectedResult) {
+      return res.json({
+        success: true,
+        data: {
+          scenario: parsed.scenario,
+          preconditions: parsed.preconditions || 'Relevant module setup and user permissions available.',
+          steps: parsed.steps || '1. Open module.\n2. Input test data.\n3. Execute action.\n4. Verify result.',
+          inputs: parsed.inputs || `Ticket: #${ticket?.ticketNumber || 'General'}`,
+          expectedResult: parsed.expectedResult,
+        },
+      });
+    }
+
+    return res.json({
+      success: false,
+      fallback: true,
+      message: 'Could not parse JSON from Gemini response',
     });
   } catch (err: any) {
     return res.json({
