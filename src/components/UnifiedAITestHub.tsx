@@ -1322,14 +1322,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           </button>
 
           <button
-            onClick={handleDownloadExcel}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download Excel</span>
-          </button>
-
-          <button
             onClick={() => setIsAdoModalOpen(true)}
             className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
           >
@@ -1636,8 +1628,20 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         </div>
       )}
 
+      {/* TOOLBAR RIGHT ABOVE THE TABLE */}
+      <div className="flex items-center justify-between bg-slate-50 px-4 py-2 border border-slate-200 rounded-t-xl">
+        <span className="text-xs font-bold text-slate-700">Test Cases Suite ({testCases.length} items)</span>
+        <button
+          onClick={handleDownloadExcel}
+          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs cursor-pointer transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Download Excel</span>
+        </button>
+      </div>
+
       {/* SPREADSHEET TABLE: QA Test Cases */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+      <div className="bg-white border border-slate-200 rounded-b-xl border-t-0 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto max-h-[580px]">
           <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
             <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
