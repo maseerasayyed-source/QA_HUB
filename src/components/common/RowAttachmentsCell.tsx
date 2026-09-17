@@ -61,23 +61,53 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
+    if (readOnly) return;
     const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const blob = items[i].getAsFile();
-        if (blob) {
+    const files = e.clipboardData?.files;
+
+    let foundImage = false;
+
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        if (file.type.startsWith('image/')) {
+          foundImage = true;
           const reader = new FileReader();
           reader.onload = (event) => {
             const url = (event.target?.result as string) || '';
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const name = file.name && file.name !== 'image.png' ? file.name : `pasted_ss_${timestamp}_${i + 1}.png`;
             onAddAttachment({
-              name: `pasted_ss_${timestamp}.png`,
+              name,
               url,
-              size: `${Math.round(blob.size / 1024)} KB`,
+              size: `${Math.round(file.size / 1024)} KB`,
             });
           };
-          reader.readAsDataURL(blob);
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+
+    if (!foundImage && items) {
+      let imageCount = 0;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.indexOf('image') !== -1) {
+          const blob = item.getAsFile();
+          if (blob) {
+            imageCount++;
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const url = (event.target?.result as string) || '';
+              const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+              onAddAttachment({
+                name: `pasted_ss_${timestamp}_${imageCount}.png`,
+                url,
+                size: `${Math.round(blob.size / 1024)} KB`,
+              });
+            };
+            reader.readAsDataURL(blob);
+          }
         }
       }
     }

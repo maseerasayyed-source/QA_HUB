@@ -121,14 +121,6 @@ export const TestCasesView: React.FC<TestCasesViewProps> = ({
               <span>AI Case Hub</span>
             </button>
           )}
-
-          <button
-            onClick={handleDownloadExcel}
-            className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download Excel</span>
-          </button>
         </div>
       </div>
 
@@ -165,8 +157,20 @@ export const TestCasesView: React.FC<TestCasesViewProps> = ({
         </p>
       </div>
 
+      {/* TABLE ACTION TOOLBAR (RIGHT ABOVE THE TEST CASE TABLE) */}
+      <div className="flex items-center justify-between bg-slate-50 px-4 py-2 border border-slate-200 rounded-t-lg">
+        <span className="text-xs font-bold text-slate-700">Test Cases Table ({testCases.length} items)</span>
+        <button
+          onClick={handleDownloadExcel}
+          className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs cursor-pointer transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span>Download Excel</span>
+        </button>
+      </div>
+
       {/* MAIN TEST CASES TABLE */}
-      <div className="bg-white border border-slate-300 rounded-lg shadow-2xs overflow-hidden">
+      <div className="bg-white border border-slate-300 rounded-b-lg border-t-0 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto max-h-[500px]">
           <table className="w-full text-left text-xs border-collapse">
             <thead className="sticky top-0 z-10 bg-[#F8CBAD] text-slate-900 font-bold border-b border-slate-300">

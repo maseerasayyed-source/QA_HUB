@@ -365,9 +365,8 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
       fields['Custom.Analyst'] ||
       fields['Custom.BAOwner'] ||
       fields['Custom.RequirementOwner'];
-    const businessAnalyst =
-      (typeof explicitBa === 'object' ? explicitBa?.displayName : String(explicitBa || '')) ||
-      createdByName;
+    const explicitBaName = typeof explicitBa === 'object' ? explicitBa?.displayName : String(explicitBa || '');
+    const businessAnalyst = (explicitBaName && explicitBaName.trim()) ? explicitBaName.trim() : createdByName.trim();
 
     // 2. Extract Assigned Developer (check all standard & custom developer fields)
     const devCandidates = [
@@ -414,7 +413,7 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
       }
     }
 
-    // If developer is still not found, check System.AssignedTo ONLY IF it is not the BA and not the QA
+    // If developer is still not found, check System.AssignedTo ONLY IF it is not the BA, creator, or QA
     const assignedToObj = fields['System.AssignedTo'];
     const assignedToName =
       typeof assignedToObj === 'object' ? assignedToObj?.displayName : String(assignedToObj || '');
@@ -423,17 +422,25 @@ apiRouter.post('/azure/workitem', async (req: Request, res: Response) => {
 
     if (!developer && assignedToName) {
       const isAssignedToBA =
-        businessAnalyst && assignedToName.toLowerCase() === businessAnalyst.toLowerCase();
-      const isAssignedToQA = qaName && assignedToName.toLowerCase() === qaName.toLowerCase();
+        (businessAnalyst && assignedToName.toLowerCase().trim() === businessAnalyst.toLowerCase().trim()) ||
+        (createdByName && assignedToName.toLowerCase().trim() === createdByName.toLowerCase().trim()) ||
+        (explicitBaName && assignedToName.toLowerCase().trim() === explicitBaName.toLowerCase().trim());
+      const isAssignedToQA = qaName && assignedToName.toLowerCase().trim() === qaName.toLowerCase().trim();
       if (!isAssignedToBA && !isAssignedToQA) {
-        developer = assignedToName;
+        developer = assignedToName.trim();
       }
     }
 
     // CRITICAL: developer must NEVER default to the Business Analyst / System.CreatedBy!
-    if (businessAnalyst && developer && developer.toLowerCase() === businessAnalyst.toLowerCase()) {
-      // The BA was erroneously placed in developer field, clear it so user can specify or it stays unassigned
-      developer = '';
+    if (developer) {
+      const devLower = developer.toLowerCase().trim();
+      if (
+        (businessAnalyst && devLower === businessAnalyst.toLowerCase().trim()) ||
+        (createdByName && devLower === createdByName.toLowerCase().trim()) ||
+        (explicitBaName && devLower === explicitBaName.toLowerCase().trim())
+      ) {
+        developer = '';
+      }
     }
 
     const rawScenarios =

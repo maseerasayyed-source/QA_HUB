@@ -526,8 +526,13 @@ export async function exportUserManualToDocx(manual: UserManualDoc): Promise<voi
 
   // Pack and trigger download in browser
   const blob = await Packer.toBlob(doc);
-  const safeFilename = `${manual.ticketNumber || 'Manual'}_${manual.title
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .slice(0, 30)}_User_Manual.docx`;
+  const cleanTicket = (manual.ticketNumber || 'Ticket')
+    .trim()
+    .replace(/^#+/, '')
+    .replace(/[/\\?%*:|"<>]/g, '_');
+  const cleanTask = (manual.title || manual.moduleName || 'UserManual')
+    .trim()
+    .replace(/[/\\?%*:|"<>]/g, '_');
+  const safeFilename = `${cleanTicket}_${cleanTask}.docx`;
   saveAs(blob, safeFilename);
 }
