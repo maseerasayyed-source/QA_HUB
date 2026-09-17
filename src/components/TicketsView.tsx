@@ -1,7 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2, Copy, Layers } from 'lucide-react';
+import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2, Copy, Layers, Edit3 } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { DeleteTicketModal } from './common/DeleteTicketModal';
+import { EditTicketModal } from './common/EditTicketModal';
 import { fetchWorkItemFromAzure, loadSavedAdoConfig, saveAdoConfig } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 import { generateTicketDetailsWithAi } from '../utils/aiGenerator';
@@ -14,6 +16,8 @@ interface TicketsViewProps {
   onSelectTicket: (ticket: TicketSummary) => void;
   onNavigateTab: (tab: any) => void;
   onAddTicket?: (newTicket: TicketSummary) => void;
+  onDeleteTicket?: (ticketNumber: string, mode: 'tickets-only' | 'all-modules') => void;
+  onUpdateTicket?: (updatedTicket: TicketSummary, oldTicketNumber?: string) => void;
 }
 
 export const TicketsView: React.FC<TicketsViewProps> = ({
@@ -23,12 +27,29 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   onSelectTicket,
   onNavigateTab,
   onAddTicket,
+  onDeleteTicket,
+  onUpdateTicket,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [moduleFilter, setModuleFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [qaFilter, setQaFilter] = useState<string>('all');
+
+  // Delete & Edit Modal States
+  const [ticketToDelete, setTicketToDelete] = useState<TicketSummary | null>(null);
+  const [ticketToEdit, setTicketToEdit] = useState<TicketSummary | null>(null);
+  const [deleteSuccessNotice, setDeleteSuccessNotice] = useState<string | null>(null);
+
+  const handleConfirmDelete = (ticketNumber: string, mode: 'tickets-only' | 'all-modules') => {
+    onDeleteTicket?.(ticketNumber, mode);
+    setDeleteSuccessNotice(
+      mode === 'all-modules'
+        ? `Ticket #${ticketNumber} has been permanently deleted from EVERY module across the system.`
+        : `Ticket #${ticketNumber} has been removed from the Tickets tab. (Preserved in other modules; will reappear if you Save & Submit from another module).`
+    );
+    setTimeout(() => setDeleteSuccessNotice(null), 6000);
+  };
 
   // Azure DevOps Modal state
   const [isAdoModalOpen, setIsAdoModalOpen] = useState(false);
@@ -393,6 +414,22 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
         </div>
       </div>
 
+      {/* Delete / Sync Success Banner */}
+      {deleteSuccessNotice && (
+        <div className="px-4 py-2.5 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-900 text-xs font-semibold flex items-center justify-between gap-2 animate-fadeIn shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{deleteSuccessNotice}</span>
+          </div>
+          <button
+            onClick={() => setDeleteSuccessNotice(null)}
+            className="text-emerald-700 hover:text-emerald-900 p-0.5 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Filter and Search Bar */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-3">
         <div className="flex flex-col lg:flex-row items-center justify-between gap-3 text-xs">
@@ -571,6 +608,24 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                     >
                       <UploadCloud className="w-3 h-3" />
                       <span>Attach</span>
+                    </button>
+
+                    {/* Edit Ticket / Headers */}
+                    <button
+                      onClick={() => setTicketToEdit(t)}
+                      title="Edit Ticket & Headers (All Fields)"
+                      className="p-1 bg-slate-100 hover:bg-blue-50 text-slate-600 hover:text-blue-700 rounded border border-slate-200 transition-colors inline-flex items-center cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+
+                    {/* Delete Ticket */}
+                    <button
+                      onClick={() => setTicketToDelete(t)}
+                      title="Delete Ticket (Choose Tickets Tab only or All Modules)"
+                      className="p-1 bg-slate-100 hover:bg-red-50 text-slate-500 hover:text-red-600 rounded border border-slate-200 transition-colors inline-flex items-center cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </td>
                 </tr>
@@ -943,6 +998,28 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
           defaultComment={`QA Test Cases & Execution Matrix for "${selectedAdoTicket.featureName}" (Ticket #${selectedAdoTicket.ticketNumber}) verified by ${selectedAdoTicket.qaAssignee}.`}
         />
       )}
+
+      {/* Delete Ticket Granular Modal */}
+      <DeleteTicketModal
+        isOpen={!!ticketToDelete}
+        ticket={ticketToDelete}
+        onClose={() => setTicketToDelete(null)}
+        onConfirmDelete={handleConfirmDelete}
+      />
+
+      {/* Edit Ticket / Headers Full Modal */}
+      <EditTicketModal
+        isOpen={!!ticketToEdit}
+        ticket={ticketToEdit}
+        modules={modules}
+        onClose={() => setTicketToEdit(null)}
+        onSaveTicket={(updatedTicket, oldTicketNumber) => {
+          onUpdateTicket?.(updatedTicket, oldTicketNumber);
+          setTicketToEdit(null);
+          setDeleteSuccessNotice(`Ticket #${updatedTicket.ticketNumber} updated successfully across the system.`);
+          setTimeout(() => setDeleteSuccessNotice(null), 4000);
+        }}
+      />
     </div>
   );
 };

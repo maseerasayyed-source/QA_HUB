@@ -72,6 +72,7 @@ interface UnifiedAITestHubProps {
   onUpdateHeader?: (header: TestCaseHeaderMeta) => void;
   onUpdateTestCases?: (testCases: TestCaseItem[], ticketNo?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
+  onUpdateTicket?: (updatedTicket: TicketSummary, oldTicketNumber?: string) => void;
 }
 
 export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
@@ -88,6 +89,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   onUpdateHeader,
   onUpdateTestCases,
   onAddTicket,
+  onUpdateTicket,
 }) => {
   // Hub Navigation Mode: Tickets Table vs Test Cases Screen
   const [hubMode, setHubMode] = useState<'tickets-table' | 'test-case-screen'>('tickets-table');
@@ -1416,6 +1418,88 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         isGenerating={isAiGeneratingSuite}
         generateButtonText="✨ AI Auto-Generate Test Cases into Table"
         showGenerateButton={true}
+        onUpdateHeaderMeta={(meta) => {
+          const oldTicketNo = header.ticketNo;
+          const nextTicketNo = meta.ticketNo || header.ticketNo;
+          const nextHeader: TestCaseHeaderMeta = {
+            ...header,
+            ticketNo: nextTicketNo,
+            taskName: meta.taskName || meta.featureName || header.taskName,
+            developer: meta.developer !== undefined ? meta.developer : header.developer,
+            taskDoneBy: meta.qaAssignee !== undefined ? meta.qaAssignee : header.taskDoneBy,
+            clientName: meta.clientName !== undefined ? meta.clientName : header.clientName,
+            sha: meta.sha || meta.shaCommit || header.sha,
+            signOffBy: meta.signOffBy !== undefined ? meta.signOffBy : header.signOffBy,
+            reviewStatus: (meta.reviewStatus as any) || header.reviewStatus,
+            version: meta.version || header.version,
+          };
+          setHeader(nextHeader);
+          if (meta.taskName) setHeaderDescription(meta.taskName);
+          onUpdateHeader?.(nextHeader);
+
+          if (nextTicketNo !== selectedTicketNumber) {
+            setSelectedTicketNumber(nextTicketNo);
+          }
+
+          // Propagate to global tickets and dashboard
+          const currentT = matchedTicket || tickets.find((t) => t.ticketNumber === oldTicketNo);
+          const updatedTicketObj: TicketSummary = {
+            id: currentT?.id || `tkt-${nextTicketNo}`,
+            ticketNumber: nextTicketNo,
+            featureName: meta.taskName || meta.featureName || currentT?.featureName || nextHeader.taskName,
+            moduleId: currentT?.moduleId || 'mod-1',
+            moduleName: meta.moduleName || currentT?.moduleName || 'Term Loan',
+            priority: currentT?.priority || 'High',
+            status: currentT?.status || 'Ready for QA',
+            developer: meta.developer || currentT?.developer || nextHeader.developer || '',
+            qaAssignee: meta.qaAssignee || currentT?.qaAssignee || nextHeader.taskDoneBy || 'Maseera Sayyed',
+            testCasesCount: testCases.length,
+            passedCount: testCases.filter((c) => c.status === 'Pass').length,
+            failedCount: testCases.filter((c) => c.status === 'Fail').length,
+            observationsCount: currentT?.observationsCount || 0,
+            blockedCount: currentT?.blockedCount || 0,
+            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
+            clientName: meta.clientName || currentT?.clientName || nextHeader.clientName || 'Treasury Master',
+            shaCommit: meta.sha || meta.shaCommit || currentT?.shaCommit || nextHeader.sha || '',
+            signOffBy: meta.signOffBy || currentT?.signOffBy || nextHeader.signOffBy || '',
+            description: headerDescription || nextHeader.description,
+            testingScenarios: headerTestingScenarios || nextHeader.testingScenarios,
+            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
+            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
+          };
+          onUpdateTicket?.(updatedTicketObj, oldTicketNo);
+        }}
+        onSaveAndSyncToTickets={() => {
+          const currentT = matchedTicket || tickets.find((t) => t.ticketNumber === header.ticketNo);
+          const syncedTicketObj: TicketSummary = {
+            id: currentT?.id || `tkt-${header.ticketNo}`,
+            ticketNumber: header.ticketNo,
+            featureName: header.taskName || currentT?.featureName || `Feature #${header.ticketNo}`,
+            moduleId: currentT?.moduleId || 'mod-1',
+            moduleName: currentT?.moduleName || 'Term Loan',
+            priority: currentT?.priority || 'High',
+            status: currentT?.status || (header.reviewStatus === 'Approved' ? 'Sign-Off Complete' : 'In Progress'),
+            developer: header.developer || currentT?.developer || '',
+            qaAssignee: header.taskDoneBy || currentT?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
+            testCasesCount: testCases.length,
+            passedCount: testCases.filter((c) => c.status === 'Pass').length,
+            failedCount: testCases.filter((c) => c.status === 'Fail').length,
+            observationsCount: currentT?.observationsCount || 0,
+            blockedCount: currentT?.blockedCount || 0,
+            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
+            clientName: header.clientName || currentT?.clientName || 'Treasury Master',
+            shaCommit: header.sha || currentT?.shaCommit || '',
+            signOffBy: header.signOffBy || currentT?.signOffBy || '',
+            description: headerDescription || header.description,
+            testingScenarios: headerTestingScenarios || header.testingScenarios,
+            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
+            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
+          };
+          onUpdateTicket?.(syncedTicketObj, header.ticketNo);
+          onUpdateTestCases?.(testCases, header.ticketNo);
+          setNotification(`✅ Ticket #${header.ticketNo} and all headers synced to Tickets (Azure) and Dashboard!`);
+          setTimeout(() => setNotification(null), 4000);
+        }}
       />
 
       {/* Dynamic Review Status Lifecycle Workflow Banner */}

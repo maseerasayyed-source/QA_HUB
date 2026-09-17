@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
+import { GoogleGenAI } from '@google/genai';
 import { query, getDbStatus } from './db';
 
 export const apiRouter = express.Router();
@@ -490,6 +491,46 @@ apiRouter.post('/azure/attach', async (req: Request, res: Response) => {
       success: false,
       message: 'Server error uploading attachment to Azure DevOps',
       errorDetail: err?.message || String(err),
+    });
+  }
+});
+
+// AI Generation via server-side Gemini SDK (lazy initialized)
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI | null {
+  if (!aiClient && process.env.GEMINI_API_KEY) {
+    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return aiClient;
+}
+
+apiRouter.post('/ai/generate-test-cases', async (req: Request, res: Response) => {
+  try {
+    const { prompt, ticketDetails } = req.body;
+    const ai = getAiClient();
+    if (!ai) {
+      return res.json({
+        success: false,
+        fallback: true,
+        message: 'GEMINI_API_KEY not configured on server (using built-in template engine)',
+      });
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt || `Generate comprehensive QA test cases for: ${JSON.stringify(ticketDetails || {})}`,
+    });
+
+    return res.json({
+      success: true,
+      text: response.text,
+    });
+  } catch (err: any) {
+    return res.json({
+      success: false,
+      fallback: true,
+      error: err?.message || String(err),
     });
   }
 });

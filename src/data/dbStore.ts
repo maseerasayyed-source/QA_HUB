@@ -619,6 +619,52 @@ export function saveTicketsToStorage(tickets: TicketSummary[]) {
 }
 
 /**
+ * Remove ticket from persistent storage:
+ * - 'tickets-only': removes ticket from tickets queue list only
+ * - 'all-modules': removes ticket from tickets array AND test cases, observations, dev testing maps
+ */
+export function removeTicketFromStorage(ticketNumber: string, mode: 'tickets-only' | 'all-modules') {
+  try {
+    const cleanNum = ticketNumber.trim().toLowerCase();
+
+    // 1. Remove from tickets array
+    const rawTickets = localStorage.getItem(STORAGE_KEYS.TICKETS);
+    if (rawTickets) {
+      const parsed: TicketSummary[] = JSON.parse(rawTickets);
+      const filtered = parsed.filter(t => t.ticketNumber.trim().toLowerCase() !== cleanNum);
+      localStorage.setItem(STORAGE_KEYS.TICKETS, JSON.stringify(filtered));
+    }
+
+    // 2. If 'all-modules', also remove from maps
+    if (mode === 'all-modules') {
+      const purgeKey = (key: string) => {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const map = JSON.parse(raw);
+          const nextMap: Record<string, any> = {};
+          Object.keys(map).forEach(k => {
+            if (k.trim().toLowerCase() !== cleanNum) {
+              nextMap[k] = map[k];
+            }
+          });
+          localStorage.setItem(key, JSON.stringify(nextMap));
+        }
+      };
+
+      purgeKey(STORAGE_KEYS.TEST_CASES_MAP);
+      purgeKey(STORAGE_KEYS.TEST_CASE_HEADERS_MAP);
+      purgeKey(STORAGE_KEYS.OBSERVATIONS_MAP);
+      purgeKey(STORAGE_KEYS.DEV_TESTING_MAP);
+      purgeKey(STORAGE_KEYS.DEV_TESTING_HEADERS_MAP);
+    }
+
+    syncStateToBackend();
+  } catch (e) {
+    console.error('Failed to remove ticket from storage', e);
+  }
+}
+
+/**
  * Save test cases map
  */
 export function saveTestCasesMapToStorage(map: Record<string, TestCaseItem[]>) {
