@@ -714,8 +714,8 @@ function generateRichFallbackTestCases(params: {
   });
 }
 
-// POST: /api/ai/generate-test-cases
-apiRouter.post('/api/ai/generate-test-cases', async (req: Request, res: Response) => {
+// POST: /ai/generate-test-cases and /api/ai/generate-test-cases
+apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async (req: Request, res: Response) => {
   try {
     const {
       prompt,
@@ -896,20 +896,25 @@ Return strictly valid JSON in this exact structure without markdown fences:
   }
 });
 
-// POST: /api/ai/polish-text (Translates Hindi/Hinglish to Clean QA English)
-apiRouter.post('/api/ai/polish-text', async (req: Request, res: Response) => {
+// POST: /ai/polish-text and /api/ai/polish-text (Translates any language / Hindi / Hinglish to Clean, Simple QA English)
+apiRouter.post(['/ai/polish-text', '/api/ai/polish-text'], async (req: Request, res: Response) => {
   try {
     const { text = '', context = 'test-scenario' } = req.body;
-    if (!text.trim()) {
+    if (!text || !text.trim()) {
       return res.json({ success: true, polishedText: '' });
     }
 
     const ai = getGeminiClient();
     if (ai) {
       try {
-        const prompt = `You are a Senior QA Technical Writer. The following text may be in Hindi, Hinglish, informal notes, or broken English.
-Translate and refine it into clear, simple, grammatically impeccable English suitable for a professional QA test case or defect description.
-Do not add conversational commentary or fluff. Return ONLY the polished English text.
+        const prompt = `You are an expert QA Technical Writer and Translator.
+The user enters requirements, commands, or testing notes in ANY language (Hindi, Hinglish, Urdu, Roman Urdu, casual shorthand, or broken English).
+Translate and convert this input into direct, simple, crystal-clear, professional English that any QA engineer, developer, or client can instantly understand.
+
+Rules:
+1. Translate to natural, simple QA English.
+2. If it is a test condition (e.g. "agar loan amount blank chhod de to alert aana chahiye"), convert it to a clear QA statement (e.g. "Verify that an alert message is displayed when the loan amount field is left blank.").
+3. Do NOT add conversational commentary, quotation marks, or explanations. Return ONLY the polished English text.
 
 Input Text:
 """
@@ -927,25 +932,43 @@ ${text}
         const polished = response.text?.trim() || text;
         return res.json({ success: true, polishedText: polished });
       } catch (gemErr) {
-        console.warn('Gemini polish failed, using regex polisher fallback:', gemErr);
+        console.warn('Gemini polish failed, using dictionary polisher fallback:', gemErr);
       }
     }
 
-    // Quick regex-based English polisher fallback for common Hindi/Hinglish terms
+    // Comprehensive offline dictionary fallback for Hindi/Hinglish QA terms
     let clean = text.trim();
     const hindiMap: Record<string, string> = {
-      'agar': 'If',
-      'jab': 'When',
+      'agar': 'if',
+      'jab': 'when',
       'tab': 'then',
       'mat hone dena': 'must not occur',
-      'nahi hona chahiye': 'should not happen',
+      'nahi hona chahiye': 'should not occur',
       'hona chahiye': 'must occur',
       'galat': 'invalid',
       'sahi': 'valid',
       'dikhe': 'displayed',
-      'dikhna chahiye': 'must be visible',
+      'dikhna chahiye': 'should be displayed',
       'karo': 'perform',
       'bhi': 'also',
+      'chhod de': 'left blank',
+      'blank': 'empty',
+      'daale': 'entered',
+      'daalo': 'enter',
+      'click karo': 'click',
+      'button pe click': 'click the button',
+      'check karo': 'verify that',
+      'dekhna hai': 'verify that',
+      'error aana chahiye': 'an error message should be displayed',
+      'popup aana chahiye': 'a popup dialog should appear',
+      'alert aana chahiye': 'an alert notification should appear',
+      'save ho jaye': 'record should be saved successfully',
+      'delete ho jaye': 'item should be deleted successfully',
+      'pehle': 'before',
+      'baad me': 'after',
+      'zyada': 'greater than',
+      'kam': 'less than',
+      'barabar': 'equal to',
     };
 
     let converted = clean;
@@ -964,6 +987,99 @@ ${text}
     return res.status(500).json({
       success: false,
       message: 'Failed to polish text',
+      errorDetail: err?.message || String(err),
+    });
+  }
+});
+
+// POST: /ai/convert-language-command and /api/ai/convert-language-command
+// Takes ANY language command and converts it to simple English + structured test case
+apiRouter.post(['/ai/convert-language-command', '/api/ai/convert-language-command'], async (req: Request, res: Response) => {
+  try {
+    const { command = '', moduleName = 'Term Loan', ticketNo = '1024' } = req.body;
+    if (!command || !command.trim()) {
+      return res.status(400).json({ success: false, message: 'Command cannot be empty' });
+    }
+
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const prompt = `You are a Principal QA Architect. A QA engineer has provided a test requirement or command in ANY language (Hindi, Hinglish, Urdu, Roman Urdu, or casual notes).
+Your task is:
+1. Translate it into simple, crystal-clear, professional English.
+2. Structure it into a complete, ready-to-run QA test case with:
+   - testScenario: Short descriptive summary (e.g., "Verify error message when interest rate is negative")
+   - testCases: Step-by-step numbered instructions (e.g., "1. Navigate to Loan Details.\\n2. Enter negative value (-5) in Interest Rate field.\\n3. Click Save.")
+   - expectedResult: Exact expected system behavior (e.g., "System displays validation error: 'Interest rate cannot be negative'.")
+   - validationScenario: "Positive Workflow" or "Negative Validation"
+
+Command:
+"""
+${command}
+"""
+
+Return JSON in this exact structure:
+{
+  "englishText": "translated simple english text",
+  "testScenario": "...",
+  "testCases": "1. ...\\n2. ...\\n3. ...",
+  "expectedResult": "...",
+  "validationScenario": "Positive Workflow" | "Negative Validation"
+}`;
+
+        const response = await ai.models.generateContent({
+          model: 'gemini-3.8-flash',
+          contents: [{ text: prompt }],
+          config: {
+            responseMimeType: 'application/json',
+            temperature: 0.1,
+          },
+        });
+
+        const rawText = response.text || '';
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(rawText);
+        } catch {
+          const cleaned = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
+          parsed = JSON.parse(cleaned);
+        }
+
+        if (parsed) {
+          return res.json({
+            success: true,
+            englishText: parsed.englishText || command,
+            structuredTestCase: {
+              testScenario: parsed.testScenario || parsed.englishText,
+              testCases: parsed.testCases || '1. Navigate to screen\n2. Execute action\n3. Verify result',
+              expectedResult: parsed.expectedResult || 'System behaves as expected.',
+              validationScenario: parsed.validationScenario || 'Negative Validation',
+            },
+          });
+        }
+      } catch (gemErr) {
+        console.warn('Gemini command converter failed, using fallback:', gemErr);
+      }
+    }
+
+    // Fallback parser
+    const isNegative = /error|galat|invalid|fail|alert|nahi|not|warn|block/i.test(command);
+    return res.json({
+      success: true,
+      englishText: command,
+      structuredTestCase: {
+        testScenario: `Verify ${command.replace(/^(agar|jab|check)\s+/i, '')}`,
+        testCases: `1. Open ${moduleName} module for Ticket #${ticketNo}.\n2. Input required parameters.\n3. Execute action and observe response.`,
+        expectedResult: isNegative
+          ? 'System triggers proper validation alert and prevents invalid submission.'
+          : 'Operation processes and updates successfully without data inconsistency.',
+        validationScenario: isNegative ? 'Negative Validation' : 'Positive Workflow',
+      },
+    });
+  } catch (err: any) {
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to process command',
       errorDetail: err?.message || String(err),
     });
   }

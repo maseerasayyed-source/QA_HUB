@@ -14,10 +14,12 @@ import {
   ShieldCheck,
   Layers,
   Upload,
+  Languages,
 } from 'lucide-react';
 import { TicketSummary, AttachedDocOrImage } from '../../types';
 import { polishObservationText } from '../../utils/textPolisher';
 import { parseUploadedFile } from '../../utils/fileParser';
+import { translateToSimpleEnglish } from '../../utils/languageAi';
 
 interface CommonHeaderProps {
   mode?: 'developer' | 'qa' | 'observations';
@@ -77,22 +79,49 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   const devName = developerName || currentTicket?.developer || '';
   const qaName = qaAssigneeName || currentTicket?.qaAssignee || 'Maseera Sayyed';
 
+  const [isTranslatingDesc, setIsTranslatingDesc] = useState(false);
+  const [isTranslatingScenarios, setIsTranslatingScenarios] = useState(false);
+
   const defaultBtnText =
     generateButtonText ||
     (mode === 'developer'
       ? '✨ AI Generate Developer Testing Points'
       : '✨ AI Auto-Generate Test Cases into Table');
 
+  const handleTranslateDescription = async () => {
+    if (!description.trim() || isTranslatingDesc) return;
+    setIsTranslatingDesc(true);
+    try {
+      const translated = await translateToSimpleEnglish(description, 'description');
+      onChangeDescription(translated);
+    } catch {
+      const fallback = polishObservationText(description);
+      onChangeDescription(fallback);
+    } finally {
+      setIsTranslatingDesc(false);
+    }
+  };
+
+  const handleTranslateScenarios = async () => {
+    if (!testingScenarios.trim() || isTranslatingScenarios) return;
+    setIsTranslatingScenarios(true);
+    try {
+      const translated = await translateToSimpleEnglish(testingScenarios, 'testing-scenarios');
+      onChangeTestingScenarios(translated);
+    } catch {
+      const fallback = polishObservationText(testingScenarios);
+      onChangeTestingScenarios(fallback);
+    } finally {
+      setIsTranslatingScenarios(false);
+    }
+  };
+
   const handlePolishDescription = () => {
-    if (!description.trim()) return;
-    const polished = polishObservationText(description);
-    onChangeDescription(polished);
+    handleTranslateDescription();
   };
 
   const handlePolishScenarios = () => {
-    if (!testingScenarios.trim()) return;
-    const polished = polishObservationText(testingScenarios);
-    onChangeTestingScenarios(polished);
+    handleTranslateScenarios();
   };
 
   // Handle File Upload (Image / Excel / Word / Text)
@@ -241,12 +270,13 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
             </label>
             <button
               type="button"
-              onClick={handlePolishDescription}
-              title="Convert content into clean, professional English"
-              className="px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold rounded flex items-center gap-1 cursor-pointer transition-colors"
+              onClick={handleTranslateDescription}
+              disabled={isTranslatingDesc}
+              title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
+              className="px-2.5 py-1 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
             >
-              <Wand2 className="w-3 h-3 text-purple-600" />
-              <span>AI Polish</span>
+              <Languages className="w-3.5 h-3.5 text-purple-600" />
+              <span>{isTranslatingDesc ? 'Translating to English...' : '🌐 Convert to Simple English'}</span>
             </button>
           </div>
           <textarea
@@ -266,12 +296,13 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
             </label>
             <button
               type="button"
-              onClick={handlePolishScenarios}
-              title="Clean format and separate points with semicolons"
-              className="px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold rounded flex items-center gap-1 cursor-pointer transition-colors"
+              onClick={handleTranslateScenarios}
+              disabled={isTranslatingScenarios}
+              title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
+              className="px-2.5 py-1 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
             >
-              <Wand2 className="w-3 h-3 text-purple-600" />
-              <span>AI Polish</span>
+              <Languages className="w-3.5 h-3.5 text-purple-600" />
+              <span>{isTranslatingScenarios ? 'Translating to English...' : '🌐 Convert to Simple English'}</span>
             </button>
           </div>
           <textarea

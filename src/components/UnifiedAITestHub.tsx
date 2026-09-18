@@ -28,6 +28,7 @@ import {
   CheckCheck,
   Edit2,
   ArrowUpRight,
+  Languages,
 } from 'lucide-react';
 import {
   TestCaseHeaderMeta,
@@ -45,6 +46,12 @@ import { exportTestCasesToDocx } from '../utils/docxExport';
 import {
   polishTestCaseItem,
 } from '../utils/textPolisher';
+import {
+  translateToSimpleEnglish,
+  processLanguageCommand,
+  autoTranslateTestCaseItem,
+  isNonEnglishOrHinglish,
+} from '../utils/languageAi';
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
@@ -182,6 +189,13 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
   const [fetchedHeaderNotice, setFetchedHeaderNotice] = useState<string | null>(null);
+
+  // Multi-Language Command & Auto-Translator State
+  const [languageCommand, setLanguageCommand] = useState<string>('');
+  const [isProcessingCommand, setIsProcessingCommand] = useState<boolean>(false);
+  const [commandNotice, setCommandNotice] = useState<string | null>(null);
+  const [isTranslatingAll, setIsTranslatingAll] = useState<boolean>(false);
+  const [isTranslatingModalScenario, setIsTranslatingModalScenario] = useState<boolean>(false);
 
   // System-wide tickets created on this client across all modules
   const systemTicketsList = useMemo(() => {
@@ -813,6 +827,98 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     }
   };
 
+  // Translate Language Command input to simple English
+  const handleTranslateLanguageCommand = async () => {
+    if (!languageCommand.trim() || isProcessingCommand) return;
+    setIsProcessingCommand(true);
+    try {
+      const translated = await translateToSimpleEnglish(languageCommand, 'test-scenario');
+      setLanguageCommand(translated);
+      setNotification('✅ Converted command into simple, understandable English!');
+      setTimeout(() => setNotification(null), 3500);
+    } catch {
+      setNotification('⚠️ Could not complete AI translation.');
+      setTimeout(() => setNotification(null), 3000);
+    } finally {
+      setIsProcessingCommand(false);
+    }
+  };
+
+  // Convert natural language command (Hindi, Hinglish, etc.) into structured test case row and append to table
+  const handleParseLanguageCommandToTestCase = async () => {
+    if (!languageCommand.trim() || isProcessingCommand) return;
+    setIsProcessingCommand(true);
+    try {
+      const result = await processLanguageCommand(
+        languageCommand,
+        matchedTicket?.moduleName || 'Term Loan',
+        selectedTicketNumber
+      );
+      if (result.structuredTestCase) {
+        const newId = `tc-${Date.now()}`;
+        const newCaseNumber = `TC0${testCases.length + 1}`;
+        const newRow: TestCaseItem = {
+          id: newId,
+          testCaseId: newCaseNumber,
+          testModule: matchedTicket?.moduleName.toLowerCase() || 'term loan',
+          featureTab: 'general',
+          testScenario: result.structuredTestCase.testScenario,
+          testCases: result.structuredTestCase.testCases,
+          testInputs: '',
+          expectedResult: result.structuredTestCase.expectedResult,
+          actualResult: 'Pending execution - ready for QA',
+          validationScenario: result.structuredTestCase.validationScenario,
+          status: 'not run',
+          reviewStatus: 'Draft',
+          version: header.version || '1.0',
+          attachments: [],
+        };
+        const updated = [...testCases, newRow];
+        updateTestCases(updated);
+        setLanguageCommand('');
+        setNotification(`✨ Added AI Test Case in Simple English: "${result.structuredTestCase.testScenario}"`);
+        setTimeout(() => setNotification(null), 5000);
+      }
+    } catch (err) {
+      console.error('Command parse error:', err);
+      setNotification('⚠️ Failed to convert command into test case.');
+      setTimeout(() => setNotification(null), 3000);
+    } finally {
+      setIsProcessingCommand(false);
+    }
+  };
+
+  // Auto-Translate All Rows in Table
+  const handleAutoTranslateAllRows = async () => {
+    if (testCases.length === 0 || isTranslatingAll) return;
+    setIsTranslatingAll(true);
+    try {
+      const updatedRows: TestCaseItem[] = [];
+      let translatedCount = 0;
+      for (const tc of testCases) {
+        if (
+          isNonEnglishOrHinglish(tc.testScenario) ||
+          isNonEnglishOrHinglish(tc.testCases) ||
+          isNonEnglishOrHinglish(tc.expectedResult) ||
+          (tc.actualResult && isNonEnglishOrHinglish(tc.actualResult))
+        ) {
+          const translated = await autoTranslateTestCaseItem(tc);
+          updatedRows.push(translated);
+          translatedCount++;
+        } else {
+          updatedRows.push(tc);
+        }
+      }
+      updateTestCases(updatedRows);
+      setNotification(`🌐 Translated ${translatedCount} test cases into simple, crystal-clear English!`);
+      setTimeout(() => setNotification(null), 5000);
+    } catch (err) {
+      console.error('Error translating table rows:', err);
+    } finally {
+      setIsTranslatingAll(false);
+    }
+  };
+
   // Filtered Tickets for Tickets Table View
   const filteredTickets = useMemo(() => {
     return tickets.filter((t) => {
@@ -1365,9 +1471,30 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Testing Scenarios / Acceptance Notes
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold">
+                      Testing Scenarios / Acceptance Notes
+                    </label>
+                    <button
+                      type="button"
+                      disabled={!newScenarioDetails.trim() || isTranslatingModalScenario}
+                      onClick={async () => {
+                        if (!newScenarioDetails.trim()) return;
+                        setIsTranslatingModalScenario(true);
+                        try {
+                          const translated = await translateToSimpleEnglish(newScenarioDetails, 'testing-scenarios');
+                          setNewScenarioDetails(translated);
+                        } finally {
+                          setIsTranslatingModalScenario(false);
+                        }
+                      }}
+                      className="px-2 py-0.5 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[10px] font-bold rounded flex items-center gap-1 cursor-pointer transition-colors"
+                      title="Convert any language / Hindi / Hinglish to simple English"
+                    >
+                      <Languages className="w-3 h-3 text-purple-600" />
+                      <span>{isTranslatingModalScenario ? 'Translating...' : '🌐 Convert to Simple English'}</span>
+                    </button>
+                  </div>
                   <textarea
                     rows={3}
                     placeholder="Enter key testing scenarios or leave for AI generation..."
@@ -1524,6 +1651,100 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
               <span>{header.reviewStatus === 'Changes Required' ? 'Resubmit for Review' : 'Submit for Test Case Review'}</span>
             </button>
           )}
+        </div>
+      </div>
+
+      {/* MULTI-LANGUAGE NATURAL QA COMMAND BAR */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-xl p-4 text-white shadow-md">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 mb-2.5">
+          <div className="flex items-center gap-2">
+            <div className="p-1.5 bg-indigo-500/20 text-indigo-300 rounded-lg border border-indigo-500/30">
+              <Languages className="w-4 h-4 text-indigo-400" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-slate-100 flex items-center gap-2">
+                <span>Natural Language QA Command Bar</span>
+                <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-[10px] font-mono rounded-full">
+                  Hindi / Hinglish / Any Language ➔ Simple English
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Kisi bhi language me scenario/command likhein — direct crystal-clear simple English test case me convert hoga!
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setLanguageCommand('Agar loan tenure 0 ya negative daale to validation error alert aana chahiye aur save nahi hona chahiye');
+              }}
+              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
+            >
+              Hinglish Example 1
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setLanguageCommand('Jab interest rate blank chhod de to submit button disabled dikhna chahiye');
+              }}
+              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
+            >
+              Hinglish Example 2
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-stretch gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={languageCommand}
+              onChange={(e) => setLanguageCommand(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleParseLanguageCommandToTestCase();
+                }
+              }}
+              placeholder="e.g. 'Agar borrower status inactive ho to loan disburse nahi hona chahiye' ya 'Verify repayment schedule'..."
+              className="w-full bg-slate-800/90 border border-slate-700 focus:border-indigo-400 rounded-lg pl-3 pr-8 py-2 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+            />
+            {languageCommand && (
+              <button
+                type="button"
+                onClick={() => setLanguageCommand('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={handleTranslateLanguageCommand}
+              disabled={!languageCommand.trim() || isProcessingCommand}
+              title="Convert this command text into simple, understandable English"
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-xs"
+            >
+              <Languages className="w-3.5 h-3.5" />
+              <span>{isProcessingCommand ? 'Translating...' : 'Translate to English'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleParseLanguageCommandToTestCase}
+              disabled={!languageCommand.trim() || isProcessingCommand}
+              title="Translate command and insert directly into table as a complete Test Case"
+              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-sm active:scale-95"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+              <span>{isProcessingCommand ? 'Generating...' : '+ Convert & Add Test Case'}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1731,6 +1952,16 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             >
               <Plus className="w-3.5 h-3.5" />
               <span>+ Add Row</span>
+            </button>
+
+            <button
+              onClick={handleAutoTranslateAllRows}
+              disabled={testCases.length === 0 || isTranslatingAll || isApprovedAndReadOnly}
+              title="Convert any Hindi / Hinglish / notes across all test cases into simple, clean English"
+              className="px-3 py-1.5 bg-indigo-900/70 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/60 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-40"
+            >
+              <Languages className="w-3.5 h-3.5 text-yellow-300" />
+              <span>{isTranslatingAll ? 'Translating All Rows...' : '🌐 Auto-Translate All Rows'}</span>
             </button>
 
             <span className="hidden sm:inline-block text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
