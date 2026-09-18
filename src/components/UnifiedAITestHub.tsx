@@ -29,6 +29,8 @@ import {
   Edit2,
   ArrowUpRight,
   Languages,
+  Lock,
+  Eye,
 } from 'lucide-react';
 import {
   TestCaseHeaderMeta,
@@ -65,6 +67,7 @@ import {
   generateScenariosFromInputsAndFiles,
   checkIsDuplicate,
 } from '../utils/aiGenerator';
+import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
 interface UnifiedAITestHubProps {
   initialHeader: TestCaseHeaderMeta;
@@ -80,6 +83,8 @@ interface UnifiedAITestHubProps {
   onUpdateHeader?: (header: TestCaseHeaderMeta) => void;
   onUpdateTestCases?: (testCases: TestCaseItem[], ticketNo?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
+  onSaveAndSubmitTicket?: (ticketNo: string) => void;
+  onReopenEditTicket?: (ticketNo: string) => void;
 }
 
 export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
@@ -96,6 +101,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   onUpdateHeader,
   onUpdateTestCases,
   onAddTicket,
+  onSaveAndSubmitTicket,
+  onReopenEditTicket,
 }) => {
   // Hub Navigation Mode: Tickets Table vs Test Cases Screen
   const [hubMode, setHubMode] = useState<'tickets-table' | 'test-case-screen'>('tickets-table');
@@ -312,8 +319,36 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const isApprovedAndReadOnly = header.reviewStatus === 'Approved';
   const isInReviewLocked = header.reviewStatus === 'In Review';
 
+  // State for Locked Draft Ticket Notice Modal
+  const [lockedModal, setLockedModal] = useState<{
+    ticketNumber: string;
+    createdBy: string;
+    reason: string;
+  } | null>(null);
+
+  // Access control check for currently matched ticket
+  const currentTicketPerms = useMemo(() => {
+    return canUserOpenTicket(matchedTicket, currentUser);
+  }, [matchedTicket, currentUser]);
+
+  const isTicketCreator = useMemo(() => {
+    return isUserTicketCreator(matchedTicket, currentUser);
+  }, [matchedTicket, currentUser]);
+
   // Handle Opening Test Cases Screen for a Ticket
   const handleOpenTestCasesScreen = (ticket: TicketSummary) => {
+    const perm = canUserOpenTicket(ticket, currentUser);
+    if (!perm.allowed) {
+      setLockedModal({
+        ticketNumber: ticket.ticketNumber,
+        createdBy: ticket.createdBy || 'Creator',
+        reason:
+          perm.reason ||
+          `Ticket #${ticket.ticketNumber} is currently in Draft / Edit mode by "${ticket.createdBy || 'Creator'}". Other users cannot open its test cases until the creator clicks 'Save & Submit'.`,
+      });
+      return;
+    }
+
     setSelectedTicketNumber(ticket.ticketNumber);
     onSelectTicket?.(ticket.ticketNumber);
 
@@ -2077,10 +2112,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   className="min-w-[220px] border-r border-slate-700 text-emerald-300 font-semibold"
                 />
 
-                <th className="p-2.5 min-w-[180px] border-r border-slate-700 font-semibold">
-                  Validation / Negative Scenario
-                </th>
-
                 <th className="p-2.5 w-28 border-r border-slate-700 text-center font-semibold">
                   Status
                 </th>
@@ -2151,18 +2182,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                       onChange={(e) => handleCellChange(tc.id, 'actualResult', e.target.value)}
                       placeholder="Actual test execution result / logs..."
                       className="w-full px-2 py-1 text-slate-800 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 rounded text-xs resize-y"
-                    />
-                  </td>
-
-                  {/* Validation / Negative Scenario */}
-                  <td className="p-1 border-r border-slate-100">
-                    <textarea
-                      rows={2}
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
-                      value={tc.validationScenario || ''}
-                      onChange={(e) => handleCellChange(tc.id, 'validationScenario', e.target.value)}
-                      placeholder="Negative scenario..."
-                      className="w-full px-2 py-1 text-slate-700 italic bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
                   </td>
 

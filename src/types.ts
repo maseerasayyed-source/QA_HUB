@@ -87,6 +87,10 @@ export interface TicketSummary {
   acceptanceCriteria?: string;
   dealId?: string;
   testingScenarios?: string;
+  submissionState?: 'Draft' | 'Submitted';
+  isEditing?: boolean;
+  submittedAt?: string;
+  submittedBy?: string;
 }
 
 export type TestCaseReviewStatus = 'Draft' | 'Review Pending' | 'In Review' | 'Changes Required' | 'Approved';

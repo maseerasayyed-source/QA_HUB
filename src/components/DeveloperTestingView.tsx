@@ -830,23 +830,6 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* Module Filter Dropdown */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-slate-500 font-medium">Module:</span>
-              <select
-                value={ticketModuleFilter}
-                onChange={(e) => setTicketModuleFilter(e.target.value)}
-                className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs font-medium focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-              >
-                <option value="all">All Modules ({tickets.length})</option>
-                {modules.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
             {/* Status Filter Pills */}
             <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
               {['all', 'Ready for QA', 'In Testing', 'Passed'].map((st) => (

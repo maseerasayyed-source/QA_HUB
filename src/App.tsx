@@ -179,6 +179,113 @@ export default function App() {
     date: new Date().toISOString().split('T')[0],
   };
 
+  // Helper to push state updates to server for persistent storage and cross-user visibility
+  const pushSyncToServer = async (payload: {
+    tickets?: TicketSummary[];
+    testCasesMap?: Record<string, TestCaseItem[]>;
+    testCaseHeadersMap?: Record<string, TestCaseHeaderMeta>;
+    observationsMap?: Record<string, ObservationItem[]>;
+    devTestingMap?: Record<string, DeveloperTestItem[]>;
+    devTestingHeadersMap?: Record<string, DeveloperTestHeaderMeta>;
+  }) => {
+    try {
+      await fetch('/api/sync-state', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-name': currentUser?.name || 'User',
+          'x-user-role': currentUser?.role || 'QA',
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err) {
+      // Quiet fallback in offline / preview environments
+    }
+  };
+
+  // Real-time synchronization with server persistent disk store
+  // Automatically pulls tickets created or submitted by other users
+  useEffect(() => {
+    let isMounted = true;
+
+    const pullFromServer = async () => {
+      try {
+        const res = await fetch('/api/sync-state');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (Array.isArray(data.tickets) && data.tickets.length > 0) {
+          setTickets((prevLocal) => {
+            const map = new Map<string, TicketSummary>();
+            prevLocal.forEach((t) => {
+              if (t.ticketNumber) map.set(t.ticketNumber.toLowerCase().trim(), t);
+            });
+            data.tickets.forEach((st: TicketSummary) => {
+              if (st.ticketNumber) {
+                const key = st.ticketNumber.toLowerCase().trim();
+                const existing = map.get(key);
+                map.set(key, { ...(existing || {}), ...st });
+              }
+            });
+            const merged = Array.from(map.values());
+            saveTicketsToStorage(merged);
+            return merged;
+          });
+        }
+
+        if (data.testCasesMap && Object.keys(data.testCasesMap).length > 0) {
+          setTestCasesMap((prev) => {
+            const next = { ...prev, ...data.testCasesMap };
+            saveTestCasesMapToStorage(next);
+            return next;
+          });
+        }
+
+        if (data.testCaseHeadersMap && Object.keys(data.testCaseHeadersMap).length > 0) {
+          setTestCaseHeadersMap((prev) => {
+            const next = { ...prev, ...data.testCaseHeadersMap };
+            saveTestCaseHeadersMapToStorage(next);
+            return next;
+          });
+        }
+
+        if (data.observationsMap && Object.keys(data.observationsMap).length > 0) {
+          setObservationsMap((prev) => {
+            const next = { ...prev, ...data.observationsMap };
+            saveObservationsMapToStorage(next);
+            return next;
+          });
+        }
+
+        if (data.devTestingMap && Object.keys(data.devTestingMap).length > 0) {
+          setDevTestingMap((prev) => {
+            const next = { ...prev, ...data.devTestingMap };
+            saveDevTestingMapToStorage(next);
+            return next;
+          });
+        }
+
+        if (data.devTestingHeadersMap && Object.keys(data.devTestingHeadersMap).length > 0) {
+          setDevTestingHeadersMap((prev) => {
+            const next = { ...prev, ...data.devTestingHeadersMap };
+            saveDevTestingHeadersMapToStorage(next);
+            return next;
+          });
+        }
+      } catch (e) {
+        // quiet fallback
+      }
+    };
+
+    pullFromServer();
+    const interval = setInterval(pullFromServer, 4000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Sync back tickets, cases, observations, dev testing whenever state changes
   useEffect(() => {
     const updatedTickets = syncTicketCounts(tickets, testCasesMap, observationsMap);
@@ -219,14 +326,19 @@ export default function App() {
     const targetTicket = ticketNum || activeTicketNumber;
     const nextMap = { ...testCasesMap, [targetTicket]: newCases };
     setTestCasesMap(nextMap);
-    setTickets((prev) => syncTicketCounts(prev, nextMap, observationsMap));
+    setTickets((prev) => {
+      const synced = syncTicketCounts(prev, nextMap, observationsMap);
+      pushSyncToServer({ tickets: synced, testCasesMap: nextMap });
+      return synced;
+    });
   };
 
   const handleUpdateTestCaseHeader = (newHeader: TestCaseHeaderMeta) => {
-    setTestCaseHeadersMap((prev) => ({
-      ...prev,
-      [newHeader.ticketNo]: newHeader,
-    }));
+    setTestCaseHeadersMap((prev) => {
+      const next = { ...prev, [newHeader.ticketNo]: newHeader };
+      pushSyncToServer({ testCaseHeadersMap: next });
+      return next;
+    });
     setActiveTicketNumber(newHeader.ticketNo);
   };
 
@@ -236,10 +348,14 @@ export default function App() {
     items: DeveloperTestItem[],
     header?: DeveloperTestHeaderMeta
   ) => {
-    setDevTestingMap((prev) => ({ ...prev, [ticketNo]: items }));
+    const nextMap = { ...devTestingMap, [ticketNo]: items };
+    setDevTestingMap(nextMap);
+    let nextHeaders = devTestingHeadersMap;
     if (header) {
-      setDevTestingHeadersMap((prev) => ({ ...prev, [ticketNo]: header }));
+      nextHeaders = { ...devTestingHeadersMap, [ticketNo]: header };
+      setDevTestingHeadersMap(nextHeaders);
     }
+    pushSyncToServer({ devTestingMap: nextMap, devTestingHeadersMap: nextHeaders });
   };
 
   // Update Observations for active ticket
@@ -247,7 +363,51 @@ export default function App() {
     const target = ticketNum || activeTicketNumber;
     const nextMap = { ...observationsMap, [target]: newObs };
     setObservationsMap(nextMap);
-    setTickets((prev) => syncTicketCounts(prev, testCasesMap, nextMap));
+    setTickets((prev) => {
+      const synced = syncTicketCounts(prev, testCasesMap, nextMap);
+      pushSyncToServer({ tickets: synced, observationsMap: nextMap });
+      return synced;
+    });
+  };
+
+  // Save and Submit Ticket: Switches ticket from Draft/Edit mode to Submitted
+  // Makes the test cases, observations, and developer testing accessible to all other users in Read-Only mode
+  const handleSaveAndSubmitTicket = (ticketNo: string) => {
+    const nowStr = new Date().toLocaleString();
+    const updatedTickets = tickets.map((t) => {
+      if (t.ticketNumber.toLowerCase().trim() === ticketNo.toLowerCase().trim()) {
+        return {
+          ...t,
+          submissionState: 'Submitted' as const,
+          isEditing: false,
+          submittedAt: nowStr,
+          submittedBy: currentUser?.name || t.createdBy || 'QA User',
+        };
+      }
+      return t;
+    });
+
+    setTickets(updatedTickets);
+    saveTicketsToStorage(updatedTickets);
+    pushSyncToServer({ tickets: updatedTickets });
+  };
+
+  // Reopen Edit Mode for Creator
+  const handleReopenEditTicket = (ticketNo: string) => {
+    const updatedTickets = tickets.map((t) => {
+      if (t.ticketNumber.toLowerCase().trim() === ticketNo.toLowerCase().trim()) {
+        return {
+          ...t,
+          submissionState: 'Draft' as const,
+          isEditing: true,
+        };
+      }
+      return t;
+    });
+
+    setTickets(updatedTickets);
+    saveTicketsToStorage(updatedTickets);
+    pushSyncToServer({ tickets: updatedTickets });
   };
 
   // Handle Add New Ticket
@@ -256,11 +416,14 @@ export default function App() {
       ...newTicket,
       createdBy: newTicket.createdBy || currentUser?.name || 'Maseera Sayyed',
       creatorEmail: newTicket.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
+      submissionState: newTicket.submissionState || 'Draft',
+      isEditing: true,
     };
     const nextTickets = [ticketWithCreator, ...tickets];
     setTickets(nextTickets);
     setActiveTicketNumber(ticketWithCreator.ticketNumber);
     saveTicketsToStorage(nextTickets);
+    pushSyncToServer({ tickets: nextTickets });
   };
 
 
@@ -321,7 +484,7 @@ export default function App() {
       case 'dashboard':
         return (
           <DashboardView
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             onSelectTicket={(ticket) => {
               setActiveTicketNumber(ticket.ticketNumber);
@@ -338,7 +501,7 @@ export default function App() {
       case 'tickets':
         return (
           <TicketsView
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             onSelectTicket={(t) => {
               setActiveTicketNumber(t.ticketNumber);
@@ -356,7 +519,7 @@ export default function App() {
       case 'developer-testing':
         return (
           <DeveloperTestingView
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             currentUser={currentUser}
             devTestingMap={devTestingMap}
@@ -365,6 +528,8 @@ export default function App() {
             onSelectTicket={(tNo) => setActiveTicketNumber(tNo)}
             onUpdateDevTestingMap={handleUpdateDevTestingMap}
             onAddTicket={handleAddTicket}
+            onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
+            onReopenEditTicket={handleReopenEditTicket}
           />
         );
 
@@ -374,7 +539,7 @@ export default function App() {
           <UnifiedAITestHub
             initialHeader={testCaseHeader}
             initialTestCases={testCasesList}
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             currentUser={currentUser}
             activeTicketNumber={activeTicketNumber}
@@ -389,13 +554,15 @@ export default function App() {
               handleUpdateTestCases(newCases, tNo);
             }}
             onAddTicket={handleAddTicket}
+            onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
+            onReopenEditTicket={handleReopenEditTicket}
           />
         );
 
       case 'review-queue':
         return (
           <SeniorQAReviewQueue
-            tickets={isSuperAdmin ? tickets : visibleTickets}
+            tickets={tickets}
             testCasesMap={testCasesMap}
             testCaseHeadersMap={testCaseHeadersMap}
             currentUser={currentUser}
@@ -415,7 +582,7 @@ export default function App() {
       case 'user-manual':
         return (
           <UserManualView
-            tickets={visibleTickets}
+            tickets={tickets}
             testCasesMap={testCasesMap}
             modules={modules}
             currentUser={currentUser}
@@ -431,7 +598,7 @@ export default function App() {
         return (
           <DailyTaskUpdatesView
             currentUser={currentUser}
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             dailyTasks={dailyTasks}
             userNotepads={userNotepads}
@@ -450,7 +617,7 @@ export default function App() {
       case 'rfe':
         return (
           <ObservationsView
-            tickets={visibleTickets}
+            tickets={tickets}
             modules={modules}
             currentUser={currentUser}
             activeTicketNumber={activeTicketNumber}
@@ -461,6 +628,8 @@ export default function App() {
             onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
             onUpdateObservations={(items, tNo) => handleUpdateObservations(items, tNo)}
             onAddTicket={handleAddTicket}
+            onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
+            onReopenEditTicket={handleReopenEditTicket}
           />
         );
 

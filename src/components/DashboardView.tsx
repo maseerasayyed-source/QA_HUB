@@ -14,10 +14,16 @@ import {
   Search,
   ArrowUpDown,
   Sparkles,
+  Lock,
+  Eye,
+  ShieldAlert,
+  X,
+  UserCheck,
 } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
+import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
 interface DashboardViewProps {
   tickets: TicketSummary[];
@@ -37,6 +43,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   // State for Filters & Search on Dashboard
   const [selectedModule, setSelectedModule] = useState<string>('all');
   const [selectedQa, setSelectedQa] = useState<string>('all');
+  const [ticketScope, setTicketScope] = useState<'all' | 'mine'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'priority' | 'testCases' | 'observations' | 'newest'>('priority');
 
@@ -45,49 +52,41 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [selectedAdoTicket, setSelectedAdoTicket] = useState<TicketSummary | null>(null);
   const [adoNotice, setAdoNotice] = useState<string | null>(null);
 
-  // User role-based filtering logic: Super Admin sees all tickets; standard User sees tickets created by or assigned to them
+  // State for Locked Draft Ticket Notice Modal
+  const [lockedModalTicket, setLockedModalTicket] = useState<{
+    ticketNumber: string;
+    createdBy: string;
+    reason: string;
+  } | null>(null);
+
   const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
 
-  const roleFilteredTickets = useMemo(() => {
-    if (!currentUser || isSuperAdmin) {
-      return tickets;
+  // Multi-user visibility: ALL tickets are visible on dashboard by default!
+  const baseTickets = useMemo(() => {
+    if (ticketScope === 'mine' && currentUser) {
+      return tickets.filter((t) => isUserTicketCreator(t, currentUser));
     }
-    const userEmail = currentUser.email.toLowerCase().trim();
-    const userName = currentUser.name.toLowerCase().trim();
+    return tickets;
+  }, [tickets, ticketScope, currentUser]);
 
-    return tickets.filter((t) => {
-      const creator = (t.createdBy || '').toLowerCase();
-      const creatorEmail = (t.creatorEmail || '').toLowerCase();
-      const qa = (t.qaAssignee || '').toLowerCase().trim();
-      const dev = (t.developer || '').toLowerCase().trim();
-      return (
-        (userName && (creator.includes(userName) || userName.includes(creator))) ||
-        (userEmail && creatorEmail === userEmail) ||
-        (userName && (qa.includes(userName) || userName.includes(qa))) ||
-        (userEmail && userEmail.includes(qa)) ||
-        (userName && (dev.includes(userName) || userName.includes(dev))) ||
-        (userEmail && userEmail.includes(dev))
-      );
-    });
-  }, [tickets, currentUser, isSuperAdmin]);
-
-  // Extract unique QA assignees for filter
+  // Extract unique QA assignees & Creators for filter dropdown
   const qaAssignees = useMemo(() => {
     const set = new Set<string>();
-    roleFilteredTickets.forEach((t) => {
+    tickets.forEach((t) => {
       if (t.qaAssignee) set.add(t.qaAssignee);
+      if (t.createdBy) set.add(t.createdBy);
     });
     return Array.from(set);
-  }, [roleFilteredTickets]);
+  }, [tickets]);
 
   // Compute Dashboard Metrics dynamically based on active filters
   const filteredTickets = useMemo(() => {
-    return roleFilteredTickets
+    return baseTickets
       .filter((t) => {
         if (selectedModule !== 'all' && t.moduleId !== selectedModule && t.moduleName.toLowerCase() !== selectedModule.toLowerCase()) {
           return false;
         }
-        if (selectedQa !== 'all' && t.qaAssignee.toLowerCase() !== selectedQa.toLowerCase()) {
+        if (selectedQa !== 'all' && t.qaAssignee.toLowerCase() !== selectedQa.toLowerCase() && (t.createdBy || '').toLowerCase() !== selectedQa.toLowerCase()) {
           return false;
         }
         if (searchQuery.trim()) {
@@ -98,6 +97,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             t.moduleName.toLowerCase().includes(q) ||
             t.developer.toLowerCase().includes(q) ||
             t.qaAssignee.toLowerCase().includes(q) ||
+            (t.createdBy && t.createdBy.toLowerCase().includes(q)) ||
             t.priority.toLowerCase().includes(q) ||
             t.status.toLowerCase().includes(q);
           if (!match) return false;
@@ -117,7 +117,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
         return b.id.localeCompare(a.id);
       });
-  }, [tickets, selectedModule, selectedQa, searchQuery, sortBy]);
+  }, [baseTickets, selectedModule, selectedQa, searchQuery, sortBy]);
+
+  // Handle clicking on a ticket in Dashboard: Enforces creator-only draft lock
+  const handleTicketRowClick = (t: TicketSummary) => {
+    const check = canUserOpenTicket(t, currentUser);
+    if (!check.allowed) {
+      setLockedModalTicket({
+        ticketNumber: t.ticketNumber,
+        createdBy: t.createdBy || 'Creator',
+        reason: check.reason || `Ticket #${t.ticketNumber} is currently in Draft / Edit mode.`,
+      });
+      return;
+    }
+
+    onSelectTicket(t);
+    onNavigateTab('ai-test-hub');
+  };
 
   // Aggregated Dynamic Stats
   const totalTickets = filteredTickets.length;
@@ -215,12 +231,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* FILTER & SORT TOOLBAR FOR DASHBOARD */}
       <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex flex-wrap items-center gap-3 flex-1">
+          {/* Scope Toggle: All Users vs Created by Me */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setTicketScope('all')}
+              className={`px-2.5 py-1 rounded-md transition-all ${
+                ticketScope === 'all'
+                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              All Users ({tickets.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTicketScope('mine')}
+              className={`px-2.5 py-1 rounded-md transition-all flex items-center gap-1 ${
+                ticketScope === 'mine'
+                  ? 'bg-white text-blue-700 shadow-2xs font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Created by Me</span>
+            </button>
+          </div>
+
           {/* Live Search Box */}
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full sm:w-60">
             <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
-              placeholder="Search ticket #, module, QA or feature..."
+              placeholder="Search ticket #, module, creator, feature..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white text-slate-800"
@@ -246,13 +289,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Assigned QA Filter */}
           <div className="flex items-center gap-1.5">
-            <span className="text-slate-500 font-bold uppercase text-[10px]">Assigned QA:</span>
+            <span className="text-slate-500 font-bold uppercase text-[10px]">User:</span>
             <select
               value={selectedQa}
               onChange={(e) => setSelectedQa(e.target.value)}
               className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-medium text-slate-800 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
             >
-              <option value="all">All QA Assignees</option>
+              <option value="all">All Creators &amp; QA</option>
               {qaAssignees.map((qa) => (
                 <option key={qa} value={qa}>
                   {qa}
@@ -287,9 +330,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <div className="bg-white border border-slate-200 rounded-xl shadow-2xs flex flex-col min-h-0">
           <div className="p-4 border-b border-slate-100 flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-sm text-slate-900">Priority Tickets Queue</h3>
+              <h3 className="font-bold text-sm text-slate-900">All Users&apos; Tickets Queue</h3>
               <p className="text-[11px] text-slate-500">
-                Primary key link by Ticket Number. Click row to launch AI Test Case Hub.
+                Visible to all users. Draft tickets can only be opened and edited by their creator.
               </p>
             </div>
             <button
@@ -305,10 +348,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <tr className="text-[10px] text-slate-400 uppercase tracking-wider bg-slate-50">
                   <th className="p-2 font-semibold">Ticket #</th>
                   <th className="p-2 font-semibold">Module &amp; Feature</th>
-                  <th className="p-2 font-semibold text-center">Test Cases Written</th>
-                  <th className="p-2 font-semibold text-center">Pending Obs</th>
-                  <th className="p-2 font-semibold text-center">Priority</th>
-                  <th className="p-2 font-semibold text-center">Azure DevOps</th>
+                  <th className="p-2 font-semibold text-center">Status / Mode</th>
+                  <th className="p-2 font-semibold text-center">Test Cases</th>
+                  <th className="p-2 font-semibold text-center">Obs</th>
+                  <th className="p-2 font-semibold text-center">Action</th>
                 </tr>
               </thead>
               <tbody className="text-xs divide-y divide-slate-100">
@@ -319,7 +362,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                         <Ticket className="w-8 h-8 text-slate-300" />
                         <p className="font-semibold text-slate-600">No tickets found</p>
                         <p className="text-[11px] text-slate-400 max-w-xs">
-                          All sample tickets have been removed. Create a new Azure DevOps ticket to begin testing.
+                          No tickets match your filters. Create a new Azure DevOps ticket to begin testing.
                         </p>
                         <button
                           type="button"
@@ -332,62 +375,99 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     </td>
                   </tr>
                 ) : (
-                  filteredTickets.map((t) => (
-                    <tr
-                      key={t.id}
-                      onClick={() => {
-                        onSelectTicket(t);
-                        onNavigateTab('ai-test-hub');
-                      }}
-                      className="hover:bg-blue-50/40 transition-colors cursor-pointer group"
-                    >
-                      <td className="p-2 font-mono text-blue-600 font-bold">{t.ticketNumber}</td>
-                      <td className="p-2">
-                        <div className="font-bold text-slate-900 truncate max-w-[180px]">{t.featureName}</div>
-                        <div className="text-[10px] text-slate-500">{t.moduleName} • QA: {t.qaAssignee}</div>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded font-mono font-bold text-[11px]">
-                          {t.testCasesCount} Cases
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span
-                          className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
-                            t.observationsCount > 0
-                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
-                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                          }`}
-                        >
-                          {t.observationsCount} Pending
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <span
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            t.priority === 'Critical'
-                              ? 'bg-red-100 text-red-600'
-                              : t.priority === 'High'
-                              ? 'bg-orange-100 text-orange-600'
-                              : 'bg-blue-100 text-blue-600'
-                          }`}
-                        >
-                          {t.priority.toUpperCase()}
-                        </span>
-                      </td>
-                      <td className="p-2 text-center">
-                        <button
-                          type="button"
-                          onClick={(e) => handleOpenAdoAttach(t, e)}
-                          title="Directly attach to Azure DevOps Work Item"
-                          className="px-2 py-1 bg-slate-100 hover:bg-blue-600 hover:text-white text-slate-700 rounded text-[11px] font-semibold transition-colors flex items-center gap-1 mx-auto cursor-pointer"
-                        >
-                          <UploadCloud className="w-3 h-3" />
-                          <span>Attach</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  filteredTickets.map((t) => {
+                    const inDraft = isTicketInDraft(t);
+                    const isCreator = isUserTicketCreator(t, currentUser);
+
+                    return (
+                      <tr
+                        key={t.id}
+                        onClick={() => handleTicketRowClick(t)}
+                        className={`transition-colors cursor-pointer group ${
+                          inDraft && !isCreator
+                            ? 'bg-amber-50/20 hover:bg-amber-50/50'
+                            : 'hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <td className="p-2 font-mono text-blue-600 font-bold whitespace-nowrap">
+                          {t.ticketNumber}
+                        </td>
+                        <td className="p-2">
+                          <div className="font-bold text-slate-900 truncate max-w-[180px]">{t.featureName}</div>
+                          <div className="text-[10px] text-slate-500">
+                            {t.moduleName} • Created by: <strong className="text-slate-700">{t.createdBy || 'QA'}</strong>
+                          </div>
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap">
+                          {inDraft ? (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                isCreator
+                                  ? 'bg-blue-50 text-blue-800 border-blue-200'
+                                  : 'bg-amber-50 text-amber-800 border-amber-300'
+                              }`}
+                            >
+                              <Lock className="w-2.5 h-2.5 shrink-0" />
+                              <span>{isCreator ? 'Draft (You)' : 'Draft / Edit'}</span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-300">
+                              <CheckCircle2 className="w-2.5 h-2.5 shrink-0 text-emerald-600" />
+                              <span>Submitted</span>
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap">
+                          <span className="px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded font-mono font-bold text-[11px]">
+                            {t.testCasesCount} Cases
+                          </span>
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap">
+                          <span
+                            className={`px-2 py-0.5 rounded font-mono font-bold text-[11px] ${
+                              t.observationsCount > 0
+                                ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                            }`}
+                          >
+                            {t.observationsCount} Obs
+                          </span>
+                        </td>
+                        <td className="p-2 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          {inDraft && !isCreator ? (
+                            <button
+                              type="button"
+                              onClick={() => handleTicketRowClick(t)}
+                              title="Locked: This ticket is currently being drafted/edited by its creator."
+                              className="px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 rounded text-[11px] font-bold flex items-center gap-1 mx-auto cursor-pointer"
+                            >
+                              <Lock className="w-3 h-3 text-amber-700" />
+                              <span>Locked</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleTicketRowClick(t)}
+                              className={`px-2.5 py-1 rounded text-[11px] font-bold flex items-center gap-1 mx-auto cursor-pointer transition-colors ${
+                                isCreator
+                                  ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-2xs'
+                                  : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-200'
+                              }`}
+                            >
+                              {isCreator ? (
+                                <span>Edit Ticket</span>
+                              ) : (
+                                <>
+                                  <Eye className="w-3 h-3 text-blue-600" />
+                                  <span>View (Read-Only)</span>
+                                </>
+                              )}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -403,7 +483,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <span>Active Observations &amp; RFE Tracker</span>
               </h3>
               <p className="text-[11px] text-slate-500">
-                Pending observation counts per Ticket ID
+                Pending observation counts per Ticket ID across all users
               </p>
             </div>
             <button
@@ -420,52 +500,76 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <AlertOctagon className="w-8 h-8 text-slate-300" />
                 <p className="font-semibold text-slate-600">No active observations</p>
                 <p className="text-[11px] text-slate-400 max-w-xs">
-                  Observations and RFEs will be tracked when you log them on your created tickets.
+                  Observations and RFEs will be tracked when logged on tickets.
                 </p>
               </div>
             ) : (
-              filteredTickets.map((t) => (
-                <div
-                  key={t.id}
-                  onClick={() => {
-                    onSelectTicket(t);
-                    onNavigateTab('observations');
-                  }}
-                  className="border border-slate-200 rounded-lg p-3 hover:border-blue-300 bg-slate-50/50 hover:bg-white transition-all cursor-pointer shadow-2xs"
-                >
-                  <div className="flex justify-between items-start">
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-blue-700">#{t.ticketNumber}</span>
-                      <span className="text-xs font-bold text-slate-800">{t.featureName}</span>
+              filteredTickets.map((t) => {
+                const inDraft = isTicketInDraft(t);
+                const isCreator = isUserTicketCreator(t, currentUser);
+
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => {
+                      if (inDraft && !isCreator) {
+                        setLockedModalTicket({
+                          ticketNumber: t.ticketNumber,
+                          createdBy: t.createdBy || 'Creator',
+                          reason: `Ticket #${t.ticketNumber} is currently in Draft / Edit mode by "${t.createdBy}". You cannot view its observations until the creator submits it.`,
+                        });
+                        return;
+                      }
+                      onSelectTicket(t);
+                      onNavigateTab('observations');
+                    }}
+                    className={`border rounded-lg p-3 transition-all cursor-pointer shadow-2xs ${
+                      inDraft && !isCreator
+                        ? 'border-amber-200 bg-amber-50/20 hover:bg-amber-50/60'
+                        : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-blue-300'
+                    }`}
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-blue-700">#{t.ticketNumber}</span>
+                        <span className="text-xs font-bold text-slate-800">{t.featureName}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        {inDraft && !isCreator && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                            <Lock className="w-2.5 h-2.5" /> Locked
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                            t.observationsCount > 0
+                              ? 'bg-red-100 text-red-700 border border-red-200'
+                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          }`}
+                        >
+                          {t.observationsCount} Pending Obs
+                        </span>
+                      </div>
                     </div>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                        t.observationsCount > 0
-                          ? 'bg-red-100 text-red-700 border border-red-200'
-                          : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                      }`}
-                    >
-                      {t.observationsCount} Pending Obs
-                    </span>
-                  </div>
 
-                  <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
-                    <span>Module: <strong className="text-slate-700">{t.moduleName}</strong></span>
-                    <span>QA Assignee: <strong className="text-slate-700">{t.qaAssignee}</strong></span>
-                    <span>Dev: <strong className="text-slate-700">{t.developer}</strong></span>
-                  </div>
+                    <div className="text-[11px] text-slate-500 mt-1 flex flex-wrap items-center gap-3">
+                      <span>Module: <strong className="text-slate-700">{t.moduleName}</strong></span>
+                      <span>Created by: <strong className="text-slate-700">{t.createdBy || 'QA'}</strong></span>
+                      <span>Dev: <strong className="text-slate-700">{t.developer}</strong></span>
+                    </div>
 
-                  <div className="mt-2 flex items-center justify-between text-[11px] pt-2 border-t border-slate-200/60">
-                    <span className="text-slate-500 font-medium">
-                      Test Cases Written: <strong className="text-slate-800">{t.testCasesCount}</strong> ({t.passedCount} Passed)
-                    </span>
-                    <span className="text-blue-600 font-semibold group-hover:underline flex items-center gap-0.5">
-                      <span>Open Sheet</span>
-                      <ArrowUpRight className="w-3 h-3" />
-                    </span>
+                    <div className="mt-2 flex items-center justify-between text-[11px] pt-2 border-t border-slate-200/60">
+                      <span className="text-slate-500 font-medium">
+                        Test Cases Written: <strong className="text-slate-800">{t.testCasesCount}</strong> ({t.passedCount} Passed)
+                      </span>
+                      <span className="text-blue-600 font-semibold group-hover:underline flex items-center gap-0.5">
+                        <span>{inDraft && !isCreator ? 'Locked by Creator' : 'Open Sheet'}</span>
+                        <ArrowUpRight className="w-3 h-3" />
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
@@ -497,6 +601,53 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             setTimeout(() => setAdoNotice(null), 5000);
           }}
         />
+      )}
+
+      {/* Locked Draft Ticket Notice Modal */}
+      {lockedModalTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="p-3 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+                <Lock className="w-6 h-6" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-base text-slate-900">
+                    Ticket #{lockedModalTicket.ticketNumber} is Locked
+                  </h3>
+                  <button
+                    onClick={() => setLockedModalTicket(null)}
+                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  Created &amp; edited by: <strong className="text-slate-800">{lockedModalTicket.createdBy}</strong>
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2">
+              <p className="font-semibold leading-relaxed">
+                {lockedModalTicket.reason}
+              </p>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                As per QA Hub security rules, test cases, developer testing points, observations, and RFEs are hidden from other users while the ticket is in <strong>Draft / Edit mode</strong>. Once <strong>{lockedModalTicket.createdBy}</strong> clicks <strong>&quot;Save &amp; Submit&quot;</strong>, this ticket will become open for you to view in <strong>Read-Only mode</strong>.
+              </p>
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setLockedModalTicket(null)}
+                className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
+              >
+                Understood / Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -7,21 +7,76 @@ export const apiRouter = express.Router();
 apiRouter.use(express.json({ limit: '50mb' }));
 apiRouter.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// In-memory fallback data cache if PostgreSQL is offline during development
-const mockMemoryStore = {
-  users: [
-    { name: 'Maseera Sayyed', role: 'Super Admin', email: 'maseerasayyed@quantumphinance.com' },
-    { name: 'QA User', role: 'QA', email: 'qa@quantumphinance.com' },
-    { name: 'BA User', role: 'BA', email: 'ba@quantumphinance.com' },
-    { name: 'Developer User', role: 'Developer', email: 'dev@quantumphinance.com' },
-    { name: 'Product User', role: 'Product Team', email: 'product@quantumphinance.com' }
-  ],
-  activityLogs: [] as any[],
-  tickets: [] as any[],
-  testCases: [] as any[],
-  observations: [] as any[],
-  devTesting: [] as any[]
-};
+import fs from 'fs';
+import path from 'path';
+
+const STORE_FILE_PATH = path.join(process.cwd(), 'server', 'qa_hub_store.json');
+
+// Persistent data cache for multi-user sync across all QA / Dev users
+interface ServerStore {
+  users: Array<{ name: string; role: string; email: string }>;
+  activityLogs: any[];
+  tickets: any[];
+  testCasesMap: Record<string, any[]>;
+  testCaseHeadersMap: Record<string, any>;
+  observationsMap: Record<string, any[]>;
+  devTestingMap: Record<string, any[]>;
+  devTestingHeadersMap: Record<string, any>;
+}
+
+function loadServerStoreFromDisk(): ServerStore {
+  try {
+    if (fs.existsSync(STORE_FILE_PATH)) {
+      const data = fs.readFileSync(STORE_FILE_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      return {
+        users: parsed.users || [
+          { name: 'Maseera Sayyed', role: 'Super Admin', email: 'maseerasayyed@quantumphinance.com' },
+          { name: 'QA User', role: 'QA', email: 'qa@quantumphinance.com' },
+          { name: 'BA User', role: 'BA', email: 'ba@quantumphinance.com' },
+          { name: 'Developer User', role: 'Developer', email: 'dev@quantumphinance.com' },
+          { name: 'Product User', role: 'Product Team', email: 'product@quantumphinance.com' }
+        ],
+        activityLogs: parsed.activityLogs || [],
+        tickets: parsed.tickets || [],
+        testCasesMap: parsed.testCasesMap || {},
+        testCaseHeadersMap: parsed.testCaseHeadersMap || {},
+        observationsMap: parsed.observationsMap || {},
+        devTestingMap: parsed.devTestingMap || {},
+        devTestingHeadersMap: parsed.devTestingHeadersMap || {}
+      };
+    }
+  } catch (err) {
+    console.warn('[QA Hub Server] Could not read disk store:', err);
+  }
+
+  return {
+    users: [
+      { name: 'Maseera Sayyed', role: 'Super Admin', email: 'maseerasayyed@quantumphinance.com' },
+      { name: 'QA User', role: 'QA', email: 'qa@quantumphinance.com' },
+      { name: 'BA User', role: 'BA', email: 'ba@quantumphinance.com' },
+      { name: 'Developer User', role: 'Developer', email: 'dev@quantumphinance.com' },
+      { name: 'Product User', role: 'Product Team', email: 'product@quantumphinance.com' }
+    ],
+    activityLogs: [],
+    tickets: [],
+    testCasesMap: {},
+    testCaseHeadersMap: {},
+    observationsMap: {},
+    devTestingMap: {},
+    devTestingHeadersMap: {}
+  };
+}
+
+const mockMemoryStore = loadServerStoreFromDisk();
+
+function saveServerStoreToDisk() {
+  try {
+    fs.writeFileSync(STORE_FILE_PATH, JSON.stringify(mockMemoryStore, null, 2), 'utf8');
+  } catch (err) {
+    console.warn('[QA Hub Server] Error writing store to disk:', err);
+  }
+}
 
 // Audit logging helper
 async function logActivity(userName: string, userRole: string, action: string, moduleName?: string, ticketId?: string, details?: any) {
@@ -140,17 +195,69 @@ apiRouter.get('/activity-logs', async (req: AuthenticatedRequest, res: Response)
   return res.json(mockMemoryStore.activityLogs.slice().reverse());
 });
 
-// Sync full state to/from PostgreSQL DB
+// Sync full state to/from Persistent Store & DB
 apiRouter.post('/sync-state', async (req: AuthenticatedRequest, res: Response) => {
-  const { tickets, testCases, observations, devTesting } = req.body;
+  const {
+    tickets,
+    testCases,
+    testCasesMap,
+    observations,
+    observationsMap,
+    devTesting,
+    devTestingMap,
+    testCaseHeadersMap,
+    devTestingHeadersMap,
+  } = req.body;
   const user = req.userContext;
 
-  if (Array.isArray(tickets)) mockMemoryStore.tickets = tickets;
-  if (testCases) mockMemoryStore.testCases = testCases;
-  if (observations) mockMemoryStore.observations = observations;
-  if (devTesting) mockMemoryStore.devTesting = devTesting;
+  if (Array.isArray(tickets)) {
+    // Merge tickets smartly by ticketNumber / id
+    const existingMap = new Map<string, any>();
+    mockMemoryStore.tickets.forEach((t) => {
+      const key = (t.ticketNumber || t.id || '').toLowerCase();
+      if (key) existingMap.set(key, t);
+    });
 
-  // Persist to PostgreSQL tables if connected
+    tickets.forEach((incoming) => {
+      const key = (incoming.ticketNumber || incoming.id || '').toLowerCase();
+      if (key) {
+        existingMap.set(key, { ...(existingMap.get(key) || {}), ...incoming });
+      }
+    });
+
+    mockMemoryStore.tickets = Array.from(existingMap.values());
+  }
+
+  if (testCasesMap) {
+    mockMemoryStore.testCasesMap = { ...mockMemoryStore.testCasesMap, ...testCasesMap };
+  } else if (testCases) {
+    mockMemoryStore.testCasesMap = { ...mockMemoryStore.testCasesMap, ...testCases };
+  }
+
+  if (testCaseHeadersMap) {
+    mockMemoryStore.testCaseHeadersMap = { ...mockMemoryStore.testCaseHeadersMap, ...testCaseHeadersMap };
+  }
+
+  if (observationsMap) {
+    mockMemoryStore.observationsMap = { ...mockMemoryStore.observationsMap, ...observationsMap };
+  } else if (observations) {
+    mockMemoryStore.observationsMap = { ...mockMemoryStore.observationsMap, ...observations };
+  }
+
+  if (devTestingMap) {
+    mockMemoryStore.devTestingMap = { ...mockMemoryStore.devTestingMap, ...devTestingMap };
+  } else if (devTesting) {
+    mockMemoryStore.devTestingMap = { ...mockMemoryStore.devTestingMap, ...devTesting };
+  }
+
+  if (devTestingHeadersMap) {
+    mockMemoryStore.devTestingHeadersMap = { ...mockMemoryStore.devTestingHeadersMap, ...devTestingHeadersMap };
+  }
+
+  // Save to disk so that data is permanent across server reboots
+  saveServerStoreToDisk();
+
+  // Also persist to PostgreSQL tables if connected
   try {
     if (Array.isArray(tickets)) {
       for (const t of tickets) {
@@ -163,45 +270,31 @@ apiRouter.post('/sync-state', async (req: AuthenticatedRequest, res: Response) =
              priority = EXCLUDED.priority,
              description = EXCLUDED.description,
              updated_at = CURRENT_TIMESTAMP`,
-          [t.ticketNumber || t.ticket_id, t.title || '', t.status || 'Open', t.priority || 'Medium', t.description || '', user?.userName || '']
+          [t.ticketNumber || t.ticket_id, t.featureName || t.title || '', t.status || 'Open', t.priority || 'Medium', t.description || '', t.createdBy || user?.userName || '']
         );
       }
     }
   } catch (err) {
-    // Ignore db write failure and use memory fallback
+    // Ignore db write failure and use disk store
   }
 
   await logActivity(user?.userName || 'User', user?.userRole || 'Role', 'State Sync / DB Persistence Update', 'StateSync');
 
-  return res.json({ status: 'success', syncedAt: new Date().toISOString() });
+  return res.json({
+    status: 'success',
+    syncedAt: new Date().toISOString(),
+    ticketCount: mockMemoryStore.tickets.length,
+  });
 });
 
 apiRouter.get('/sync-state', async (_req: Request, res: Response) => {
-  try {
-    const resTickets = await query('SELECT * FROM tickets ORDER BY updated_at DESC');
-    if (resTickets && resTickets.rows.length > 0) {
-      return res.json({
-        tickets: resTickets.rows.map(r => ({
-          ticketNumber: r.ticket_id,
-          title: r.title,
-          status: r.status,
-          priority: r.priority,
-          description: r.description
-        })),
-        testCases: mockMemoryStore.testCases,
-        observations: mockMemoryStore.observations,
-        devTesting: mockMemoryStore.devTesting
-      });
-    }
-  } catch (err) {
-    // fallback
-  }
-
   return res.json({
     tickets: mockMemoryStore.tickets,
-    testCases: mockMemoryStore.testCases,
-    observations: mockMemoryStore.observations,
-    devTesting: mockMemoryStore.devTesting
+    testCasesMap: mockMemoryStore.testCasesMap,
+    testCaseHeadersMap: mockMemoryStore.testCaseHeadersMap,
+    observationsMap: mockMemoryStore.observationsMap,
+    devTestingMap: mockMemoryStore.devTestingMap,
+    devTestingHeadersMap: mockMemoryStore.devTestingHeadersMap,
   });
 });
 
