@@ -11,7 +11,6 @@ import {
 import { TestCaseItem, TicketSummary } from '../../types';
 import {
   generateTestCaseFieldsWithAi,
-  generateTestCaseFieldsWithAiAsync,
   parseQuickPasteSolution,
 } from '../../utils/aiGenerator';
 
@@ -78,32 +77,19 @@ export const TestCaseSolutionModal: React.FC<TestCaseSolutionModalProps> = ({
     setTimeout(() => setCopiedNotification(null), 3000);
   };
 
-  const handleAutoGenerateWithAi = async () => {
+  const handleAutoGenerateWithAi = () => {
     setIsAiGenerating(true);
-    try {
-      const generated = await generateTestCaseFieldsWithAiAsync(scenario, ticket);
+    setTimeout(() => {
+      const generated = generateTestCaseFieldsWithAi(scenario, ticket);
       setScenario(generated.scenario);
       setPreconditions(generated.preconditions);
       setSteps(generated.steps);
       setInputs(generated.inputs);
       setExpectedResult(generated.expectedResult);
-      setCopiedNotification(
-        generated.source === 'gemini'
-          ? 'Generated in clear QA English with AI!'
-          : 'Enhanced with QA Engine: Translated to clear English with logical expected result!'
-      );
-    } catch (e) {
-      const fallback = generateTestCaseFieldsWithAi(scenario, ticket);
-      setScenario(fallback.scenario);
-      setPreconditions(fallback.preconditions);
-      setSteps(fallback.steps);
-      setInputs(fallback.inputs);
-      setExpectedResult(fallback.expectedResult);
-      setCopiedNotification('Generated in clear QA English!');
-    } finally {
       setIsAiGenerating(false);
-      setTimeout(() => setCopiedNotification(null), 3500);
-    }
+      setCopiedNotification('All fields generated with AI based on scenario & ticket!');
+      setTimeout(() => setCopiedNotification(null), 3000);
+    }, 450);
   };
 
   const handleSave = () => {
@@ -216,13 +202,9 @@ export const TestCaseSolutionModal: React.FC<TestCaseSolutionModalProps> = ({
               type="text"
               value={scenario}
               onChange={(e) => setScenario(e.target.value)}
-              placeholder="Type in any language or Hinglish (e.g. 'agr user already dev roleka hai aur QA role select kare to validation avega')..."
-              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:bg-white"
+              placeholder="e.g. Penalty entries appear in the cashflow when overdue occurs after loan disbursement."
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
             />
-            <p className="text-[10px] text-slate-500 flex items-center gap-1">
-              <span className="font-semibold text-purple-700">Multilingual QA Engine:</span>
-              <span>Accepts prompt in Hinglish/Hindi/English &amp; generates easy, understandable English with logically accurate expected results.</span>
-            </p>
           </div>
 
           {/* Preconditions */}

@@ -63,7 +63,6 @@ interface DeveloperTestingViewProps {
     header?: DeveloperTestHeaderMeta
   ) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
-  onUpdateTicket?: (updatedTicket: TicketSummary, oldTicketNumber?: string) => void;
 }
 
 export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
@@ -83,7 +82,6 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   onSelectTicket,
   onUpdateDevTestingMap,
   onAddTicket,
-  onUpdateTicket,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'dev-testing-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'dev-testing-screen'>('tickets-table');
@@ -395,7 +393,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         ...currentTicket,
         ticketNumber: res.ticketNumber || header.ticketNo,
         featureName: res.title || header.featureName,
-        developer: res.developer || header.developer,
+        developer: res.assignee || header.developer,
         description: res.description || currentTicket?.description,
       };
     }
@@ -1385,85 +1383,6 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         isGenerating={isGeneratingAiScenarios}
         generateButtonText="✨ AI Auto-Generate Scenarios into Table"
         showGenerateButton={true}
-        onUpdateHeaderMeta={(meta) => {
-          const oldTicketNo = header.ticketNo;
-          const nextTicketNo = meta.ticketNo || header.ticketNo;
-          const nextHeader: DeveloperTestHeaderMeta = {
-            ...header,
-            ticketNo: nextTicketNo,
-            featureName: meta.taskName || meta.featureName || header.featureName,
-            developer: meta.developer !== undefined ? meta.developer : header.developer,
-            clientName: meta.clientName !== undefined ? meta.clientName : header.clientName,
-            sha: meta.sha || meta.shaCommit || header.sha,
-            signOffBy: meta.signOffBy !== undefined ? meta.signOffBy : header.signOffBy,
-            reviewStatus: (meta.reviewStatus as any) || header.reviewStatus,
-          };
-          setHeader(nextHeader);
-          saveStateToStore(items, nextHeader);
-
-          if (nextTicketNo !== selectedTicketNo) {
-            setSelectedTicketNo(nextTicketNo);
-          }
-
-          // Propagate to global tickets and dashboard
-          const currentT = currentTicket || tickets.find((t) => t.ticketNumber === oldTicketNo);
-          const updatedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${nextTicketNo}`,
-            ticketNumber: nextTicketNo,
-            featureName: meta.taskName || meta.featureName || currentT?.featureName || nextHeader.featureName,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: meta.moduleName || currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || 'Ready for QA',
-            developer: meta.developer || currentT?.developer || nextHeader.developer || '',
-            qaAssignee: meta.qaAssignee || currentT?.qaAssignee || 'Maseera Sayyed',
-            testCasesCount: currentT?.testCasesCount || 0,
-            passedCount: currentT?.passedCount || 0,
-            failedCount: currentT?.failedCount || 0,
-            observationsCount: currentT?.observationsCount || 0,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: meta.clientName || currentT?.clientName || nextHeader.clientName || 'Treasury Master',
-            shaCommit: meta.sha || meta.shaCommit || currentT?.shaCommit || nextHeader.shaCommit || nextHeader.sha || '',
-            signOffBy: meta.signOffBy || currentT?.signOffBy || nextHeader.signOffBy || '',
-            description: header.description || currentT?.description,
-            testingScenarios: header.testingScenarios || currentT?.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(updatedTicketObj, oldTicketNo);
-        }}
-        onSaveAndSyncToTickets={() => {
-          const currentT = currentTicket || tickets.find((t) => t.ticketNumber === header.ticketNo);
-          const syncedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${header.ticketNo}`,
-            ticketNumber: header.ticketNo,
-            featureName: header.featureName || currentT?.featureName || `Feature #${header.ticketNo}`,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || (header.reviewStatus === 'Approved' ? 'Sign-Off Complete' : 'In Progress'),
-            developer: header.developer || currentT?.developer || '',
-            qaAssignee: currentT?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
-            testCasesCount: currentT?.testCasesCount || 0,
-            passedCount: currentT?.passedCount || 0,
-            failedCount: currentT?.failedCount || 0,
-            observationsCount: currentT?.observationsCount || 0,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: header.clientName || currentT?.clientName || 'Treasury Master',
-            shaCommit: header.sha || header.shaCommit || currentT?.shaCommit || '',
-            signOffBy: header.signOffBy || currentT?.signOffBy || '',
-            description: header.description,
-            testingScenarios: header.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(syncedTicketObj, header.ticketNo);
-          saveStateToStore(items, header);
-          setNotification(`✅ Ticket #${header.ticketNo} and Developer Testing synced to Tickets (Azure) & Dashboard!`);
-          setTimeout(() => setNotification(null), 4000);
-        }}
       />
 
       {/* Quick Single Point Generator Bar */}

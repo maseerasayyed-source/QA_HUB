@@ -68,32 +68,16 @@ const STATUS_STYLES: Record<string, { fill: ExcelJS.Fill; font: Partial<ExcelJS.
 };
 
 /**
- * Generates standardized file name: (ticket ID_task/feature name)
- */
-export function formatStandardFileName(
-  ticketNo?: string,
-  taskName?: string,
-  ext: string = 'xlsx'
-): string {
-  const cleanTicket = (ticketNo || 'Ticket')
-    .trim()
-    .replace(/^#+/, '')
-    .replace(/[/\\?%*:|"<>]/g, '_');
-  const cleanTask = (taskName || 'TestCaseSuite')
-    .trim()
-    .replace(/[/\\?%*:|"<>]/g, '_');
-  return `${cleanTicket}_${cleanTask}.${ext.replace(/^\./, '')}`;
-}
-
-/**
  * Helper to parse base64 image data string into extension and clean base64 string
  */
 function parseBase64Image(dataUrl: string): { extension: 'png' | 'jpeg'; base64: string } | null {
-  if (!dataUrl || !dataUrl.startsWith('data:image')) return null;
-  const matches = dataUrl.match(/^data:image\/(png|jpeg|jpg);base64,(.+)$/);
-  if (!matches) return null;
-  const ext = matches[1] === 'jpg' ? 'jpeg' : (matches[1] as 'png' | 'jpeg');
-  return { extension: ext, base64: matches[2] };
+  if (!dataUrl || typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image')) return null;
+  const commaIdx = dataUrl.indexOf(',');
+  if (commaIdx === -1) return null;
+  const header = dataUrl.substring(0, commaIdx).toLowerCase();
+  const base64Data = dataUrl.substring(commaIdx + 1);
+  const ext = header.includes('png') ? 'png' : 'jpeg';
+  return { extension: ext, base64: base64Data };
 }
 
 /**
@@ -193,32 +177,29 @@ export async function buildTestCasesWorkbook(
     const isEven = rowIndex % 2 === 0;
     const defaultFill: ExcelJS.Fill = isEven ? WHITE_FILL : ZEBRA_LIGHT_FILL;
 
-    // Determine attachments and image data (supports multiple screenshots per row)
+    // Determine attachments and image data
     let attachmentText = '';
-    const imageInfoList: { extension: 'png' | 'jpeg'; base64: string; name: string }[] = [];
+    let firstUrl = '';
+    let hasBase64Image = false;
+    let base64ImgInfo: { extension: 'png' | 'jpeg'; base64: string } | null = null;
 
     if (tc.attachments && tc.attachments.length > 0) {
       attachmentText = tc.attachments.map((a) => a.name).join('; ');
-      for (const att of tc.attachments) {
-        if (att.url && att.url.startsWith('data:image')) {
-          const parsed = parseBase64Image(att.url);
-          if (parsed) {
-            imageInfoList.push({ ...parsed, name: att.name });
-          }
-        }
-      }
+      const imgAtt = tc.attachments.find((a) => a.url && a.url.startsWith('data:image')) || tc.attachments[0];
+      firstUrl = imgAtt?.url || '';
     } else if (tc.screenshot1) {
-      attachmentText = tc.screenshot1;
-      if (tc.screenshot1.startsWith('data:image')) {
-        const parsed = parseBase64Image(tc.screenshot1);
-        if (parsed) {
-          imageInfoList.push({ ...parsed, name: 'screenshot1' });
-        }
+      attachmentText = tc.screenshot1.startsWith('data:image') ? 'Screenshot Evidence' : tc.screenshot1;
+      firstUrl = tc.screenshot1;
+    }
+
+    if (firstUrl) {
+      base64ImgInfo = parseBase64Image(firstUrl);
+      if (base64ImgInfo) {
+        hasBase64Image = true;
       }
     }
 
-    const hasImages = imageInfoList.length > 0;
-    row.height = hasImages ? Math.max(90, Math.min(imageInfoList.length * 85, 260)) : 42;
+    row.height = hasBase64Image ? 95 : 42; // Height accommodates embedded image if available
 
     const rowValues = [
       tc.testCaseId || '',
@@ -250,32 +231,30 @@ export async function buildTestCasesWorkbook(
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
       } else if (isAttCol) {
         cell.fill = defaultFill;
-        if (hasImages) {
+        if (hasBase64Image && base64ImgInfo) {
           cell.value = attachmentText; // text label
           cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF475569' } };
           cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
 
-          // Embed all images for this test case row into worksheet!
-          imageInfoList.forEach((img, imgIdx) => {
-            try {
-              const imageId = workbook.addImage({
-                base64: img.base64,
-                extension: img.extension,
-              });
+          // Embed Base64 Image into Excel Worksheet!
+          try {
+            const imageId = workbook.addImage({
+              base64: base64ImgInfo.base64,
+              extension: base64ImgInfo.extension,
+            });
 
-              worksheet.addImage(imageId, {
-                tl: { col: 9.05, row: (currentRowNumber - 1) + (imgIdx * 0.95) },
-                ext: { width: 185, height: 80 },
-                editAs: 'oneCell',
-              });
-            } catch (e) {
-              console.error('Failed to embed base64 image into Excel', e);
-            }
-          });
-        } else if (tc.attachments && tc.attachments.length > 0 && tc.attachments[0].url?.startsWith('http')) {
+            worksheet.addImage(imageId, {
+              tl: { col: 9, row: currentRowNumber - 1 }, // 0-based col (9 = column J) & 0-based row
+              ext: { width: 190, height: 85 },
+              editAs: 'oneCell',
+            });
+          } catch (e) {
+            console.error('Failed to embed base64 image into Excel', e);
+          }
+        } else if (firstUrl && firstUrl.startsWith('http')) {
           cell.value = {
             text: attachmentText || 'View Attachment',
-            hyperlink: tc.attachments[0].url,
+            hyperlink: firstUrl,
           };
           cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
           cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
@@ -315,9 +294,10 @@ export async function getTestCasesExcelBlob(
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
 
-  // Standardized filename format: (ticket ID_task/feature name)
-  const fileName =
-    customFileName || formatStandardFileName(headerMeta.ticketNo, headerMeta.taskName, 'xlsx');
+  const baseName = headerMeta.taskName
+    ? headerMeta.taskName.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase()
+    : 'test_cases';
+  const fileName = customFileName || `${baseName}_testing.xlsx`;
 
   return { blob, fileName, buffer };
 }
@@ -513,9 +493,8 @@ export async function getObservationsExcelBlob(
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const fileName =
-    customFileName ||
-    formatStandardFileName(headerMeta.ticketNo, headerMeta.ticketName || 'Observations', 'xlsx');
+  const cleanTicket = headerMeta.ticketNo ? headerMeta.ticketNo.replace(/[^a-zA-Z0-9_-]/g, '_') : 'ticket';
+  const fileName = customFileName || `Observations_${cleanTicket}.xlsx`;
   return { blob, fileName, buffer };
 }
 
@@ -686,9 +665,8 @@ export async function getDeveloperTestingExcelBlob(
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   });
-  const fileName =
-    customFileName ||
-    formatStandardFileName(headerMeta.ticketNo, headerMeta.featureName || 'DeveloperTesting', 'xlsx');
+  const cleanTicket = headerMeta.ticketNo ? headerMeta.ticketNo.replace(/[^a-zA-Z0-9_-]/g, '_') : 'ticket';
+  const fileName = customFileName || `DevTesting_${cleanTicket}.xlsx`;
   return { blob, fileName, buffer };
 }
 

@@ -41,6 +41,7 @@ import {
   ReviewComment,
 } from '../types';
 import { exportTestCasesToExcel } from '../utils/excelExport';
+import { exportTestCasesToDocx } from '../utils/docxExport';
 import {
   polishTestCaseItem,
 } from '../utils/textPolisher';
@@ -72,7 +73,6 @@ interface UnifiedAITestHubProps {
   onUpdateHeader?: (header: TestCaseHeaderMeta) => void;
   onUpdateTestCases?: (testCases: TestCaseItem[], ticketNo?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
-  onUpdateTicket?: (updatedTicket: TicketSummary, oldTicketNumber?: string) => void;
 }
 
 export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
@@ -89,7 +89,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   onUpdateHeader,
   onUpdateTestCases,
   onAddTicket,
-  onUpdateTicket,
 }) => {
   // Hub Navigation Mode: Tickets Table vs Test Cases Screen
   const [hubMode, setHubMode] = useState<'tickets-table' | 'test-case-screen'>('tickets-table');
@@ -279,6 +278,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     testScenario: '',
     testCases: '',
     expectedResult: '',
+    actualResult: '',
     status: '',
   });
 
@@ -331,18 +331,72 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   };
 
   // AI Auto-Generate Full Test Suite for Selected Ticket
-  const handleAiGenerateFullSuite = (ticketToGen?: TicketSummary) => {
+  const handleAiGenerateFullSuite = async (ticketToGen?: TicketSummary) => {
     const target = ticketToGen || matchedTicket;
     if (!target) return;
 
     setIsAiGeneratingSuite(true);
-    setTimeout(() => {
-      const generatedSuite = generateComprehensiveTestCasesForTicket(target);
-      updateTestCases(generatedSuite, target.ticketNumber);
-      setIsAiGeneratingSuite(false);
-      setNotification(`✨ AI generated full test suite (${generatedSuite.length} cases) for Ticket #${target.ticketNumber}!`);
-      setTimeout(() => setNotification(null), 4000);
-    }, 400);
+    try {
+      const res = await fetch('/api/ai/generate-test-cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenario: headerTestingScenarios || target.testingScenarios || target.scenarioDetails || '',
+          description: headerDescription || target.description || target.featureName || '',
+          featureName: target.featureName || header.taskName || 'Treasury Feature',
+          moduleName: target.moduleName || 'Term Loan',
+          ticketNumber: target.ticketNumber || header.ticketNo || '1024',
+          screenFields: header.screenFields || [],
+          attachments: (header.attachedDocs || []).map((d) => ({
+            name: d.name,
+            type: d.type,
+            content: d.parsedText || d.dataUrl || '',
+          })),
+          count: 22,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.testCases) && data.testCases.length > 0) {
+          const firstImageAtt = (header.attachedDocs || []).find((d) => d.type === 'image' && d.dataUrl);
+          const generatedSuite: TestCaseItem[] = data.testCases.map((tc: any, idx: number) => ({
+            id: `tc-${Date.now()}-${idx}`,
+            testCaseId: tc.testCaseId || `TC${String(idx + 1).padStart(3, '0')}`,
+            testModule: tc.testModule || target.moduleName.toLowerCase() || 'term loan',
+            featureTab: tc.featureTab || 'General',
+            testScenario: tc.testScenario || '',
+            testCases: tc.testCases || '',
+            testInputs: tc.testInputs || '',
+            expectedResult: tc.expectedResult || '',
+            actualResult: tc.actualResult || 'Pending execution - ready for QA',
+            validationScenario: tc.validationScenario || '',
+            status: (tc.status || 'not run').toLowerCase(),
+            reviewStatus: 'Draft' as TestCaseReviewStatus,
+            version: header.version || '1.0',
+            attachments: firstImageAtt
+              ? [{ id: `att-${Date.now()}-${idx}`, name: firstImageAtt.name, url: firstImageAtt.dataUrl || '' }]
+              : [],
+            screenshot1: firstImageAtt ? firstImageAtt.dataUrl || '' : '',
+          }));
+
+          updateTestCases(generatedSuite, target.ticketNumber);
+          setIsAiGeneratingSuite(false);
+          setNotification(`✨ AI generated suite of ${generatedSuite.length} comprehensive test cases (Positive & Negative) for Ticket #${target.ticketNumber}!`);
+          setTimeout(() => setNotification(null), 5000);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('Backend AI API error, falling back to comprehensive generator', e);
+    }
+
+    // Fallback generator
+    const generatedSuite = generateComprehensiveTestCasesForTicket(target);
+    updateTestCases(generatedSuite, target.ticketNumber);
+    setIsAiGeneratingSuite(false);
+    setNotification(`✨ Generated comprehensive test suite (${generatedSuite.length} cases) for Ticket #${target.ticketNumber}!`);
+    setTimeout(() => setNotification(null), 4000);
   };
 
   // AI Generate Ticket Details in Add Ticket Modal
@@ -418,46 +472,113 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   };
 
   // Common Header AI Generation Action - Multi-Scenario Generation with Duplicate Prevention
-  const handleCommonHeaderGenerateAi = () => {
+  const handleCommonHeaderGenerateAi = async () => {
     setIsAiGeneratingSuite(true);
-    setTimeout(() => {
-      const result = generateScenariosFromInputsAndFiles({
-        ticket: matchedTicket,
-        description: headerDescription,
-        testingScenarios: headerTestingScenarios,
-        attachedDocs: header.attachedDocs || [],
-        screenFields: header.screenFields || [],
-        targetMode: 'qa',
-        existingItems: testCases,
+    try {
+      const res = await fetch('/api/ai/generate-test-cases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenario: headerTestingScenarios || matchedTicket?.testingScenarios || '',
+          description: headerDescription || matchedTicket?.description || '',
+          featureName: matchedTicket?.featureName || header.taskName || 'Treasury Feature',
+          moduleName: matchedTicket?.moduleName || 'Term Loan',
+          ticketNumber: selectedTicketNumber || header.ticketNo || '1024',
+          screenFields: header.screenFields || [],
+          attachments: (header.attachedDocs || []).map((d) => ({
+            name: d.name,
+            type: d.type,
+            content: d.parsedText || d.dataUrl || '',
+          })),
+          count: 22,
+        }),
       });
 
-      if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
-        setNotification(
-          `⚠️ All ${result.skippedDuplicates.length} candidate scenarios are already covered in the table! Duplicate rows were prevented.`
-        );
-        setTimeout(() => setNotification(null), 5000);
-        setIsAiGeneratingSuite(false);
-        return;
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.testCases) && data.testCases.length > 0) {
+          const firstImageAtt = (header.attachedDocs || []).find((d) => d.type === 'image' && d.dataUrl);
+          const newItems: TestCaseItem[] = [];
+          const skipped: string[] = [];
+
+          data.testCases.forEach((tc: any, idx: number) => {
+            const scenario = tc.testScenario || '';
+            if (checkIsDuplicate(scenario, testCases)) {
+              skipped.push(scenario);
+            } else {
+              newItems.push({
+                id: `tc-${Date.now()}-${idx}`,
+                testCaseId: tc.testCaseId || `TC${String(testCases.length + newItems.length + 1).padStart(3, '0')}`,
+                testModule: tc.testModule || matchedTicket?.moduleName.toLowerCase() || 'term loan',
+                featureTab: tc.featureTab || 'General',
+                testScenario: tc.testScenario || '',
+                testCases: tc.testCases || '',
+                testInputs: tc.testInputs || '',
+                expectedResult: tc.expectedResult || '',
+                actualResult: tc.actualResult || 'Pending execution - ready for QA',
+                validationScenario: tc.validationScenario || '',
+                status: (tc.status || 'not run').toLowerCase(),
+                reviewStatus: 'Draft' as TestCaseReviewStatus,
+                version: header.version || '1.0',
+                attachments: firstImageAtt
+                  ? [{ id: `att-${Date.now()}-${idx}`, name: firstImageAtt.name, url: firstImageAtt.dataUrl || '' }]
+                  : [],
+                screenshot1: firstImageAtt ? firstImageAtt.dataUrl || '' : '',
+              });
+            }
+          });
+
+          if (newItems.length > 0) {
+            updateTestCases([...testCases, ...newItems]);
+            setIsAiGeneratingSuite(false);
+            const dupText = skipped.length > 0 ? ` (${skipped.length} existing duplicates avoided)` : '';
+            setNotification(`✨ AI generated & added ${newItems.length} comprehensive test cases (Positive & Negative)!${dupText}`);
+            setTimeout(() => setNotification(null), 5000);
+            return;
+          }
+        }
       }
+    } catch (e) {
+      console.warn('Backend AI API error, falling back to local multi-scenario engine', e);
+    }
 
-      if (result.newItems.length === 0) {
-        setNotification('Please enter a description, testing scenarios, or attach a screenshot/fields to generate test cases.');
-        setTimeout(() => setNotification(null), 4000);
-        setIsAiGeneratingSuite(false);
-        return;
-      }
+    // Fallback: local engine
+    const result = generateScenariosFromInputsAndFiles({
+      ticket: matchedTicket,
+      description: headerDescription,
+      testingScenarios: headerTestingScenarios,
+      attachedDocs: header.attachedDocs || [],
+      screenFields: header.screenFields || [],
+      targetMode: 'qa',
+      existingItems: testCases,
+    });
 
-      const nextCases = [...testCases, ...result.newItems];
-      updateTestCases(nextCases);
-      setIsAiGeneratingSuite(false);
-
-      const dupText =
-        result.skippedDuplicates.length > 0
-          ? ` (${result.skippedDuplicates.length} duplicate scenarios already covered were skipped)`
-          : '';
-      setNotification(`🚀 Generated & added ${result.newItems.length} unique Test Cases into table!${dupText}`);
+    if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
+      setNotification(
+        `⚠️ All ${result.skippedDuplicates.length} candidate scenarios are already covered in the table! Duplicate rows were prevented.`
+      );
       setTimeout(() => setNotification(null), 5000);
-    }, 400);
+      setIsAiGeneratingSuite(false);
+      return;
+    }
+
+    if (result.newItems.length === 0) {
+      setNotification('Please enter a description, testing scenarios, or attach a screenshot/fields to generate test cases.');
+      setTimeout(() => setNotification(null), 4000);
+      setIsAiGeneratingSuite(false);
+      return;
+    }
+
+    const nextCases = [...testCases, ...result.newItems];
+    updateTestCases(nextCases);
+    setIsAiGeneratingSuite(false);
+
+    const dupText =
+      result.skippedDuplicates.length > 0
+        ? ` (${result.skippedDuplicates.length} duplicate scenarios already covered were skipped)`
+        : '';
+    setNotification(`🚀 Generated & added ${result.newItems.length} unique Test Cases into table!${dupText}`);
+    setTimeout(() => setNotification(null), 5000);
   };
 
   // Add Empty Row in Test Cases
@@ -659,8 +780,37 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   // Download Formatted Excel
   const handleDownloadExcel = () => {
     exportTestCasesToExcel(header, testCases);
-    setNotification(`📥 Downloaded TestCases_${header.ticketNo}.xlsx with Beacon corporate styling!`);
+    setNotification(`📥 Downloaded TestCases_${header.ticketNo}.xlsx with Beacon corporate styling & embedded screenshots!`);
     setTimeout(() => setNotification(null), 4000);
+  };
+
+  // Download Formatted Word Document (.docx) with embedded screenshots
+  const handleDownloadDocx = async () => {
+    try {
+      await exportTestCasesToDocx(header, testCases);
+      setNotification(`📥 Downloaded TestCases_Ticket_${header.ticketNo}.docx with formatted Word tables & embedded screenshots!`);
+      setTimeout(() => setNotification(null), 4500);
+    } catch (err) {
+      console.error('Word export error:', err);
+      alert('Could not export to Word document. Please try again.');
+    }
+  };
+
+  // Delete All Test Cases for current ticket
+  const handleDeleteAllTestCases = () => {
+    if (testCases.length === 0) {
+      setNotification('ℹ️ Table is already empty. No test cases to delete.');
+      setTimeout(() => setNotification(null), 3000);
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ALL ${testCases.length} test cases for Ticket #${header.ticketNo}?\n\nThis will completely clear the test cases table so you can generate a fresh AI test suite or add custom rows.`
+    );
+    if (confirmed) {
+      updateTestCases([]);
+      setNotification(`🗑️ Successfully deleted all test cases for Ticket #${header.ticketNo}.`);
+      setTimeout(() => setNotification(null), 4500);
+    }
   };
 
   // Filtered Tickets for Tickets Table View
@@ -700,6 +850,9 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           return false;
         }
         if (columnFilters.expectedResult && !tc.expectedResult.toLowerCase().includes(columnFilters.expectedResult.toLowerCase())) {
+          return false;
+        }
+        if (columnFilters.actualResult && !(tc.actualResult || '').toLowerCase().includes(columnFilters.actualResult.toLowerCase())) {
           return false;
         }
         if (columnFilters.status && tc.status.toLowerCase() !== columnFilters.status.toLowerCase()) {
@@ -1418,88 +1571,6 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         isGenerating={isAiGeneratingSuite}
         generateButtonText="✨ AI Auto-Generate Test Cases into Table"
         showGenerateButton={true}
-        onUpdateHeaderMeta={(meta) => {
-          const oldTicketNo = header.ticketNo;
-          const nextTicketNo = meta.ticketNo || header.ticketNo;
-          const nextHeader: TestCaseHeaderMeta = {
-            ...header,
-            ticketNo: nextTicketNo,
-            taskName: meta.taskName || meta.featureName || header.taskName,
-            developer: meta.developer !== undefined ? meta.developer : header.developer,
-            taskDoneBy: meta.qaAssignee !== undefined ? meta.qaAssignee : header.taskDoneBy,
-            clientName: meta.clientName !== undefined ? meta.clientName : header.clientName,
-            sha: meta.sha || meta.shaCommit || header.sha,
-            signOffBy: meta.signOffBy !== undefined ? meta.signOffBy : header.signOffBy,
-            reviewStatus: (meta.reviewStatus as any) || header.reviewStatus,
-            version: meta.version || header.version,
-          };
-          setHeader(nextHeader);
-          if (meta.taskName) setHeaderDescription(meta.taskName);
-          onUpdateHeader?.(nextHeader);
-
-          if (nextTicketNo !== selectedTicketNumber) {
-            setSelectedTicketNumber(nextTicketNo);
-          }
-
-          // Propagate to global tickets and dashboard
-          const currentT = matchedTicket || tickets.find((t) => t.ticketNumber === oldTicketNo);
-          const updatedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${nextTicketNo}`,
-            ticketNumber: nextTicketNo,
-            featureName: meta.taskName || meta.featureName || currentT?.featureName || nextHeader.taskName,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: meta.moduleName || currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || 'Ready for QA',
-            developer: meta.developer || currentT?.developer || nextHeader.developer || '',
-            qaAssignee: meta.qaAssignee || currentT?.qaAssignee || nextHeader.taskDoneBy || 'Maseera Sayyed',
-            testCasesCount: testCases.length,
-            passedCount: testCases.filter((c) => c.status === 'Pass').length,
-            failedCount: testCases.filter((c) => c.status === 'Fail').length,
-            observationsCount: currentT?.observationsCount || 0,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: meta.clientName || currentT?.clientName || nextHeader.clientName || 'Treasury Master',
-            shaCommit: meta.sha || meta.shaCommit || currentT?.shaCommit || nextHeader.sha || '',
-            signOffBy: meta.signOffBy || currentT?.signOffBy || nextHeader.signOffBy || '',
-            description: headerDescription || nextHeader.description,
-            testingScenarios: headerTestingScenarios || nextHeader.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(updatedTicketObj, oldTicketNo);
-        }}
-        onSaveAndSyncToTickets={() => {
-          const currentT = matchedTicket || tickets.find((t) => t.ticketNumber === header.ticketNo);
-          const syncedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${header.ticketNo}`,
-            ticketNumber: header.ticketNo,
-            featureName: header.taskName || currentT?.featureName || `Feature #${header.ticketNo}`,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || (header.reviewStatus === 'Approved' ? 'Sign-Off Complete' : 'In Progress'),
-            developer: header.developer || currentT?.developer || '',
-            qaAssignee: header.taskDoneBy || currentT?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
-            testCasesCount: testCases.length,
-            passedCount: testCases.filter((c) => c.status === 'Pass').length,
-            failedCount: testCases.filter((c) => c.status === 'Fail').length,
-            observationsCount: currentT?.observationsCount || 0,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: header.clientName || currentT?.clientName || 'Treasury Master',
-            shaCommit: header.sha || currentT?.shaCommit || '',
-            signOffBy: header.signOffBy || currentT?.signOffBy || '',
-            description: headerDescription || header.description,
-            testingScenarios: headerTestingScenarios || header.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(syncedTicketObj, header.ticketNo);
-          onUpdateTestCases?.(testCases, header.ticketNo);
-          setNotification(`✅ Ticket #${header.ticketNo} and all headers synced to Tickets (Azure) and Dashboard!`);
-          setTimeout(() => setNotification(null), 4000);
-        }}
       />
 
       {/* Dynamic Review Status Lifecycle Workflow Banner */}
@@ -1638,8 +1709,69 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
       {/* SPREADSHEET TABLE: QA Test Cases */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+        {/* TABLE CONTROL TOOLBAR: Left corner "Delete All", Right corner "Export & Add" */}
+        <div className="bg-slate-900 text-slate-100 px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+          {/* LEFT CORNER: Delete All Test Cases + Add Row + Row Counter */}
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={handleDeleteAllTestCases}
+              disabled={testCases.length === 0 || isApprovedAndReadOnly}
+              title="Delete all test cases currently in the table"
+              className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete All Test Cases ({testCases.length})</span>
+            </button>
+
+            <button
+              onClick={handleAddRow}
+              disabled={isApprovedAndReadOnly}
+              title="Add a new blank test case row"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Row</span>
+            </button>
+
+            <span className="hidden sm:inline-block text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
+              {filteredTestCases.length} of {testCases.length} rows shown
+            </span>
+          </div>
+
+          {/* RIGHT CORNER: Export options (Excel & Word) + AI suite trigger */}
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => handleAiGenerateFullSuite()}
+              disabled={isAiGeneratingSuite || isApprovedAndReadOnly}
+              className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+              title="Generate 20+ comprehensive positive & negative test cases with AI"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+              <span>{isAiGeneratingSuite ? 'Generating 20+ cases...' : '✨ AI Generate (20+ Cases)'}</span>
+            </button>
+
+            <button
+              onClick={handleDownloadExcel}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+              title="Export to Excel spreadsheet with visible screenshots, metadata, and Actual Result"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export to Excel (.xlsx)</span>
+            </button>
+
+            <button
+              onClick={handleDownloadDocx}
+              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+              title="Export to Microsoft Word (.docx) document with embedded screenshots & full specification"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>Export to Word (.docx)</span>
+            </button>
+          </div>
+        </div>
+
         <div className="overflow-x-auto max-h-[580px]">
-          <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
+          <table className="w-full text-left text-xs border-collapse min-w-[1550px]">
             <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
               <tr>
                 <th className="p-2.5 w-12 text-center border-r border-slate-700">#</th>
@@ -1698,6 +1830,20 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   filterValue={columnFilters.expectedResult}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
                   className="min-w-[220px] border-r border-slate-700"
+                />
+
+                <ColumnHeader
+                  title="Actual Result"
+                  columnKey="actualResult"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={(k, d) => {
+                    setSortKey(k);
+                    setSortDirection(d);
+                  }}
+                  filterValue={columnFilters.actualResult}
+                  onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  className="min-w-[220px] border-r border-slate-700 text-emerald-300 font-semibold"
                 />
 
                 <th className="p-2.5 min-w-[180px] border-r border-slate-700 font-semibold">
@@ -1762,6 +1908,18 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                       value={tc.expectedResult}
                       onChange={(e) => handleCellChange(tc.id, 'expectedResult', e.target.value)}
                       className="w-full px-2 py-1 text-slate-800 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
+                    />
+                  </td>
+
+                  {/* Actual Result */}
+                  <td className="p-1 border-r border-slate-100 bg-emerald-50/15">
+                    <textarea
+                      rows={2}
+                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      value={tc.actualResult || ''}
+                      onChange={(e) => handleCellChange(tc.id, 'actualResult', e.target.value)}
+                      placeholder="Actual test execution result / logs..."
+                      className="w-full px-2 py-1 text-slate-800 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-emerald-500 rounded text-xs resize-y"
                     />
                   </td>
 

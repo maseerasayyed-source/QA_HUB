@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette, LogOut } from 'lucide-react';
+import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { UserProfile, ColourTheme } from '../types';
 
 interface TopBarProps {
@@ -12,6 +12,8 @@ interface TopBarProps {
   onLogout?: () => void;
   currentTheme?: ColourTheme;
   onSelectTheme?: (theme: ColourTheme) => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -24,6 +26,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onLogout,
   currentTheme = 'Default',
   onSelectTheme,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   const themes: { id: ColourTheme; label: string; colorClass: string }[] = [
     { id: 'Default', label: 'Default Navy', colorClass: 'bg-slate-900' },
@@ -35,9 +39,30 @@ export const TopBar: React.FC<TopBarProps> = ({
   ];
 
   return (
-    <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-10 flex-shrink-0">
+    <header className="h-14 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-10 flex-shrink-0">
       {/* Search and Module Context */}
       <div className="flex items-center gap-3 flex-1 max-w-2xl">
+        {/* Toggle Sidebar Button */}
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            title={isSidebarCollapsed ? 'Show Sidebar (Open Navigation)' : 'Hide Sidebar (Full Screen Width)'}
+            className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 border border-slate-200 flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-colors shrink-0"
+          >
+            {isSidebarCollapsed ? (
+              <>
+                <PanelLeftOpen className="w-4 h-4 text-blue-600" />
+                <span className="hidden sm:inline">Show Sidebar</span>
+              </>
+            ) : (
+              <>
+                <PanelLeftClose className="w-4 h-4 text-slate-500" />
+                <span className="hidden sm:inline">Hide Sidebar</span>
+              </>
+            )}
+          </button>
+        )}
+
         {/* Module Filter Dropdown */}
         <div className="flex items-center gap-1.5">
           <label

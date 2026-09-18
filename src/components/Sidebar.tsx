@@ -11,6 +11,7 @@ import {
   FileText,
   CalendarCheck,
   LogOut,
+  PanelLeftClose,
 } from 'lucide-react';
 import { NavTab, UserProfile, ColourTheme } from '../types';
 
@@ -21,6 +22,8 @@ interface SidebarProps {
   onOpenLoginModal?: () => void;
   onLogout?: () => void;
   theme?: ColourTheme;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 interface NavItem {
@@ -37,6 +40,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenLoginModal,
   onLogout,
   theme = 'Default',
+  isCollapsed = false,
+  onToggleCollapse,
 }) => {
   // Navigation tabs list with font size greater than 15px (16.5px font-bold)
   const navItems: NavItem[] = [
@@ -80,9 +85,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
             Beacon Quality Hub
           </p>
         </div>
-        <span className="px-2.5 py-0.5 bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-bold rounded">
-          v2.0
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className="px-2.5 py-0.5 bg-blue-600/30 text-blue-400 border border-blue-500/30 text-xs font-bold rounded">
+            v2.0
+          </span>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              title="Hide sidebar to expand workspace screen"
+              className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Navigation Group */}

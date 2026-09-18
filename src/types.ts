@@ -202,12 +202,7 @@ export interface ObservationHeaderMeta {
   ticketNo: string;
   qaOwner: string;
   clientName?: string;
-  sha?: string;
-  signOffBy?: string;
-  reviewStatus?: TestCaseReviewStatus;
   date: string;
-  description?: string;
-  testingScenarios?: string;
 }
 
 export interface ObservationItem {
@@ -234,13 +229,10 @@ export interface DeveloperTestHeaderMeta {
   featureName: string;
   developer: string;
   devTestDate: string;
-  clientName?: string;
-  sha?: string;
-  shaCommit?: string;
   description?: string;
   testingScenarios?: string;
   signOffBy?: string;
-  reviewStatus?: TestCaseReviewStatus;
+  shaCommit?: string;
   dealId?: string;
   status?: 'Draft' | 'Submitted';
   submittedAt?: string;

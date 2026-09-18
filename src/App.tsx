@@ -35,7 +35,6 @@ import {
   REGISTERED_USERS,
   syncTicketCounts,
   clearSampleData,
-  removeTicketFromStorage,
 } from './data/dbStore';
 import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
@@ -103,6 +102,7 @@ export default function App() {
   const [activeModuleFilter, setActiveModuleFilter] = useState<string>('all');
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Authority Check:
   // Maseera Sayyed -> Super Admin (sees all tickets across organization)
@@ -214,230 +214,12 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  // Ensure ticket exists in tickets state so that if it was deleted from tickets tab only,
-  // saving/submitting from any module automatically restores it in Tickets (Azure) & Dashboard!
-  const ensureTicketInTicketsList = (
-    ticketNum: string,
-    metaOverrides?: Partial<TicketSummary>
-  ) => {
-    if (!ticketNum) return;
-    const cleanNum = ticketNum.trim().toLowerCase();
-    setTickets((prev) => {
-      const existingIndex = prev.findIndex(
-        (t) => t.ticketNumber.trim().toLowerCase() === cleanNum
-      );
-      if (existingIndex >= 0) {
-        if (metaOverrides && Object.keys(metaOverrides).length > 0) {
-          const updated = [...prev];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            ...metaOverrides,
-          };
-          const synced = syncTicketCounts(updated, testCasesMap, observationsMap);
-          saveTicketsToStorage(synced);
-          return synced;
-        }
-        return prev;
-      }
-
-      // Re-create / restore ticket entry from module headers or metadata
-      const headerMeta = testCaseHeadersMap[ticketNum];
-      const devHeader = devTestingHeadersMap[ticketNum];
-      const restored: TicketSummary = {
-        id: `tkt-${ticketNum}`,
-        ticketNumber: ticketNum,
-        featureName:
-          metaOverrides?.featureName ||
-          headerMeta?.taskName ||
-          devHeader?.featureName ||
-          `Feature #${ticketNum}`,
-        moduleId: metaOverrides?.moduleId || 'mod-1',
-        moduleName: metaOverrides?.moduleName || 'Term Loan',
-        priority: metaOverrides?.priority || 'High',
-        status: metaOverrides?.status || 'Ready for QA',
-        developer:
-          metaOverrides?.developer ||
-          headerMeta?.developer ||
-          devHeader?.developer ||
-          'Unassigned',
-        qaAssignee:
-          metaOverrides?.qaAssignee ||
-          headerMeta?.taskDoneBy ||
-          currentUser?.name ||
-          'Maseera Sayyed',
-        testCasesCount: (testCasesMap[ticketNum] || []).length,
-        passedCount: (testCasesMap[ticketNum] || []).filter((c) => c.status === 'Pass').length,
-        failedCount: (testCasesMap[ticketNum] || []).filter((c) => c.status === 'Fail').length,
-        observationsCount: (observationsMap[ticketNum] || []).length,
-        clientName:
-          metaOverrides?.clientName ||
-          headerMeta?.clientName ||
-          'Treasury Master',
-        shaCommit: metaOverrides?.shaCommit || headerMeta?.sha || '',
-        signOffBy: metaOverrides?.signOffBy || headerMeta?.signOffBy || '',
-        description:
-          metaOverrides?.description ||
-          headerMeta?.description ||
-          headerMeta?.taskName ||
-          '',
-        testingScenarios:
-          metaOverrides?.testingScenarios ||
-          headerMeta?.testingScenarios ||
-          '',
-        blockedCount: 0,
-        receivedDate: new Date().toISOString().split('T')[0],
-        createdBy: currentUser?.name || 'Maseera Sayyed',
-        creatorEmail: currentUser?.email || 'maseerasayyed@quantumphinance.com',
-      };
-
-      const nextList = [restored, ...prev];
-      const synced = syncTicketCounts(nextList, testCasesMap, observationsMap);
-      saveTicketsToStorage(synced);
-      return synced;
-    });
-  };
-
-  // Delete Ticket handler with granular options:
-  // - 'tickets-only': removes ticket from tickets view & dashboard (preserves module data)
-  // - 'all-modules': permanently removes ticket from EVERY module across the system
-  const handleDeleteTicket = (ticketNumber: string, mode: 'tickets-only' | 'all-modules') => {
-    const cleanNum = ticketNumber.trim().toLowerCase();
-
-    // 1. Remove from tickets state
-    const nextTickets = tickets.filter(
-      (t) => t.ticketNumber.trim().toLowerCase() !== cleanNum
-    );
-    setTickets(nextTickets);
-    saveTicketsToStorage(nextTickets);
-
-    if (mode === 'all-modules') {
-      // 2. Remove from all module maps
-      const nextTestCases = { ...testCasesMap };
-      delete nextTestCases[ticketNumber];
-      Object.keys(nextTestCases).forEach((k) => {
-        if (k.trim().toLowerCase() === cleanNum) delete nextTestCases[k];
-      });
-      setTestCasesMap(nextTestCases);
-      saveTestCasesMapToStorage(nextTestCases);
-
-      const nextHeaders = { ...testCaseHeadersMap };
-      delete nextHeaders[ticketNumber];
-      Object.keys(nextHeaders).forEach((k) => {
-        if (k.trim().toLowerCase() === cleanNum) delete nextHeaders[k];
-      });
-      setTestCaseHeadersMap(nextHeaders);
-      saveTestCaseHeadersMapToStorage(nextHeaders);
-
-      const nextObs = { ...observationsMap };
-      delete nextObs[ticketNumber];
-      Object.keys(nextObs).forEach((k) => {
-        if (k.trim().toLowerCase() === cleanNum) delete nextObs[k];
-      });
-      setObservationsMap(nextObs);
-      saveObservationsMapToStorage(nextObs);
-
-      const nextDev = { ...devTestingMap };
-      delete nextDev[ticketNumber];
-      Object.keys(nextDev).forEach((k) => {
-        if (k.trim().toLowerCase() === cleanNum) delete nextDev[k];
-      });
-      setDevTestingMap(nextDev);
-      saveDevTestingMapToStorage(nextDev);
-
-      const nextDevHeaders = { ...devTestingHeadersMap };
-      delete nextDevHeaders[ticketNumber];
-      Object.keys(nextDevHeaders).forEach((k) => {
-        if (k.trim().toLowerCase() === cleanNum) delete nextDevHeaders[k];
-      });
-      setDevTestingHeadersMap(nextDevHeaders);
-      saveDevTestingHeadersMapToStorage(nextDevHeaders);
-
-      removeTicketFromStorage(ticketNumber, 'all-modules');
-    } else {
-      removeTicketFromStorage(ticketNumber, 'tickets-only');
-    }
-
-    if (activeTicketNumber.trim().toLowerCase() === cleanNum) {
-      const remaining = nextTickets[0]?.ticketNumber || '101';
-      setActiveTicketNumber(remaining);
-    }
-  };
-
-  // Update Ticket handler (for header fields edits and ticket metadata edits)
-  const handleUpdateTicket = (updatedTicket: TicketSummary, oldTicketNumber?: string) => {
-    const oldNum = (oldTicketNumber || updatedTicket.ticketNumber).trim().toLowerCase();
-    const newNum = updatedTicket.ticketNumber.trim();
-
-    // If ticket ID was changed/renamed, migrate maps to new ID
-    if (oldNum !== newNum.toLowerCase()) {
-      if (testCasesMap[oldTicketNumber || ''] || testCasesMap[oldNum]) {
-        const cases = testCasesMap[oldTicketNumber || ''] || testCasesMap[oldNum] || [];
-        const nextMap = { ...testCasesMap, [newNum]: cases };
-        delete nextMap[oldTicketNumber || ''];
-        setTestCasesMap(nextMap);
-        saveTestCasesMapToStorage(nextMap);
-      }
-      if (testCaseHeadersMap[oldTicketNumber || '']) {
-        const h = testCaseHeadersMap[oldTicketNumber || ''];
-        const nextHeaders = { ...testCaseHeadersMap, [newNum]: { ...h, ticketNo: newNum } };
-        delete nextHeaders[oldTicketNumber || ''];
-        setTestCaseHeadersMap(nextHeaders);
-        saveTestCaseHeadersMapToStorage(nextHeaders);
-      }
-      if (observationsMap[oldTicketNumber || '']) {
-        const obs = observationsMap[oldTicketNumber || ''];
-        const nextObs = { ...observationsMap, [newNum]: obs };
-        delete nextObs[oldTicketNumber || ''];
-        setObservationsMap(nextObs);
-        saveObservationsMapToStorage(nextObs);
-      }
-      if (devTestingMap[oldTicketNumber || '']) {
-        const dt = devTestingMap[oldTicketNumber || ''];
-        const nextDt = { ...devTestingMap, [newNum]: dt };
-        delete nextDt[oldTicketNumber || ''];
-        setDevTestingMap(nextDt);
-        saveDevTestingMapToStorage(nextDt);
-      }
-      if (activeTicketNumber.toLowerCase() === oldNum) {
-        setActiveTicketNumber(newNum);
-      }
-    }
-
-    let replaced = false;
-    const nextTickets = tickets.map((t) => {
-      if (t.ticketNumber.trim().toLowerCase() === oldNum || t.id === updatedTicket.id) {
-        replaced = true;
-        return {
-          ...t,
-          ...updatedTicket,
-        };
-      }
-      return t;
-    });
-
-    if (!replaced) {
-      nextTickets.unshift(updatedTicket);
-    }
-
-    const synced = syncTicketCounts(nextTickets, testCasesMap, observationsMap);
-    setTickets(synced);
-    saveTicketsToStorage(synced);
-  };
-
   // Update Test Cases for active ticket
   const handleUpdateTestCases = (newCases: TestCaseItem[], ticketNum?: string) => {
-    const targetTicket = (ticketNum || activeTicketNumber).trim();
+    const targetTicket = ticketNum || activeTicketNumber;
     const nextMap = { ...testCasesMap, [targetTicket]: newCases };
     setTestCasesMap(nextMap);
-    saveTestCasesMapToStorage(nextMap);
-
-    // Ensure ticket exists in tickets list (restores it if deleted from tickets tab only)
-    ensureTicketInTicketsList(targetTicket);
-    setTickets((prev) => {
-      const synced = syncTicketCounts(prev, nextMap, observationsMap);
-      saveTicketsToStorage(synced);
-      return synced;
-    });
+    setTickets((prev) => syncTicketCounts(prev, nextMap, observationsMap));
   };
 
   const handleUpdateTestCaseHeader = (newHeader: TestCaseHeaderMeta) => {
@@ -446,22 +228,6 @@ export default function App() {
       [newHeader.ticketNo]: newHeader,
     }));
     setActiveTicketNumber(newHeader.ticketNo);
-    saveTestCaseHeadersMapToStorage({
-      ...testCaseHeadersMap,
-      [newHeader.ticketNo]: newHeader,
-    });
-
-    // Also update matching ticket in tickets list if present
-    ensureTicketInTicketsList(newHeader.ticketNo, {
-      featureName: newHeader.taskName,
-      developer: newHeader.developer,
-      qaAssignee: newHeader.taskDoneBy,
-      clientName: newHeader.clientName,
-      shaCommit: newHeader.sha,
-      signOffBy: newHeader.signOffBy,
-      description: newHeader.description,
-      testingScenarios: newHeader.testingScenarios,
-    });
   };
 
   // Update Developer Testing Map
@@ -470,37 +236,18 @@ export default function App() {
     items: DeveloperTestItem[],
     header?: DeveloperTestHeaderMeta
   ) => {
-    const cleanNo = ticketNo.trim();
-    const nextMap = { ...devTestingMap, [cleanNo]: items };
-    setDevTestingMap(nextMap);
-    saveDevTestingMapToStorage(nextMap);
+    setDevTestingMap((prev) => ({ ...prev, [ticketNo]: items }));
     if (header) {
-      const nextHeaders = { ...devTestingHeadersMap, [cleanNo]: header };
-      setDevTestingHeadersMap(nextHeaders);
-      saveDevTestingHeadersMapToStorage(nextHeaders);
+      setDevTestingHeadersMap((prev) => ({ ...prev, [ticketNo]: header }));
     }
-
-    // Ensure ticket exists in tickets list
-    ensureTicketInTicketsList(cleanNo, {
-      featureName: header?.featureName,
-      developer: header?.developer,
-    });
   };
 
   // Update Observations for active ticket
   const handleUpdateObservations = (newObs: ObservationItem[], ticketNum?: string) => {
-    const target = (ticketNum || activeTicketNumber).trim();
+    const target = ticketNum || activeTicketNumber;
     const nextMap = { ...observationsMap, [target]: newObs };
     setObservationsMap(nextMap);
-    saveObservationsMapToStorage(nextMap);
-
-    // Ensure ticket exists in tickets list (restores it if deleted from tickets tab only)
-    ensureTicketInTicketsList(target);
-    setTickets((prev) => {
-      const synced = syncTicketCounts(prev, testCasesMap, nextMap);
-      saveTicketsToStorage(synced);
-      return synced;
-    });
+    setTickets((prev) => syncTicketCounts(prev, testCasesMap, nextMap));
   };
 
   // Handle Add New Ticket
@@ -602,8 +349,6 @@ export default function App() {
               handleNavigateTab(tab);
             }}
             onAddTicket={handleAddTicket}
-            onDeleteTicket={handleDeleteTicket}
-            onUpdateTicket={handleUpdateTicket}
             currentUser={currentUser}
           />
         );
@@ -620,7 +365,6 @@ export default function App() {
             onSelectTicket={(tNo) => setActiveTicketNumber(tNo)}
             onUpdateDevTestingMap={handleUpdateDevTestingMap}
             onAddTicket={handleAddTicket}
-            onUpdateTicket={handleUpdateTicket}
           />
         );
 
@@ -645,7 +389,6 @@ export default function App() {
               handleUpdateTestCases(newCases, tNo);
             }}
             onAddTicket={handleAddTicket}
-            onUpdateTicket={handleUpdateTicket}
           />
         );
 
@@ -718,7 +461,6 @@ export default function App() {
             onUpdateHeader={(newH) => setActiveTicketNumber(newH.ticketNo)}
             onUpdateObservations={(items, tNo) => handleUpdateObservations(items, tNo)}
             onAddTicket={handleAddTicket}
-            onUpdateTicket={handleUpdateTicket}
           />
         );
 
@@ -807,14 +549,18 @@ export default function App() {
   return (
     <div className="flex h-screen bg-[#F8FAFC] font-sans text-slate-800 overflow-hidden">
       {/* 1. Left Sidebar Navigation */}
-      <Sidebar
-        activeTab={activeTab}
-        onSelectTab={(tab) => handleNavigateTab(tab)}
-        currentUser={currentUser}
-        onOpenLoginModal={() => setIsLoginModalOpen(true)}
-        onLogout={handleLogout}
-        theme={settings.theme}
-      />
+      {!isSidebarCollapsed && (
+        <Sidebar
+          activeTab={activeTab}
+          onSelectTab={(tab) => handleNavigateTab(tab)}
+          currentUser={currentUser}
+          onOpenLoginModal={() => setIsLoginModalOpen(true)}
+          onLogout={handleLogout}
+          theme={settings.theme}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(true)}
+        />
+      )}
 
       {/* 2. Main Workspace */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -832,6 +578,8 @@ export default function App() {
             setSettings(updated);
             saveAppSettingsToStorage(updated);
           }}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         />
 
         <main className="flex-1 overflow-y-auto">

@@ -54,7 +54,6 @@ interface ObservationsViewProps {
   onUpdateHeader?: (header: ObservationHeaderMeta) => void;
   onUpdateObservations?: (items: ObservationItem[], ticketNum?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
-  onUpdateTicket?: (updatedTicket: TicketSummary, oldTicketNumber?: string) => void;
 }
 
 export const ObservationsView: React.FC<ObservationsViewProps> = ({
@@ -76,7 +75,6 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   onUpdateHeader,
   onUpdateObservations,
   onAddTicket,
-  onUpdateTicket,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'observation-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'observation-screen'>('tickets-table');
@@ -1328,85 +1326,6 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         }}
         onAiGenerateSuccess={handleAiGenerateObservations}
         onAiGenerateMultiScenarios={handleAiGenerateMultiScenarios}
-        onUpdateHeaderMeta={(meta) => {
-          const oldTicketNo = header.ticketNo;
-          const nextTicketNo = meta.ticketNo || header.ticketNo;
-          const nextHeader: ObservationHeaderMeta = {
-            ...header,
-            ticketNo: nextTicketNo,
-            ticketName: meta.taskName || meta.featureName || header.ticketName,
-            qaOwner: meta.qaAssignee !== undefined ? meta.qaAssignee : header.qaOwner,
-            clientName: meta.clientName !== undefined ? meta.clientName : header.clientName,
-            sha: meta.sha || meta.shaCommit || header.sha,
-            signOffBy: meta.signOffBy !== undefined ? meta.signOffBy : header.signOffBy,
-            reviewStatus: (meta.reviewStatus as any) || header.reviewStatus,
-          };
-          setHeader(nextHeader);
-          onUpdateHeader?.(nextHeader);
-
-          if (nextTicketNo !== selectedTicketNo) {
-            setSelectedTicketNo(nextTicketNo);
-          }
-
-          // Propagate to global tickets and dashboard
-          const currentT = currentTicket || tickets.find((t) => t.ticketNumber === oldTicketNo);
-          const updatedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${nextTicketNo}`,
-            ticketNumber: nextTicketNo,
-            featureName: meta.taskName || meta.featureName || currentT?.featureName || nextHeader.ticketName,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: meta.moduleName || currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || 'Ready for QA',
-            developer: meta.developer || currentT?.developer || '',
-            qaAssignee: meta.qaAssignee || currentT?.qaAssignee || nextHeader.qaOwner || 'Maseera Sayyed',
-            testCasesCount: currentT?.testCasesCount || 0,
-            passedCount: currentT?.passedCount || 0,
-            failedCount: currentT?.failedCount || 0,
-            observationsCount: observations.length,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: meta.clientName || currentT?.clientName || nextHeader.clientName || 'Treasury Master',
-            shaCommit: meta.sha || meta.shaCommit || currentT?.shaCommit || nextHeader.sha || '',
-            signOffBy: meta.signOffBy || currentT?.signOffBy || nextHeader.signOffBy || '',
-            description: header.ticketName,
-            testingScenarios: header.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(updatedTicketObj, oldTicketNo);
-        }}
-        onSaveAndSyncToTickets={() => {
-          const currentT = currentTicket || tickets.find((t) => t.ticketNumber === header.ticketNo);
-          const syncedTicketObj: TicketSummary = {
-            id: currentT?.id || `tkt-${header.ticketNo}`,
-            ticketNumber: header.ticketNo,
-            featureName: header.ticketName || currentT?.featureName || `Feature #${header.ticketNo}`,
-            moduleId: currentT?.moduleId || 'mod-1',
-            moduleName: currentT?.moduleName || 'Term Loan',
-            priority: currentT?.priority || 'High',
-            status: currentT?.status || (header.reviewStatus === 'Approved' ? 'Sign-Off Complete' : 'In Progress'),
-            developer: currentT?.developer || '',
-            qaAssignee: header.qaOwner || currentT?.qaAssignee || currentUser?.name || 'Maseera Sayyed',
-            testCasesCount: currentT?.testCasesCount || 0,
-            passedCount: currentT?.passedCount || 0,
-            failedCount: currentT?.failedCount || 0,
-            observationsCount: observations.length,
-            blockedCount: currentT?.blockedCount || 0,
-            receivedDate: currentT?.receivedDate || new Date().toISOString().split('T')[0],
-            clientName: header.clientName || currentT?.clientName || 'Treasury Master',
-            shaCommit: header.sha || currentT?.shaCommit || '',
-            signOffBy: header.signOffBy || currentT?.signOffBy || '',
-            description: header.ticketName,
-            testingScenarios: header.testingScenarios,
-            createdBy: currentT?.createdBy || currentUser?.name || 'Maseera Sayyed',
-            creatorEmail: currentT?.creatorEmail || currentUser?.email || 'maseerasayyed@quantumphinance.com',
-          };
-          onUpdateTicket?.(syncedTicketObj, header.ticketNo);
-          onUpdateObservations?.(observations, header.ticketNo);
-          setAdoNotification(`✅ Ticket #${header.ticketNo} and Observations synced to Tickets (Azure) & Dashboard!`);
-          setTimeout(() => setAdoNotification(null), 4000);
-        }}
       />
 
       {/* Observation vs RFE Filter Pills */}
