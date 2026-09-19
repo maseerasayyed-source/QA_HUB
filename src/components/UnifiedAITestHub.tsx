@@ -59,6 +59,7 @@ import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { CommonHeader } from './common/CommonHeader';
 import { TestCaseSolutionModal } from './common/TestCaseSolutionModal';
+import { TicketLockedModal } from './common/TicketLockedModal';
 import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 import {
   generateTestCaseFromOneLine,
@@ -334,6 +335,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const isTicketCreator = useMemo(() => {
     return isUserTicketCreator(matchedTicket, currentUser);
   }, [matchedTicket, currentUser]);
+
+  const effectiveReadOnly = isApprovedAndReadOnly || currentTicketPerms.isReadOnly;
 
   // Handle Opening Test Cases Screen for a Ticket
   const handleOpenTestCasesScreen = (ticket: TicketSummary) => {
@@ -1147,6 +1150,9 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   const casesCount = (testCasesMap[t.ticketNumber] || []).length || t.testCasesCount || 0;
                   const ticketHeader = testCaseHeadersMap[t.ticketNumber];
                   const reviewStatus: TestCaseReviewStatus = ticketHeader?.reviewStatus || t.reviewStatus || 'Draft';
+                  const rowPerm = canUserOpenTicket(t, currentUser);
+                  const isLockedDraft = !rowPerm.allowed;
+
                   return (
                     <tr
                       key={t.id}
@@ -1155,8 +1161,15 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                     >
                       {/* Ticket ID */}
                       <td className="p-2.5 border-r border-slate-100">
-                        <span className="font-mono font-bold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 inline-block">
+                        <span
+                          className={`font-mono font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                            isLockedDraft
+                              ? 'text-amber-800 bg-amber-50 group-hover:bg-amber-100 border-amber-300'
+                              : 'text-blue-700 bg-blue-50 group-hover:bg-blue-100 border-blue-200'
+                          }`}
+                        >
                           #{t.ticketNumber}
+                          {isLockedDraft && <Lock className="w-2.5 h-2.5 text-amber-600" />}
                         </span>
                       </td>
 
@@ -1255,14 +1268,25 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => handleOpenTestCasesScreen(t)}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                            title="Open Test Case Suite Workbench"
-                          >
-                            <span>Open</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                          {isLockedDraft ? (
+                            <button
+                              onClick={() => handleOpenTestCasesScreen(t)}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              title="Locked: Draft ticket is private to creator"
+                            >
+                              <Lock className="w-3 h-3" />
+                              <span>Locked</span>
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleOpenTestCasesScreen(t)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              title="Open Test Case Suite Workbench"
+                            >
+                              <span>Open</span>
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           {/* Submit for Review Direct Button */}
                           {casesCount > 0 && (reviewStatus === 'Draft' || reviewStatus === 'Changes Required') && (
@@ -1618,10 +1642,51 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Creator Save & Submit / Reopen Controls */}
+          {isTicketCreator && (
+            isTicketInDraft(matchedTicket) ? (
+              <button
+                onClick={() => {
+                  const tNo = matchedTicket?.ticketNumber || header.ticketNo;
+                  onSaveAndSubmitTicket?.(tNo);
+                  setNotification(`🚀 Ticket #${tNo} submitted! Team members can now view in Read-Only mode.`);
+                  setTimeout(() => setNotification(null), 5000);
+                }}
+                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                title="Submit your draft ticket so other users can view it"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Save &amp; Submit Ticket</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  const tNo = matchedTicket?.ticketNumber || header.ticketNo;
+                  onReopenEditTicket?.(tNo);
+                  setNotification(`✏️ Ticket #${tNo} reopened for editing! Only you can edit until submitted.`);
+                  setTimeout(() => setNotification(null), 5000);
+                }}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                title="Reopen ticket to edit again"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Reopen for Editing</span>
+              </button>
+            )
+          )}
+
+          {/* Read-Only Notice Badge for Non-Creators */}
+          {!isTicketCreator && currentTicketPerms.isReadOnly && (
+            <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+              <Eye className="w-3.5 h-3.5 text-blue-600" />
+              <span>Read-Only View (Submitted by {matchedTicket?.createdBy || header.taskDoneBy || 'Creator'})</span>
+            </span>
+          )}
+
           <button
             onClick={() => handleAiGenerateFullSuite()}
-            disabled={isAiGeneratingSuite || isApprovedAndReadOnly}
-            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+            disabled={isAiGeneratingSuite || effectiveReadOnly}
+            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
           >
             <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
             <span>{isAiGeneratingSuite ? 'Generating...' : '✨ AI Generate Full Suite'}</span>
@@ -1629,8 +1694,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
           <button
             onClick={handleAddRow}
-            disabled={isApprovedAndReadOnly}
-            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer"
+            disabled={effectiveReadOnly}
+            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 text-blue-700 border border-blue-200 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>+ Add Row</span>
@@ -1826,7 +1891,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         onGenerateAi={handleCommonHeaderGenerateAi}
         isGenerating={isAiGeneratingSuite}
         generateButtonText="✨ AI Auto-Generate Test Cases into Table"
-        showGenerateButton={true}
+        showGenerateButton={!effectiveReadOnly}
+        readOnly={effectiveReadOnly}
       />
 
       {/* Dynamic Review Status Lifecycle Workflow Banner */}
@@ -2133,7 +2199,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <td className="p-1 border-r border-slate-100 font-mono font-bold text-blue-700">
                     <input
                       type="text"
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.testCaseId}
                       onChange={(e) => handleCellChange(tc.id, 'testCaseId', e.target.value)}
                       className="w-full px-1.5 py-1 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
@@ -2144,7 +2210,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.testScenario}
                       onChange={(e) => handleCellChange(tc.id, 'testScenario', e.target.value)}
                       className="w-full px-2 py-1 text-slate-900 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
@@ -2155,7 +2221,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.testCases}
                       onChange={(e) => handleCellChange(tc.id, 'testCases', e.target.value)}
                       className="w-full px-2 py-1 text-slate-800 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
@@ -2166,7 +2232,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.expectedResult}
                       onChange={(e) => handleCellChange(tc.id, 'expectedResult', e.target.value)}
                       className="w-full px-2 py-1 text-slate-800 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
@@ -2177,7 +2243,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <td className="p-1 border-r border-slate-100 bg-emerald-50/15">
                     <textarea
                       rows={2}
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.actualResult || ''}
                       onChange={(e) => handleCellChange(tc.id, 'actualResult', e.target.value)}
                       placeholder="Actual test execution result / logs..."
@@ -2188,7 +2254,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   {/* Status */}
                   <td className="p-1.5 border-r border-slate-100 text-center">
                     <select
-                      disabled={isApprovedAndReadOnly || !isAssignedQaOrSuperAdmin}
+                      disabled={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       value={tc.status}
                       onChange={(e) => handleCellChange(tc.id, 'status', e.target.value)}
                       className={`w-full px-1.5 py-1 text-xs font-bold rounded border cursor-pointer focus:outline-none ${
@@ -2213,6 +2279,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                     <RowAttachmentsCell
                       id={`tc-att-${tc.id}`}
                       attachments={tc.attachments || []}
+                      readOnly={effectiveReadOnly || !isAssignedQaOrSuperAdmin}
                       onAddAttachment={(f) => {
                         const currentAtts = tc.attachments || [];
                         const nextAtts = [
@@ -2230,7 +2297,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
                   {/* Actions */}
                   <td className="p-1 text-center">
-                    {!isApprovedAndReadOnly && isAssignedQaOrSuperAdmin && (
+                    {!effectiveReadOnly && isAssignedQaOrSuperAdmin && (
                       <div className="flex items-center justify-center gap-1">
                         {/* Edit Solution Modal Button from Image 3 */}
                         <button
@@ -2603,6 +2670,15 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
           }}
         />
       )}
+
+      {/* Locked Draft Ticket Notice Modal */}
+      <TicketLockedModal
+        isOpen={Boolean(lockedModal)}
+        onClose={() => setLockedModal(null)}
+        ticketNumber={lockedModal?.ticketNumber || ''}
+        createdBy={lockedModal?.createdBy}
+        reason={lockedModal?.reason}
+      />
     </div>
   );
 };

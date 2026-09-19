@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { TicketLockedModal } from './common/TicketLockedModal';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
@@ -604,51 +605,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       )}
 
       {/* Locked Draft Ticket Notice Modal */}
-      {lockedModalTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden p-6 space-y-4">
-            <div className="flex items-start gap-3">
-              <div className="p-3 bg-amber-100 text-amber-800 rounded-xl shrink-0">
-                <Lock className="w-6 h-6" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-bold text-base text-slate-900">
-                    Ticket #{lockedModalTicket.ticketNumber} is Locked
-                  </h3>
-                  <button
-                    onClick={() => setLockedModalTicket(null)}
-                    className="text-slate-400 hover:text-slate-600 cursor-pointer"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Created &amp; edited by: <strong className="text-slate-800">{lockedModalTicket.createdBy}</strong>
-                </p>
-              </div>
-            </div>
-
-            <div className="p-3.5 bg-amber-50/90 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2">
-              <p className="font-semibold leading-relaxed">
-                {lockedModalTicket.reason}
-              </p>
-              <p className="text-[11px] text-amber-800 leading-relaxed">
-                As per QA Hub security rules, test cases, developer testing points, observations, and RFEs are hidden from other users while the ticket is in <strong>Draft / Edit mode</strong>. Once <strong>{lockedModalTicket.createdBy}</strong> clicks <strong>&quot;Save &amp; Submit&quot;</strong>, this ticket will become open for you to view in <strong>Read-Only mode</strong>.
-              </p>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setLockedModalTicket(null)}
-                className="px-4 py-2 bg-slate-900 hover:bg-black text-white text-xs font-bold rounded-lg cursor-pointer transition-colors"
-              >
-                Understood / Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TicketLockedModal
+        isOpen={Boolean(lockedModalTicket)}
+        onClose={() => setLockedModalTicket(null)}
+        ticketNumber={lockedModalTicket?.ticketNumber || ''}
+        createdBy={lockedModalTicket?.createdBy}
+        reason={lockedModalTicket?.reason}
+      />
     </div>
   );
 };

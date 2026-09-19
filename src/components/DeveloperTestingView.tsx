@@ -20,6 +20,7 @@ import {
   ArrowLeft,
   ChevronRight,
   Filter,
+  Edit3,
 } from 'lucide-react';
 import {
   DeveloperTestHeaderMeta,
@@ -39,6 +40,7 @@ import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { CommonHeader } from './common/CommonHeader';
+import { TicketLockedModal } from './common/TicketLockedModal';
 import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 import {
   generateDevTestingFromPoint,
@@ -48,6 +50,7 @@ import {
   checkIsDuplicate,
 } from '../utils/aiGenerator';
 import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
+import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
 interface DeveloperTestingViewProps {
   tickets?: TicketSummary[];
@@ -63,6 +66,8 @@ interface DeveloperTestingViewProps {
     header?: DeveloperTestHeaderMeta
   ) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
+  onSaveAndSubmitTicket?: (ticketNo: string) => void;
+  onReopenEditTicket?: (ticketNo: string) => void;
 }
 
 export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
@@ -82,6 +87,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   onSelectTicket,
   onUpdateDevTestingMap,
   onAddTicket,
+  onSaveAndSubmitTicket,
+  onReopenEditTicket,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'dev-testing-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'dev-testing-screen'>('tickets-table');
@@ -102,6 +109,24 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       tickets[0]
     );
   }, [tickets, selectedTicketNo]);
+
+  // Locked Draft Ticket Modal State
+  const [lockedModalTicket, setLockedModalTicket] = useState<{
+    ticketNumber: string;
+    createdBy: string;
+    reason: string;
+  } | null>(null);
+
+  // Access control check for currently selected ticket
+  const currentTicketPerms = useMemo(() => {
+    return canUserOpenTicket(currentTicket, currentUser);
+  }, [currentTicket, currentUser]);
+
+  const isTicketCreator = useMemo(() => {
+    return isUserTicketCreator(currentTicket, currentUser);
+  }, [currentTicket, currentUser]);
+
+  const effectiveReadOnly = currentTicketPerms.isReadOnly;
 
   // Header Meta State
   const [header, setHeader] = useState<DeveloperTestHeaderMeta>(() => {
@@ -281,6 +306,17 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   // Switch to Detail Screen for ticket
   const handleOpenDevTestingScreen = (ticket: TicketSummary) => {
+    const perm = canUserOpenTicket(ticket, currentUser);
+    if (!perm.allowed) {
+      setLockedModalTicket({
+        ticketNumber: ticket.ticketNumber,
+        createdBy: ticket.createdBy || 'Creator',
+        reason:
+          perm.reason ||
+          `Ticket #${ticket.ticketNumber} is currently in Draft / Edit mode by "${ticket.createdBy || 'Creator'}". Other users cannot open its developer testing points until the creator clicks 'Save & Submit'.`,
+      });
+      return;
+    }
     handleTicketChange(ticket.ticketNumber);
     setHubMode('dev-testing-screen');
   };
@@ -590,7 +626,23 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }));
 
     saveStateToStore(updatedItems, newHeader);
-    setNotification(`🚀 Developer Testing submitted by ${devName} on ${nowStr}! Records now visible per permissions.`);
+    onSaveAndSubmitTicket?.(header.ticketNo);
+    setNotification(`🚀 Developer Testing submitted by ${devName}! Team members can now view in Read-Only mode.`);
+    setTimeout(() => setNotification(null), 5000);
+  };
+
+  const handleReopenDeveloperTesting = () => {
+    onReopenEditTicket?.(header.ticketNo);
+    const newHeader: DeveloperTestHeaderMeta = {
+      ...header,
+      status: 'Draft',
+    };
+    const updatedItems = items.map((item) => ({
+      ...item,
+      submissionState: 'Draft' as const,
+    }));
+    saveStateToStore(updatedItems, newHeader);
+    setNotification(`✏️ Ticket #${header.ticketNo} reopened for editing! Only you can edit until submitted.`);
     setTimeout(() => setNotification(null), 5000);
   };
 
@@ -872,6 +924,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   const pointsCount = (devTestingMap[t.ticketNumber] || []).length;
                   const tHeader = devTestingHeadersMap[t.ticketNumber];
                   const submissionStatus = tHeader?.status || 'Draft';
+                  const rowPerm = canUserOpenTicket(t, currentUser);
+                  const isLockedDraft = !rowPerm.allowed;
 
                   return (
                     <tr
@@ -881,8 +935,15 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                     >
                       {/* Ticket ID */}
                       <td className="p-2.5 border-r border-slate-100">
-                        <span className="font-mono font-bold text-blue-700 bg-blue-50 group-hover:bg-blue-100 px-2 py-0.5 rounded border border-blue-200 inline-block">
+                        <span
+                          className={`font-mono font-bold px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                            isLockedDraft
+                              ? 'text-amber-800 bg-amber-50 group-hover:bg-amber-100 border-amber-300'
+                              : 'text-blue-700 bg-blue-50 group-hover:bg-blue-100 border-blue-200'
+                          }`}
+                        >
                           #{t.ticketNumber}
+                          {isLockedDraft && <Lock className="w-2.5 h-2.5 text-amber-600" />}
                         </span>
                       </td>
 
@@ -956,21 +1017,34 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <div className="flex items-center justify-center gap-1.5">
-                          <button
-                            onClick={() => handleOpenDevTestingScreen(t)}
-                            className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
-                          >
-                            <span>Open</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
-                          </button>
+                          {isLockedDraft ? (
+                            <button
+                              onClick={() => handleOpenDevTestingScreen(t)}
+                              className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              title="Locked: Draft ticket is private to creator"
+                            >
+                              <Lock className="w-3 h-3" />
+                              <span>Locked</span>
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => handleOpenDevTestingScreen(t)}
+                                className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                              >
+                                <span>Open</span>
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
 
-                          <button
-                            onClick={() => handleQuickAiGenerateForTicket(t)}
-                            title="Generate AI Developer Testing Points for this ticket"
-                            className="p-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded cursor-pointer transition-colors"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                          </button>
+                              <button
+                                onClick={() => handleQuickAiGenerateForTicket(t)}
+                                title="Generate AI Developer Testing Points for this ticket"
+                                className="p-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded cursor-pointer transition-colors"
+                              >
+                                <Sparkles className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1271,29 +1345,54 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Creator Controls */}
+          {isTicketCreator && (
+            isTicketInDraft(currentTicket) ? (
+              <>
+                <button
+                  onClick={handleSaveDraft}
+                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5 text-slate-600" />
+                  <span>Save Draft</span>
+                </button>
+
+                <button
+                  onClick={handleSubmitDevTesting}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
+                  title="Submit your developer testing points so team members can view"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Save &amp; Submit Ticket</span>
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={handleReopenDeveloperTesting}
+                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                title="Reopen ticket to edit again"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                <span>Reopen for Editing</span>
+              </button>
+            )
+          )}
+
+          {/* Read-Only Notice for Non-Creators */}
+          {!isTicketCreator && currentTicketPerms.isReadOnly && (
+            <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+              <Eye className="w-3.5 h-3.5 text-blue-600" />
+              <span>Read-Only View (Submitted by {currentTicket?.createdBy || header.developer || 'Creator'})</span>
+            </span>
+          )}
+
           <button
             onClick={handleGenerateFromAzureDevOpsTicket}
-            disabled={isFetchingFromAdo}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+            disabled={isFetchingFromAdo || effectiveReadOnly}
+            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5" />
             <span>{isFetchingFromAdo ? 'Fetching Ticket...' : '✨ AI Generate from Ticket'}</span>
-          </button>
-
-          <button
-            onClick={handleSaveDraft}
-            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Save className="w-3.5 h-3.5 text-slate-600" />
-            <span>Save Draft</span>
-          </button>
-
-          <button
-            onClick={handleSubmitDevTesting}
-            className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>Submit Developer Testing</span>
           </button>
 
           <button
@@ -1365,7 +1464,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         onGenerateAi={handleAiGenerateMultiScenarios}
         isGenerating={isGeneratingAiScenarios}
         generateButtonText="✨ AI Auto-Generate Scenarios into Table"
-        showGenerateButton={true}
+        showGenerateButton={!effectiveReadOnly}
+        readOnly={effectiveReadOnly}
       />
 
       {/* Quick Single Point Generator Bar */}
@@ -1376,19 +1476,20 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           </label>
           <input
             type="text"
-            placeholder="e.g. Verify that changing the Index Rate updates the Effective Rate..."
+            disabled={effectiveReadOnly}
+            placeholder={effectiveReadOnly ? 'Read-only mode (Ticket submitted by creator)' : 'e.g. Verify that changing the Index Rate updates the Effective Rate...'}
             value={singlePointInput}
             onChange={(e) => setSinglePointInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') handleAiGenerateSinglePoint();
             }}
-            className="w-full px-3 py-1.5 bg-white border border-indigo-200 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            className="w-full px-3 py-1.5 bg-white border border-indigo-200 disabled:bg-slate-100 disabled:opacity-60 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>
         <button
           onClick={handleAiGenerateSinglePoint}
-          disabled={isGeneratingAiPoint}
-          className="w-full md:w-auto mt-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+          disabled={isGeneratingAiPoint || effectiveReadOnly || !singlePointInput.trim()}
+          className="w-full md:w-auto mt-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
         >
           <Sparkles className="w-3.5 h-3.5" />
           <span>{isGeneratingAiPoint ? 'Generating...' : '✨ Generate Expected Result'}</span>
@@ -1465,9 +1566,10 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <input
                       type="text"
+                      disabled={effectiveReadOnly}
                       value={item.dealId || header.dealId || `DEAL-${header.ticketNo}`}
                       onChange={(e) => handleCellChange(item.id, 'dealId', e.target.value)}
-                      className="w-full px-2 py-1 font-mono font-bold text-blue-700 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
+                      className="w-full px-2 py-1 font-mono font-bold text-blue-700 disabled:text-blue-900/70 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
                     />
                   </td>
 
@@ -1475,9 +1577,10 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <input
                       type="text"
+                      disabled={effectiveReadOnly}
                       value={item.developerName || header.developer || ''}
                       onChange={(e) => handleCellChange(item.id, 'developerName', e.target.value)}
-                      className="w-full px-2 py-1 font-semibold text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
+                      className="w-full px-2 py-1 font-semibold text-slate-800 disabled:text-slate-600 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs"
                     />
                   </td>
 
@@ -1485,13 +1588,14 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
+                      disabled={effectiveReadOnly}
                       value={item.testingPoint || item.scenario || ''}
                       onChange={(e) => {
                         handleCellChange(item.id, 'testingPoint', e.target.value);
                         handleCellChange(item.id, 'scenario', e.target.value);
                       }}
                       placeholder="Enter simple testing point..."
-                      className="w-full px-2 py-1 text-slate-900 font-medium bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
+                      className="w-full px-2 py-1 text-slate-900 disabled:text-slate-700 font-medium bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
                   </td>
 
@@ -1499,10 +1603,11 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
+                      disabled={effectiveReadOnly}
                       value={item.expectedResult}
                       onChange={(e) => handleCellChange(item.id, 'expectedResult', e.target.value)}
                       placeholder="AI generated or manual expected result..."
-                      className="w-full px-2 py-1 text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
+                      className="w-full px-2 py-1 text-slate-800 disabled:text-slate-700 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
                   </td>
 
@@ -1513,6 +1618,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                       attachments={item.attachments || []}
                       fallbackScreenshotName={item.screenshotName}
                       fallbackScreenshotUrl={item.screenshotUrl}
+                      readOnly={effectiveReadOnly}
                       onAddAttachment={(file) => handleAddAttachment(item.id, file)}
                       onRemoveAttachment={(attId) => handleRemoveAttachment(item.id, attId)}
                     />
@@ -1520,22 +1626,26 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
                   {/* Actions */}
                   <td className="p-1 text-center">
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        onClick={() => handleDuplicateRow(item.id)}
-                        title="Duplicate row"
-                        className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
-                      >
-                        <Copy className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteRow(item.id)}
-                        title="Delete testing row"
-                        className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    {!effectiveReadOnly ? (
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() => handleDuplicateRow(item.id)}
+                          title="Duplicate row"
+                          className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRow(item.id)}
+                          title="Delete testing row"
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[11px] text-slate-400 font-semibold italic">Locked</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1568,13 +1678,19 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
         {/* Bottom Toolbar */}
         <div className="p-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
-          <button
-            onClick={handleAddRow}
-            className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded shadow-2xs flex items-center gap-1.5 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 text-blue-600" />
-            <span>+ Add Testing Row</span>
-          </button>
+          {!effectiveReadOnly ? (
+            <button
+              onClick={handleAddRow}
+              className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-bold rounded shadow-2xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5 text-blue-600" />
+              <span>+ Add Testing Row</span>
+            </button>
+          ) : (
+            <div className="text-xs text-slate-500 italic">
+              Editing disabled (Ticket submitted in read-only mode)
+            </div>
+          )}
 
           <div className="flex items-center gap-4 text-slate-500 font-medium">
             <span>Total Points: <strong className="text-slate-800">{items.length}</strong></span>
@@ -1596,6 +1712,17 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           setTimeout(() => setNotification(null), 5000);
         }}
       />
+
+      {/* Locked Draft Ticket Modal */}
+      {lockedModalTicket && (
+        <TicketLockedModal
+          isOpen={true}
+          onClose={() => setLockedModalTicket(null)}
+          ticketNumber={lockedModalTicket.ticketNumber}
+          createdBy={lockedModalTicket.createdBy}
+          customMessage={lockedModalTicket.reason}
+        />
+      )}
     </div>
   );
 };
