@@ -119,7 +119,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   // Access control check for currently selected ticket
   const currentTicketPerms = useMemo(() => {
-    return canUserOpenTicket(currentTicket, currentUser);
+    return canUserOpenTicket(currentTicket, currentUser, 'dev');
   }, [currentTicket, currentUser]);
 
   const isTicketCreator = useMemo(() => {
@@ -272,26 +272,41 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     const found = tickets.find((t) => t.ticketNumber.toLowerCase() === tNo.toLowerCase());
     const existingHeader = devTestingHeadersMap[tNo];
     const existingItems = devTestingMap[tNo];
+    const ticketDev = found?.developer?.trim() || existingHeader?.developer || currentUser?.name || '';
 
     let newH: DeveloperTestHeaderMeta;
     if (existingHeader) {
-      newH = existingHeader;
+      newH = {
+        ...existingHeader,
+        developer: found?.developer?.trim() || existingHeader.developer || ticketDev,
+        dealId: existingHeader.dealId || found?.dealId || `DEAL-${tNo}`,
+        attachedDocs: existingHeader.attachedDocs?.length ? existingHeader.attachedDocs : (found?.attachedDocs || []),
+        screenFields: existingHeader.screenFields?.length ? existingHeader.screenFields : (found?.screenFields || found?.detectedFormFields || []),
+      };
     } else {
       newH = {
         ticketNo: tNo,
         featureName: found?.featureName || 'Feature Verification',
-        developer: found?.developer || currentUser?.name || '',
+        developer: ticketDev,
         devTestDate: new Date().toISOString().split('T')[0],
         dealId: found?.dealId || `DEAL-${tNo}`,
         description: found?.description || found?.featureName || '',
         testingScenarios: found?.testingScenarios || found?.scenarioDetails || '',
         status: 'Draft',
+        attachedDocs: found?.attachedDocs || [],
+        screenFields: found?.screenFields || found?.detectedFormFields || [],
       };
     }
     setHeader(newH);
 
     if (existingItems && existingItems.length > 0) {
-      setItems(existingItems);
+      // Synchronize developer name across all existing items for this ticket
+      const syncedItems = existingItems.map((item) => ({
+        ...item,
+        developerName: item.developerName || ticketDev,
+        dealId: item.dealId || newH.dealId || `DEAL-${tNo}`,
+      }));
+      setItems(syncedItems);
     } else {
       setItems([]);
     }
@@ -306,7 +321,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   // Switch to Detail Screen for ticket
   const handleOpenDevTestingScreen = (ticket: TicketSummary) => {
-    const perm = canUserOpenTicket(ticket, currentUser);
+    const perm = canUserOpenTicket(ticket, currentUser, 'dev');
     if (!perm.allowed) {
       setLockedModalTicket({
         ticketNumber: ticket.ticketNumber,
@@ -363,6 +378,9 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         remarks: 'AI-generated testing point',
         isAiGenerated: true,
         attachments: [],
+        createdBy: currentUser?.name || 'Developer',
+        authorRole: currentUser?.role || 'Developer',
+        createdAt: new Date().toLocaleDateString(),
       };
 
       const updated = [...items, newItem];
@@ -386,6 +404,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         screenFields: header.screenFields || [],
         targetMode: 'developer',
         existingItems: items,
+        creatorName: currentUser?.name || header.developer || 'Developer',
+        creatorRole: currentUser?.role || 'Developer',
       });
 
       if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
@@ -498,13 +518,24 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   // Cell Edit
   const handleCellChange = (id: string, field: keyof DeveloperTestItem, value: any) => {
-    const updated = items.map((item) => {
+    let newHeader = header;
+    let updated = items.map((item) => {
       if (item.id === id) {
         return { ...item, [field]: value };
       }
       return item;
     });
-    saveStateToStore(updated, header);
+
+    // If developerName is edited, sync across all rows and ticket header!
+    if (field === 'developerName') {
+      newHeader = { ...header, developer: value };
+      updated = updated.map((item) => ({
+        ...item,
+        developerName: value,
+      }));
+    }
+
+    saveStateToStore(updated, newHeader);
   };
 
   // Add Row
@@ -514,7 +545,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       id: `dt-${Date.now()}`,
       scenarioId: `DEV-0${nextNum}`,
       dealId: header.dealId || `DEAL-${header.ticketNo}`,
-      developerName: header.developer || currentUser?.name || '',
+      developerName: header.developer || currentTicket?.developer || currentUser?.name || 'Developer',
       testingPoint: '',
       scenario: '',
       testDescription: '',
@@ -525,6 +556,9 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       submissionState: 'Draft',
       attachments: [],
       remarks: '',
+      createdBy: currentUser?.name || 'Developer',
+      authorRole: currentUser?.role || 'Developer',
+      createdAt: new Date().toLocaleDateString(),
     };
     saveStateToStore([...items, newItem], header);
   };
@@ -539,12 +573,28 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
       id: `dt-${Date.now()}`,
       scenarioId: `DEV-0${nextNum}`,
       testingPoint: `${target.testingPoint} (Copy)`,
+      createdBy: currentUser?.name || 'Developer',
+      authorRole: currentUser?.role || 'Developer',
+      createdAt: new Date().toLocaleDateString(),
     };
     saveStateToStore([...items, duplicated], header);
   };
 
-  // Delete Row
+  // Delete Row with ownership protection
   const handleDeleteRow = (id: string) => {
+    const target = items.find((i) => i.id === id);
+    if (!target) return;
+
+    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+    const authorName = (target.createdBy || '').toLowerCase().trim();
+    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
+    const isAuthor = !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
+
+    if (!isSuperAdmin && !isAuthor) {
+      alert(`⚠️ Permission Denied: This developer testing point was created by "${target.createdBy || 'another user'}". User "${currentUser?.name}" is not authorized to delete it. Only the original author or Super Admin can delete this item.`);
+      return;
+    }
+
     if (confirm('Delete this developer testing point?')) {
       saveStateToStore(
         items.filter((i) => i.id !== id),
@@ -1436,6 +1486,15 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
         developerName={header.developer || currentTicket?.developer || ''}
+        onChangeDeveloperName={(val) => {
+          const next = { ...header, developer: val };
+          setHeader(next);
+          const updatedItems = items.map((it) => ({
+            ...it,
+            developerName: val,
+          }));
+          saveStateToStore(updatedItems, next);
+        }}
         description={header.description || currentTicket?.description || ''}
         testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}
         attachedDocs={header.attachedDocs || []}
@@ -1597,6 +1656,12 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                       placeholder="Enter simple testing point..."
                       className="w-full px-2 py-1 text-slate-900 disabled:text-slate-700 font-medium bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
+                    {item.createdBy && (
+                      <div className="flex items-center gap-1 px-1.5 pt-0.5 text-[10px] text-slate-400">
+                        <span>by {item.createdBy}</span>
+                        {item.authorRole && <span className="text-slate-400 font-medium">({item.authorRole})</span>}
+                      </div>
+                    )}
                   </td>
 
                   {/* Expected Result */}
@@ -1635,13 +1700,29 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                         >
                           <Copy className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteRow(item.id)}
-                          title="Delete testing row"
-                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {(() => {
+                          const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+                          const authorName = (item.createdBy || '').toLowerCase().trim();
+                          const currentUserName = (currentUser?.name || '').toLowerCase().trim();
+                          const canDelete = isSuperAdmin || !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
+
+                          return canDelete ? (
+                            <button
+                              onClick={() => handleDeleteRow(item.id)}
+                              title={`Delete testing row (Created by ${item.createdBy || 'Developer'})`}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <span
+                              title={`Protected: Created by "${item.createdBy || 'another user'}". Only the author or Super Admin can delete.`}
+                              className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
+                            >
+                              <Lock className="w-3.5 h-3.5 text-slate-400" />
+                            </span>
+                          );
+                        })()}
                       </div>
                     ) : (
                       <span className="text-[11px] text-slate-400 font-semibold italic">Locked</span>

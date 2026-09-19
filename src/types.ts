@@ -87,6 +87,8 @@ export interface TicketSummary {
   acceptanceCriteria?: string;
   dealId?: string;
   testingScenarios?: string;
+  attachedDocs?: AttachedDocOrImage[];
+  screenFields?: string[];
   submissionState?: 'Draft' | 'Submitted';
   isEditing?: boolean;
   submittedAt?: string;
@@ -191,6 +193,9 @@ export interface TestCaseItem {
   screenshot1?: string;
   attachments?: FileAttachment[];
   isAiGenerated?: boolean;
+  createdBy?: string;
+  authorRole?: string;
+  createdAt?: string;
 }
 
 export interface FileAttachment {
@@ -265,6 +270,9 @@ export interface DeveloperTestItem {
   screenshotUrl?: string;
   remarks: string;
   isAiGenerated?: boolean;
+  createdBy?: string;
+  authorRole?: string;
+  createdAt?: string;
 }
 
 export interface AiReviewIssue {

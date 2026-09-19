@@ -329,7 +329,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
   // Access control check for currently matched ticket
   const currentTicketPerms = useMemo(() => {
-    return canUserOpenTicket(matchedTicket, currentUser);
+    return canUserOpenTicket(matchedTicket, currentUser, 'qa');
   }, [matchedTicket, currentUser]);
 
   const isTicketCreator = useMemo(() => {
@@ -340,7 +340,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
   // Handle Opening Test Cases Screen for a Ticket
   const handleOpenTestCasesScreen = (ticket: TicketSummary) => {
-    const perm = canUserOpenTicket(ticket, currentUser);
+    const perm = canUserOpenTicket(ticket, currentUser, 'qa');
     if (!perm.allowed) {
       setLockedModal({
         ticketNumber: ticket.ticketNumber,
@@ -359,12 +359,15 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       ...header,
       ticketNo: ticket.ticketNumber,
       taskName: ticket.featureName,
+      developer: ticket.developer || header.developer || '',
       description: ticket.description || ticket.featureName,
       testingScenarios: ticket.testingScenarios || ticket.scenarioDetails,
       clientName: ticket.clientName || header.clientName || 'Treasury Master',
       sha: ticket.shaCommit || header.sha,
       taskDoneBy: ticket.qaAssignee || header.taskDoneBy || 'Maseera Sayyed',
       signOffBy: ticket.signOffBy || header.signOffBy || '',
+      attachedDocs: header.attachedDocs?.length ? header.attachedDocs : (ticket.attachedDocs || []),
+      screenFields: header.screenFields?.length ? header.screenFields : (ticket.screenFields || ticket.detectedFormFields || []),
     };
     setHeader(updatedHeader);
     setHeaderDescription(ticket.description || ticket.featureName);
@@ -576,6 +579,9 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   ? [{ id: `att-${Date.now()}-${idx}`, name: firstImageAtt.name, url: firstImageAtt.dataUrl || '' }]
                   : [],
                 screenshot1: firstImageAtt ? firstImageAtt.dataUrl || '' : '',
+                createdBy: currentUser?.name || 'Maseera Sayyed',
+                authorRole: currentUser?.role || 'QA',
+                createdAt: new Date().toLocaleDateString(),
               });
             }
           });
@@ -603,6 +609,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       screenFields: header.screenFields || [],
       targetMode: 'qa',
       existingItems: testCases,
+      creatorName: currentUser?.name || 'Maseera Sayyed',
+      creatorRole: currentUser?.role || 'QA',
     });
 
     if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
@@ -650,12 +658,28 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       reviewStatus: 'Draft',
       version: header.version || '1.0',
       attachments: [],
+      createdBy: currentUser?.name || 'Maseera Sayyed',
+      authorRole: currentUser?.role || 'QA',
+      createdAt: new Date().toLocaleDateString(),
     };
     updateTestCases([...testCases, newCase]);
   };
 
-  // Delete Row
+  // Delete Row with ownership protection
   const handleDeleteRow = (id: string) => {
+    const target = testCases.find((c) => c.id === id);
+    if (!target) return;
+
+    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+    const authorName = (target.createdBy || '').toLowerCase().trim();
+    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
+    const isAuthor = !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
+
+    if (!isSuperAdmin && !isAuthor) {
+      alert(`⚠️ Permission Denied: This test case was created by "${target.createdBy || 'another user'}". User "${currentUser?.name}" is not authorized to delete it. Only the original author or Super Admin can delete this row.`);
+      return;
+    }
+
     if (confirm('Delete this test case row?')) {
       updateTestCases(testCases.filter((c) => c.id !== id));
     }
@@ -670,6 +694,9 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       id: `tc-${Date.now()}`,
       testCaseId: `TC0${testCases.length + 1}`,
       testScenario: `${target.testScenario} (Copy)`,
+      createdBy: currentUser?.name || 'Maseera Sayyed',
+      authorRole: currentUser?.role || 'QA',
+      createdAt: new Date().toLocaleDateString(),
     };
     updateTestCases([...testCases, duplicated]);
   };
@@ -848,13 +875,45 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     }
   };
 
-  // Delete All Test Cases for current ticket
+  // Delete All Test Cases for current ticket (with author protection)
   const handleDeleteAllTestCases = () => {
     if (testCases.length === 0) {
       setNotification('ℹ️ Table is already empty. No test cases to delete.');
       setTimeout(() => setNotification(null), 3000);
       return;
     }
+
+    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
+
+    // Check if there are cases authored by other users
+    const othersCases = testCases.filter((tc) => {
+      const author = (tc.createdBy || '').toLowerCase().trim();
+      return author && author !== currentUserName && !currentUserName.includes(author) && !author.includes(currentUserName);
+    });
+
+    if (othersCases.length > 0 && !isSuperAdmin) {
+      const myCases = testCases.filter((tc) => {
+        const author = (tc.createdBy || '').toLowerCase().trim();
+        return !author || author === currentUserName || currentUserName.includes(author) || author.includes(currentUserName);
+      });
+
+      if (myCases.length === 0) {
+        alert(`⚠️ Permission Denied: All test cases in this ticket were created by other users (${othersCases[0].createdBy || 'another user'}). You cannot delete them. Only the original author or Super Admin can delete these test cases.`);
+        return;
+      }
+
+      const confirmed = window.confirm(
+        `Notice: ${othersCases.length} test cases were created by other team members and are protected from deletion.\n\nWould you like to delete your own ${myCases.length} test cases?`
+      );
+      if (confirmed) {
+        updateTestCases(othersCases);
+        setNotification(`🗑️ Deleted your ${myCases.length} test cases. (${othersCases.length} cases created by other users were preserved).`);
+        setTimeout(() => setNotification(null), 5000);
+      }
+      return;
+    }
+
     const confirmed = window.confirm(
       `Are you sure you want to delete ALL ${testCases.length} test cases for Ticket #${header.ticketNo}?\n\nThis will completely clear the test cases table so you can generate a fresh AI test suite or add custom rows.`
     );
@@ -1854,6 +1913,11 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         selectedTicketNumber={selectedTicketNumber}
         tickets={tickets}
         developerName={matchedTicket?.developer || header.developer || ''}
+        onChangeDeveloperName={(val) => {
+          const next = { ...header, developer: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
         qaAssigneeName={matchedTicket?.qaAssignee || header.taskDoneBy || 'Maseera Sayyed'}
         reviewDoneBy={header.reviewDoneBy || header.approvedBy}
         reviewDoneAt={header.reviewDoneAt || header.approvedAt}
@@ -2215,6 +2279,12 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                       onChange={(e) => handleCellChange(tc.id, 'testScenario', e.target.value)}
                       className="w-full px-2 py-1 text-slate-900 bg-transparent focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
+                    {tc.createdBy && (
+                      <div className="flex items-center gap-1 px-1.5 pt-0.5 text-[10px] text-slate-400">
+                        <span>by {tc.createdBy}</span>
+                        {tc.authorRole && <span className="text-slate-400 font-medium">({tc.authorRole})</span>}
+                      </div>
+                    )}
                   </td>
 
                   {/* Test Cases (Steps) */}
@@ -2328,13 +2398,29 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                         >
                           <Copy className="w-3 h-3" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteRow(tc.id)}
-                          title="Delete row"
-                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
+                        {(() => {
+                          const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
+                          const authorName = (tc.createdBy || '').toLowerCase().trim();
+                          const currentUserName = (currentUser?.name || '').toLowerCase().trim();
+                          const canDelete = isSuperAdmin || !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
+
+                          return canDelete ? (
+                            <button
+                              onClick={() => handleDeleteRow(tc.id)}
+                              title={`Delete row (Created by ${tc.createdBy || 'QA'})`}
+                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          ) : (
+                            <span
+                              title={`Protected: Created by "${tc.createdBy || 'another user'}". Only the author or Super Admin can delete.`}
+                              className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
+                            >
+                              <Lock className="w-3 h-3 text-slate-400" />
+                            </span>
+                          );
+                        })()}
                       </div>
                     )}
                   </td>

@@ -657,6 +657,8 @@ export function generateScenariosFromInputsAndFiles(params: {
   screenFields?: string[];
   targetMode: 'qa' | 'developer';
   existingItems: (TestCaseItem | DeveloperTestItem)[];
+  creatorName?: string;
+  creatorRole?: string;
 }): GenerateMultiScenariosResult<any> {
   const {
     ticket,
@@ -666,6 +668,8 @@ export function generateScenariosFromInputsAndFiles(params: {
     screenFields = [],
     targetMode,
     existingItems = [],
+    creatorName,
+    creatorRole,
   } = params;
 
   const tNo = ticket?.ticketNumber || '';
@@ -808,6 +812,9 @@ export function generateScenariosFromInputsAndFiles(params: {
         remarks: 'AI generated from ticket description, scenarios & attached fields',
         isAiGenerated: true,
         attachments: [],
+        createdBy: creatorName,
+        authorRole: creatorRole,
+        createdAt: new Date().toLocaleDateString(),
       };
       newItems.push(devItem);
     } else {
@@ -860,6 +867,9 @@ export function generateScenariosFromInputsAndFiles(params: {
         version: '1.0',
         attachments: [],
         isAiGenerated: true,
+        createdBy: creatorName,
+        authorRole: creatorRole,
+        createdAt: new Date().toLocaleDateString(),
       };
       newItems.push(qaItem);
     }

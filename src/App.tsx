@@ -339,6 +339,15 @@ export default function App() {
       pushSyncToServer({ testCaseHeadersMap: next });
       return next;
     });
+    if (newHeader.developer) {
+      setTickets((prev) => {
+        const next = prev.map((t) =>
+          t.ticketNumber === newHeader.ticketNo ? { ...t, developer: newHeader.developer! } : t
+        );
+        pushSyncToServer({ tickets: next });
+        return next;
+      });
+    }
     setActiveTicketNumber(newHeader.ticketNo);
   };
 
@@ -355,7 +364,17 @@ export default function App() {
       nextHeaders = { ...devTestingHeadersMap, [ticketNo]: header };
       setDevTestingHeadersMap(nextHeaders);
     }
-    pushSyncToServer({ devTestingMap: nextMap, devTestingHeadersMap: nextHeaders });
+    if (header?.developer) {
+      setTickets((prev) => {
+        const next = prev.map((t) =>
+          t.ticketNumber === ticketNo ? { ...t, developer: header.developer } : t
+        );
+        pushSyncToServer({ tickets: next, devTestingMap: nextMap, devTestingHeadersMap: nextHeaders });
+        return next;
+      });
+    } else {
+      pushSyncToServer({ devTestingMap: nextMap, devTestingHeadersMap: nextHeaders });
+    }
   };
 
   // Update Observations for active ticket

@@ -2,6 +2,48 @@ import * as XLSX from 'xlsx';
 import { AttachedDocOrImage, TestCaseItem } from '../types';
 
 /**
+ * Compresses an image data URL to a max dimension and quality
+ * to guarantee it fits in browser localStorage without QuotaExceededError.
+ */
+export function compressImage(dataUrl: string, maxWidth = 1024, maxHeight = 1024, quality = 0.72): Promise<string> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || !dataUrl.startsWith('data:image')) {
+      resolve(dataUrl);
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth || height > maxHeight) {
+        if (width > height) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(dataUrl);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
  * Extract fields and text from an uploaded file (Excel, Word, Image, Text)
  */
 export async function parseUploadedFile(file: File): Promise<AttachedDocOrImage> {
@@ -12,15 +54,16 @@ export async function parseUploadedFile(file: File): Promise<AttachedDocOrImage>
   if (file.type.startsWith('image/')) {
     return new Promise((resolve) => {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        const url = e.target?.result as string;
+      reader.onload = async (e) => {
+        const rawUrl = e.target?.result as string;
+        const compressedUrl = await compressImage(rawUrl);
         // Detect likely financial screen fields from file name or standard financial domain
         const defaultFields = detectFieldsFromFileName(file.name);
         resolve({
           id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
           name: file.name,
           type: 'image',
-          url: url,
+          url: compressedUrl,
           size: sizeStr,
           uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           detectedFields: defaultFields,

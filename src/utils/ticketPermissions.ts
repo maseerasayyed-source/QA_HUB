@@ -31,38 +31,106 @@ export function isTicketInDraft(ticket?: TicketSummary | null): boolean {
 }
 
 /**
- * Enforces the strict visibility & access control policy:
+ * Enforces the smart role-aware visibility & access control policy:
  * - All users can see all tickets on the Dashboard.
- * - Only the creator can edit their ticket.
- * - When a ticket is in Draft / Edit mode: OTHER users cannot open or view details (test cases, dev testing, observations, RFE).
- * - Once creator clicks "Save & Submit", other users can open and view (Read-Only).
+ * - QA workspace (Unified AI Test Hub / Test Cases): QA Lead, Assignee, Creator & Super Admin can edit.
+ *   Developers can open in Read-Only view to inspect QA expectations.
+ * - Developer Testing workspace: Developer Assignee & Super Admin can edit.
+ *   QA team can open in Read-Only view to inspect dev testing proof before sign-off.
+ * - Unrelated third-party users: Read-Only once submitted.
  */
 export function canUserOpenTicket(
   ticket?: TicketSummary | null,
-  user?: UserProfile | null
-): { allowed: boolean; reason?: string; isCreator: boolean; isReadOnly: boolean } {
+  user?: UserProfile | null,
+  context: 'qa' | 'dev' | 'observations' | 'general' = 'general'
+): {
+  allowed: boolean;
+  reason?: string;
+  isCreator: boolean;
+  isReadOnly: boolean;
+  canEditDev: boolean;
+  canEditQa: boolean;
+} {
   if (!ticket) {
-    return { allowed: false, reason: 'Ticket not found', isCreator: false, isReadOnly: true };
-  }
-
-  const isCreator = isUserTicketCreator(ticket, user);
-  const inDraft = isTicketInDraft(ticket);
-
-  // Creator can always open and edit
-  if (isCreator) {
-    return { allowed: true, isCreator: true, isReadOnly: false };
-  }
-
-  // Non-creator trying to open a Draft / Edit mode ticket: BLOCKED!
-  if (inDraft) {
     return {
       allowed: false,
-      reason: `Ticket #${ticket.ticketNumber} is currently in Draft / Edit mode by "${ticket.createdBy || 'Creator'}". Other users cannot open or inspect its test cases, developer testing points, observations, or RFEs until the creator clicks 'Save & Submit'.`,
+      reason: 'Ticket not found',
       isCreator: false,
       isReadOnly: true,
+      canEditDev: false,
+      canEditQa: false,
     };
   }
 
-  // Submitted ticket opened by non-creator: ALLOWED in Read-Only mode
-  return { allowed: true, isCreator: false, isReadOnly: true };
+  const isSuperAdmin = user?.role === 'Super Admin' || user?.email?.toLowerCase().includes('maseera');
+  const uName = (user?.name || '').toLowerCase().trim();
+  const devName = (ticket.developer || '').toLowerCase().trim();
+  const qaName = (ticket.qaAssignee || '').toLowerCase().trim();
+  const creatorName = (ticket.createdBy || '').toLowerCase().trim();
+
+  const isAssignedDev = Boolean(uName && devName && (uName.includes(devName) || devName.includes(uName))) || user?.role === 'Developer';
+  const isAssignedQa = Boolean(uName && qaName && (uName.includes(qaName) || qaName.includes(uName))) || user?.role === 'QA' || user?.role === 'Senior QA';
+  const isCreator = isUserTicketCreator(ticket, user);
+  const inDraft = isTicketInDraft(ticket);
+
+  const canEditDev = isSuperAdmin || isAssignedDev || (isCreator && user?.role === 'Developer');
+  const canEditQa = isSuperAdmin || isAssignedQa || isCreator;
+
+  // Context-specific permission resolution
+  if (context === 'dev') {
+    // In Developer Testing:
+    // If user is Developer or Super Admin -> can edit!
+    // If user is QA -> allowed to open and inspect developer proof in Read-Only mode!
+    return {
+      allowed: true,
+      isCreator,
+      isReadOnly: !canEditDev,
+      canEditDev,
+      canEditQa,
+    };
+  }
+
+  if (context === 'qa' || context === 'observations') {
+    // In QA Test Cases / Observations:
+    // If user is QA, Creator, or Super Admin -> can edit!
+    // If user is Developer -> allowed to open and inspect QA test suite in Read-Only mode!
+    return {
+      allowed: true,
+      isCreator,
+      isReadOnly: !canEditQa,
+      canEditDev,
+      canEditQa,
+    };
+  }
+
+  // General check
+  if (isSuperAdmin || isCreator || isAssignedDev || isAssignedQa) {
+    return {
+      allowed: true,
+      isCreator,
+      isReadOnly: false,
+      canEditDev,
+      canEditQa,
+    };
+  }
+
+  // If draft and unrelated user
+  if (inDraft) {
+    return {
+      allowed: false,
+      reason: `Ticket #${ticket.ticketNumber} is currently in Draft / Edit mode by "${ticket.createdBy || 'Creator'}". Other team members can view it once submitted.`,
+      isCreator: false,
+      isReadOnly: true,
+      canEditDev: false,
+      canEditQa: false,
+    };
+  }
+
+  return {
+    allowed: true,
+    isCreator: false,
+    isReadOnly: true,
+    canEditDev: false,
+    canEditQa: false,
+  };
 }

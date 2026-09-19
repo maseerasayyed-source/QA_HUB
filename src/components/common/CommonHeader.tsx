@@ -33,6 +33,7 @@ interface CommonHeaderProps {
   description: string;
   testingScenarios: string;
   developerName?: string;
+  onChangeDeveloperName?: (value: string) => void;
   qaAssigneeName?: string;
   reviewDoneBy?: string;
   reviewDoneAt?: string;
@@ -58,6 +59,7 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   description,
   testingScenarios,
   developerName,
+  onChangeDeveloperName,
   qaAssigneeName,
   reviewDoneBy,
   reviewDoneAt,
@@ -230,12 +232,20 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const parsed = await parseUploadedFile(file);
-      newDocs.push(parsed);
+      try {
+        const parsed = await parseUploadedFile(file);
+        newDocs.push(parsed);
 
-      if (parsed.detectedFields && parsed.detectedFields.length > 0) {
-        parsed.detectedFields.forEach((f) => detectedFieldsToAdd.add(f));
+        if (parsed.detectedFields && parsed.detectedFields.length > 0) {
+          parsed.detectedFields.forEach((f) => detectedFieldsToAdd.add(f));
+        }
+      } catch (err) {
+        console.error('Failed to parse uploaded file:', err);
       }
+    }
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
 
     const updated = [...attachedDocs, ...newDocs];
@@ -338,9 +348,20 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
           {/* Developer Name Badge (Always in developer testing, also in QA) */}
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200/80 rounded-lg text-xs">
-            <Code2 className="w-3.5 h-3.5 text-amber-600" />
+            <Code2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
             <span className="text-slate-500 font-medium">Developer:</span>
-            <span className="font-bold text-amber-900">{devName}</span>
+            {onChangeDeveloperName && !readOnly ? (
+              <input
+                type="text"
+                value={devName}
+                onChange={(e) => onChangeDeveloperName(e.target.value)}
+                placeholder="Assign developer..."
+                title="Click to edit developer name - synchronizes across all developer fields for this ticket"
+                className="font-bold text-amber-900 bg-amber-100/50 hover:bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 text-xs w-28 sm:w-36"
+              />
+            ) : (
+              <span className="font-bold text-amber-900">{devName || 'Unassigned'}</span>
+            )}
           </div>
 
           {/* QA Name Badge (In QA & Observation modes) */}
@@ -495,7 +516,11 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                 multiple
                 accept="image/*,.xlsx,.xls,.csv,.docx,.doc,.txt,.pdf"
                 className="hidden"
-                onChange={(e) => handleFileUpload(e.target.files)}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  handleFileUpload(e.target.files);
+                  if (e.target) e.target.value = '';
+                }}
               />
               <div className="flex items-center gap-2 text-xs text-slate-600">
                 <Upload className="w-4 h-4 text-blue-600 shrink-0" />
@@ -503,9 +528,16 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                   Click or drop UI screenshot, Excel or spec document
                 </span>
               </div>
-              <span className="text-[10px] font-semibold text-blue-700 bg-blue-100/70 px-2 py-0.5 rounded">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 hover:bg-blue-200 px-2.5 py-1 rounded cursor-pointer transition-colors"
+              >
                 Browse Files
-              </span>
+              </button>
             </div>
           ) : attachedDocs.length === 0 ? (
             <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 italic">
@@ -515,22 +547,35 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
           {/* Attached Files List Chips */}
           {attachedDocs.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
+            <div className="flex flex-wrap items-center gap-2 pt-1">
               {attachedDocs.map((doc) => (
                 <div
                   key={doc.id}
-                  className="flex items-center gap-1.5 px-2 py-1 bg-white border border-slate-200 rounded-md text-xs shadow-2xs group hover:border-blue-300 transition-colors"
+                  className="flex items-center gap-2 px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-300 rounded-lg text-xs shadow-2xs group transition-all"
                 >
-                  {doc.type === 'image' && <ImageIcon className="w-3.5 h-3.5 text-purple-600" />}
-                  {doc.type === 'excel' && <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />}
-                  {(doc.type === 'word' || doc.type === 'text') && (
-                    <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  {doc.type === 'image' && doc.url ? (
+                    <img
+                      src={doc.url}
+                      alt={doc.name}
+                      className="w-5 h-5 rounded object-cover border border-slate-200 shrink-0"
+                    />
+                  ) : doc.type === 'image' ? (
+                    <ImageIcon className="w-4 h-4 text-purple-600 shrink-0" />
+                  ) : doc.type === 'excel' ? (
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  ) : (
+                    <FileText className="w-4 h-4 text-blue-600 shrink-0" />
                   )}
-                  <span className="font-medium text-slate-800 max-w-[130px] truncate">{doc.name}</span>
+
+                  <span className="font-semibold text-slate-800 max-w-[140px] truncate" title={doc.name}>
+                    {doc.name}
+                  </span>
+
                   {doc.size && <span className="text-[10px] text-slate-400">({doc.size})</span>}
+
                   {doc.detectedFields && doc.detectedFields.length > 0 && (
-                    <span className="text-[9px] bg-slate-100 text-slate-600 px-1 py-0.2 rounded font-semibold">
-                      {doc.detectedFields.length} fields
+                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200/60 px-1.5 py-0.2 rounded-full font-bold">
+                      +{doc.detectedFields.length} fields
                     </span>
                   )}
 
@@ -542,9 +587,9 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                       setPreviewDoc(doc);
                     }}
                     title="Preview file content / screenshot"
-                    className="p-0.5 text-slate-400 hover:text-blue-600 rounded cursor-pointer transition-colors"
+                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer transition-colors"
                   >
-                    <Eye className="w-3 h-3 text-blue-600" />
+                    <Eye className="w-3.5 h-3.5 text-blue-600" />
                   </button>
 
                   {!readOnly && (
@@ -554,9 +599,10 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                         e.stopPropagation();
                         handleRemoveDoc(doc.id);
                       }}
-                      className="text-slate-400 hover:text-rose-600 cursor-pointer ml-0.5"
+                      title="Remove attachment"
+                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
                     >
-                      <X className="w-3 h-3" />
+                      <X className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
