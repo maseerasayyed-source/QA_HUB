@@ -18,6 +18,8 @@ import {
   Filter,
   X,
   FileSpreadsheet,
+  Loader2,
+  Table,
 } from 'lucide-react';
 import {
   ObservationHeaderMeta,
@@ -28,7 +30,7 @@ import {
   AttachedDocOrImage,
 } from '../types';
 import { exportObservationsToExcel, getObservationsExcelBlob } from '../utils/excelExport';
-import { polishObservationText, correctSpelling } from '../utils/textPolisher';
+import { polishObservationText, polishObservationWithAi, correctSpelling } from '../utils/textPolisher';
 import {
   generateObservationsAndRfEsForTicket,
   generateTicketDetailsWithAi,
@@ -40,6 +42,7 @@ import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { RowAttachmentsCell } from './common/RowAttachmentsCell';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { CommonHeader } from './common/CommonHeader';
+import { CorporateTicketHeader } from './common/CorporateTicketHeader';
 import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 
 interface ObservationsViewProps {
@@ -77,7 +80,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   onAddTicket,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'observation-screen' (Detail Screen)
-  const [hubMode, setHubMode] = useState<'tickets-table' | 'observation-screen'>('tickets-table');
+  const [hubMode, setHubMode] = useState<'tickets-table' | 'observation-screen'>('observation-screen');
 
   // Selected Active Ticket Number
   const defaultTicketNo = activeTicketNumber || tickets[0]?.ticketNumber || initialHeader.ticketNo;
@@ -100,13 +103,22 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const [header, setHeader] = useState<ObservationHeaderMeta & { testingScenarios?: string }>(() => {
     return {
       ...initialHeader,
+      clientName: initialHeader.clientName || 'Treasury Master',
       ticketNo: currentTicket?.ticketNumber || defaultTicketNo,
       ticketName: currentTicket?.featureName || initialHeader.ticketName,
+      taskName: currentTicket?.featureName || initialHeader.taskName || 'penalty overdue report',
       qaOwner: currentTicket?.qaAssignee || initialHeader.qaOwner || currentUser?.name || 'Maseera Sayyed',
+      developer: currentTicket?.developer || initialHeader.developer || 'Rahul Sharma',
+      sha: currentTicket?.shaCommit || initialHeader.sha || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
+      signOffBy: currentTicket?.signOffBy || initialHeader.signOffBy || 'Ashwini poke',
       date: new Date().toISOString().split('T')[0],
       testingScenarios: currentTicket?.testingScenarios || currentTicket?.scenarioDetails || '',
     };
   });
+
+  // State for tracking AI polishing
+  const [polishingRowId, setPolishingRowId] = useState<string | null>(null);
+  const [autoPolishOnBlur, setAutoPolishOnBlur] = useState<boolean>(true);
 
   // Observation records
   const [observations, setObservations] = useState<ObservationItem[]>(() => {
@@ -242,7 +254,11 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       ...header,
       ticketNo: tNo,
       ticketName: found ? found.featureName : header.ticketName,
+      taskName: found ? found.featureName : header.taskName,
       qaOwner: found ? found.qaAssignee : header.qaOwner,
+      developer: found?.developer || header.developer,
+      sha: found?.shaCommit || header.sha,
+      signOffBy: found?.signOffBy || header.signOffBy,
       testingScenarios: found?.testingScenarios || found?.scenarioDetails || '',
     };
     setHeader(nextH);
@@ -502,13 +518,56 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
     }
   };
 
-  // Auto-Polish grammar for all observation descriptions
-  const handlePolishAllObservations = () => {
-    const updated = observations.map((obs) => ({
-      ...obs,
-      observationRFE: polishObservationText(obs.observationRFE),
-    }));
-    updateObservationsState(updated);
+  // Auto-Polish grammar & translate from any language for all observation descriptions
+  const handlePolishAllObservations = async () => {
+    if (observations.length === 0) return;
+    setIsAiGenerating(true);
+    setAdoNotification('✨ Polishing & translating all Observations and RFEs into professional corporate English...');
+    try {
+      const updated = await Promise.all(
+        observations.map(async (obs) => {
+          if (!obs.observationRFE || !obs.observationRFE.trim()) return obs;
+          const polished = await polishObservationWithAi(obs.observationRFE, obs.type);
+          return {
+            ...obs,
+            observationRFE: polished || polishObservationText(obs.observationRFE),
+          };
+        })
+      );
+      updateObservationsState(updated);
+      setAdoNotification(`✅ All ${updated.length} observation descriptions polished successfully into corporate English!`);
+      setTimeout(() => setAdoNotification(null), 4000);
+    } catch (err) {
+      console.error(err);
+      const fallback = observations.map((obs) => ({
+        ...obs,
+        observationRFE: polishObservationText(obs.observationRFE),
+      }));
+      updateObservationsState(fallback);
+    } finally {
+      setIsAiGenerating(false);
+    }
+  };
+
+  // Single row AI polish (handles any language -> corporate English)
+  const handlePolishSingleObservation = async (id: string, customText?: string, type?: 'Observation' | 'RFE') => {
+    const target = observations.find((o) => o.id === id);
+    if (!target) return;
+    const textToPolish = customText !== undefined ? customText : target.observationRFE;
+    if (!textToPolish || !textToPolish.trim()) return;
+
+    setPolishingRowId(id);
+    try {
+      const polished = await polishObservationWithAi(textToPolish, type || target.type);
+      if (polished && polished.trim()) {
+        handleCellChange(id, 'observationRFE', polished);
+      }
+    } catch (err) {
+      console.error('Failed to polish observation with AI:', err);
+      handleCellChange(id, 'observationRFE', polishObservationText(textToPolish));
+    } finally {
+      setPolishingRowId(null);
+    }
   };
 
   // Export to Excel
@@ -1194,138 +1253,129 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   // ==========================================
   return (
     <div className="p-6 max-w-[1500px] mx-auto space-y-5 animate-fadeIn">
-      {/* Hub Back Breadcrumb */}
-      <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
-        <button
-          onClick={() => setHubMode('tickets-table')}
-          className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>← Back to Tickets List</span>
-        </button>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Viewing Observations &amp; RFE for:</span>
-          <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-            Ticket #{header.ticketNo}
-          </span>
-          <span className="font-semibold text-slate-800">{header.ticketName}</span>
-        </div>
-      </div>
-
-      {/* Top Header Card */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <span className="p-2 bg-red-50 text-red-600 rounded-lg border border-red-100">
-            <AlertOctagon className="w-5 h-5" />
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-                Observations &amp; RFE Tracker
-              </h1>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-red-100 text-red-800">
-                Excel Formatted
-              </span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
-                Multi-File &amp; Ctrl+V Attach
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Header with Ticket Name &amp; Number. Track Observations vs. RFEs, attach multiple screenshots/files row-wise, set priority &amp; status, and export exact Excel (.xlsx).
-            </p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <button
-            onClick={handleAiGenerateObservations}
-            disabled={isAiGenerating}
-            className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span>{isAiGenerating ? 'AI Generating...' : '✨ AI Generate Obs & RFEs'}</span>
-          </button>
-
-          <button
-            onClick={handlePolishAllObservations}
-            className="px-3 py-1.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Wand2 className="w-3.5 h-3.5 text-purple-600" />
-            <span>Auto-Polish Grammar</span>
-          </button>
-
-          <button
-            onClick={handleAddRow}
-            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 text-xs font-semibold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Row</span>
-          </button>
-
-          <button
-            onClick={handleDownloadExcel}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Excel</span>
-          </button>
-
-          {/* Attach Directly to Azure DevOps Ticket Button */}
-          <button
-            onClick={() => setIsAdoModalOpen(true)}
-            title="Attach observations directly to Azure DevOps Work Item"
-            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-          >
-            <UploadCloud className="w-3.5 h-3.5 text-blue-200" />
-            <span>🚀 Azure DevOps</span>
-          </button>
-        </div>
-      </div>
-
       {/* Azure DevOps Notification Feedback */}
       {adoNotification && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2 animate-fadeIn shadow-2xs">
-          <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-          <span>{adoNotification}</span>
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between gap-2 animate-fadeIn shadow-2xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span>{adoNotification}</span>
+          </div>
+          <button onClick={() => setAdoNotification(null)} className="text-blue-400 hover:text-blue-700 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       {/* Download Confirmation Feedback */}
       {downloadSuccess && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center gap-2 animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-          <span>
-            Observation Excel file <strong>Observations_{header.ticketNo}.xlsx</strong> downloaded with <strong>Beacon Corporate Navy header (#1E3A8A)</strong>, cell grid borders, embedded screenshots, and attachment links!
-          </span>
+        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center justify-between gap-2 animate-fadeIn">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>
+              Observation Excel file <strong>Observations_{header.ticketNo}.xlsx</strong> downloaded with <strong>Beacon Corporate Navy header (#1E3A8A)</strong>, cell grid borders, embedded screenshots, and attachment links!
+            </span>
+          </div>
+          <button onClick={() => setDownloadSuccess(false)} className="text-emerald-400 hover:text-emerald-700 cursor-pointer">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
-      {/* COMMON MODULE HEADER */}
-      <CommonHeader
-        mode="qa"
+      {/* ENHANCED CORPORATE TICKET HEADER - Strictly Header & Respective Ticket Matching Picture 4 */}
+      <CorporateTicketHeader
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
-        developerName={currentTicket?.developer || ''}
-        qaAssigneeName={currentTicket?.qaAssignee || header.qaOwner || 'Maseera Sayyed'}
-        description={header.ticketName}
-        testingScenarios={header.testingScenarios || ''}
-        attachedDocs={attachedDocs}
-        screenFields={screenFields}
-        onUpdateAttachedDocs={setAttachedDocs}
-        onUpdateScreenFields={setScreenFields}
         onSelectTicket={handleTicketChange}
-        onChangeDescription={(val) => {
-          const next = { ...header, ticketName: val };
+        clientName={header.clientName || 'Treasury Master'}
+        onChangeClientName={(val) => {
+          const next = { ...header, clientName: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        onChangeTestingScenarios={(val) => {
-          const next = { ...header, testingScenarios: val };
+        moduleName={currentTicket?.moduleName || 'Term Loan'}
+        taskName={header.taskName || header.ticketName || 'penalty overdue report'}
+        onChangeTaskName={(val) => {
+          const next = { ...header, taskName: val, ticketName: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        onAiGenerateSuccess={handleAiGenerateObservations}
-        onAiGenerateMultiScenarios={handleAiGenerateMultiScenarios}
+        qaAssignee={header.qaOwner || currentTicket?.qaAssignee || 'Maseera Sayyed'}
+        onChangeQaAssignee={(val) => {
+          const next = { ...header, qaOwner: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        developer={header.developer || currentTicket?.developer || 'Rahul Sharma'}
+        onChangeDeveloper={(val) => {
+          const next = { ...header, developer: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        sha={header.sha || currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+        onChangeSha={(val) => {
+          const next = { ...header, sha: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        signOffBy={header.signOffBy || currentTicket?.signOffBy || 'Ashwini poke'}
+        onChangeSignOffBy={(val) => {
+          const next = { ...header, signOffBy: val };
+          setHeader(next);
+          onUpdateHeader?.(next);
+        }}
+        extraActions={
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={() => setHubMode('tickets-table')}
+              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title="View All Tickets List"
+            >
+              <Table className="w-3.5 h-3.5" />
+              <span>All Tickets</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePolishAllObservations}
+              disabled={isAiGenerating || observations.length === 0}
+              className="px-2.5 py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer disabled:opacity-40"
+              title="Auto-translate and polish all observation descriptions into corporate English with AI"
+            >
+              <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
+              <span>{isAiGenerating ? 'Polishing...' : '✨ Polish All with AI'}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAddRow}
+              className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Add Row</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadExcel}
+              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title="Export exact Excel sheet matching corporate format"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Excel</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAdoModalOpen(true)}
+              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              title="Upload observations to Azure DevOps"
+            >
+              <UploadCloud className="w-3.5 h-3.5" />
+              <span>Azure DevOps</span>
+            </button>
+          </div>
+        }
       />
 
       {/* Observation vs RFE Filter Pills */}
@@ -1510,16 +1560,55 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                     </select>
                   </td>
 
-                  {/* Observation / RFE text */}
-                  <td className="p-1 border-r border-slate-100">
-                    <textarea
-                      rows={2}
-                      value={obs.observationRFE}
-                      onChange={(e) => handleCellChange(obs.id, 'observationRFE', e.target.value)}
-                      onBlur={(e) => handleCellChange(obs.id, 'observationRFE', correctSpelling(e.target.value))}
-                      placeholder="Describe observation, issue, or RFE suggestion..."
-                      className="w-full px-2 py-1 text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
-                    />
+                  {/* Observation / RFE text - Multilingual Input with AI Polish */}
+                  <td className="p-1 border-r border-slate-100 align-top">
+                    <div className="relative group/obs">
+                      <textarea
+                        rows={2}
+                        value={obs.observationRFE}
+                        onChange={(e) => handleCellChange(obs.id, 'observationRFE', e.target.value)}
+                        onBlur={async (e) => {
+                          const val = e.target.value;
+                          if (val && val.trim() && autoPolishOnBlur) {
+                            await handlePolishSingleObservation(obs.id, val, obs.type);
+                          }
+                        }}
+                        onKeyDown={(e) => {
+                          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                            e.preventDefault();
+                            handlePolishSingleObservation(obs.id, obs.observationRFE, obs.type);
+                          }
+                        }}
+                        placeholder="Type in ANY language (Hinglish/Hindi/English) – AI will polish to corporate standard..."
+                        className="w-full px-2 py-1.5 text-slate-800 bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y transition-colors leading-relaxed"
+                      />
+
+                      <div className="flex items-center justify-between gap-1 px-1 mt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => handlePolishSingleObservation(obs.id, obs.observationRFE, obs.type)}
+                          disabled={polishingRowId === obs.id || !obs.observationRFE.trim()}
+                          title="Translate Hinglish, Hindi, or casual notes into formal QA English (Ctrl+Enter)"
+                          className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded cursor-pointer transition-all disabled:opacity-40 shadow-2xs"
+                        >
+                          {polishingRowId === obs.id ? (
+                            <>
+                              <Loader2 className="w-2.5 h-2.5 animate-spin text-indigo-600" />
+                              <span>Polishing with AI...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-2.5 h-2.5 text-indigo-600" />
+                              <span>✨ AI Polish</span>
+                            </>
+                          )}
+                        </button>
+
+                        <span className="text-[9px] text-slate-400 opacity-0 group-hover/obs:opacity-100 transition-opacity">
+                          Any language supported • Auto-polishes on blur
+                        </span>
+                      </div>
+                    </div>
                   </td>
 
                   {/* Priority */}

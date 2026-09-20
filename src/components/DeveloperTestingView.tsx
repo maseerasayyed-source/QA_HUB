@@ -1485,7 +1485,26 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         mode="developer"
         selectedTicketNumber={selectedTicketNo}
         tickets={tickets}
-        developerName={header.developer || currentTicket?.developer || ''}
+        clientName={header.clientName || 'Treasury Master'}
+        onChangeClientName={(val) => {
+          const next = { ...header, clientName: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        moduleName={currentTicket?.moduleName || 'Term Loan'}
+        taskName={header.taskName || header.featureName || 'penalty overdue report'}
+        onChangeTaskName={(val) => {
+          const next = { ...header, taskName: val, featureName: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        qaAssigneeName={header.qaAssignee || currentTicket?.qaAssignee || 'Maseera Sayyed'}
+        onChangeQaAssigneeName={(val) => {
+          const next = { ...header, qaAssignee: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        developerName={header.developer || currentTicket?.developer || 'Rahul Sharma'}
         onChangeDeveloperName={(val) => {
           const next = { ...header, developer: val };
           setHeader(next);
@@ -1494,6 +1513,18 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
             developerName: val,
           }));
           saveStateToStore(updatedItems, next);
+        }}
+        sha={header.sha || header.shaCommit || currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+        onChangeSha={(val) => {
+          const next = { ...header, sha: val, shaCommit: val };
+          setHeader(next);
+          saveStateToStore(items, next);
+        }}
+        signOffBy={header.signOffBy || currentTicket?.signOffBy || 'Ashwini poke'}
+        onChangeSignOffBy={(val) => {
+          const next = { ...header, signOffBy: val };
+          setHeader(next);
+          saveStateToStore(items, next);
         }}
         description={header.description || currentTicket?.description || ''}
         testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}

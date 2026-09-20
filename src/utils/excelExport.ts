@@ -15,6 +15,18 @@ const NAVY_HEADER_FILL: ExcelJS.Fill = {
   fgColor: { argb: 'FF1E3A8A' }, // Corporate Beacon Navy #1E3A8A
 };
 
+const CORPORATE_PEACH_HEADER_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FFFADBD8' }, // Corporate Peach / Soft Coral #FADBD8 as in user image
+};
+
+const CORPORATE_BLUE_META_FILL: ExcelJS.Fill = {
+  type: 'pattern',
+  pattern: 'solid',
+  fgColor: { argb: 'FF5DADE2' }, // Corporate Sky Blue #5DADE2 as in user image
+};
+
 const ZEBRA_LIGHT_FILL: ExcelJS.Fill = {
   type: 'pattern',
   pattern: 'solid',
@@ -101,23 +113,25 @@ export async function buildTestCasesWorkbook(
   // 1. Setup Column Widths
   worksheet.columns = [
     { key: 'testCaseId', width: 16 },
-    { key: 'testModule', width: 20 },
-    { key: 'featureTab', width: 28 },
-    { key: 'testScenario', width: 46 },
-    { key: 'testCases', width: 50 },
-    { key: 'testInputs', width: 34 },
-    { key: 'expectedResult', width: 48 },
-    { key: 'actualResult', width: 48 },
+    { key: 'testModule', width: 22 },
+    { key: 'featureTab', width: 26 },
+    { key: 'testScenario', width: 44 },
+    { key: 'testCases', width: 52 },
+    { key: 'expectedResult', width: 46 },
+    { key: 'actualResult', width: 46 },
     { key: 'status', width: 14 },
-    { key: 'screenshot1', width: 34 },
+    { key: 'screenshot1', width: 30 },
+    { key: 'screenshot2', width: 30 },
+    { key: 'screenshot3', width: 30 },
+    { key: 'screenshot4', width: 30 },
   ];
 
-  // 2. Metadata Rows (Rows 1 to 6)
+  // 2. Metadata Rows (Rows 1 to 6) - Styled in light cyan/blue matching Screenshot 3
   const metaRows = [
     `Ticket No - ${headerMeta.ticketNo || ''}`,
     `Client Name:-${headerMeta.clientName || ''}`,
-    `SHA : ${headerMeta.sha || ''}`,
-    `Task Name: ${headerMeta.taskName || ''}`,
+    `Branch: ${headerMeta.branch || 'Beaconweb+Release'}`,
+    `Task Name:${headerMeta.taskName || ''}`,
     `Task done by-${headerMeta.taskDoneBy || ''}`,
     `Sign off By - ${headerMeta.signOffBy || ''}`,
   ];
@@ -129,7 +143,7 @@ export async function buildTestCasesWorkbook(
     const cell = row.getCell(1);
     cell.value = text;
     cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F2942' } };
-    cell.fill = META_BG_FILL;
+    cell.fill = CORPORATE_BLUE_META_FILL;
     cell.border = {
       top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
       bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -143,18 +157,20 @@ export async function buildTestCasesWorkbook(
   worksheet.getRow(7).height = 12;
   worksheet.getRow(8).height = 12;
 
-  // 3. Table Headers (Row 9)
+  // 3. Table Headers (Row 9) - Matching user's Screenshot 3
   const headerTitles = [
     'TestCase_ID',
     'Test Module',
-    'feature tab /flow report',
+    'feature tab /flag/ report',
     'Test Scenario',
     'Test Cases',
-    'Test Inputs',
     'Expected Result',
     'Actual Result',
     'Status',
     'Screenshot1',
+    'Screenshot2',
+    'Screenshot3',
+    'Screenshot4',
   ];
 
   const headerRow = worksheet.getRow(9);
@@ -163,8 +179,8 @@ export async function buildTestCasesWorkbook(
   headerTitles.forEach((title, colIndex) => {
     const cell = headerRow.getCell(colIndex + 1);
     cell.value = title;
-    cell.fill = NAVY_HEADER_FILL;
-    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = CORPORATE_PEACH_HEADER_FILL;
+    cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF000000' } };
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
     cell.border = HEADER_BORDER;
   });
@@ -177,29 +193,16 @@ export async function buildTestCasesWorkbook(
     const isEven = rowIndex % 2 === 0;
     const defaultFill: ExcelJS.Fill = isEven ? WHITE_FILL : ZEBRA_LIGHT_FILL;
 
-    // Determine attachments and image data
-    let attachmentText = '';
-    let firstUrl = '';
-    let hasBase64Image = false;
-    let base64ImgInfo: { extension: 'png' | 'jpeg'; base64: string } | null = null;
+    // Determine screenshot URLs
+    const screenShots = [
+      tc.screenshot1 || (tc.attachments && tc.attachments[0]?.url) || '',
+      tc.screenshot2 || (tc.attachments && tc.attachments[1]?.url) || '',
+      tc.screenshot3 || (tc.attachments && tc.attachments[2]?.url) || '',
+      tc.screenshot4 || (tc.attachments && tc.attachments[3]?.url) || '',
+    ];
 
-    if (tc.attachments && tc.attachments.length > 0) {
-      attachmentText = tc.attachments.map((a) => a.name).join('; ');
-      const imgAtt = tc.attachments.find((a) => a.url && a.url.startsWith('data:image')) || tc.attachments[0];
-      firstUrl = imgAtt?.url || '';
-    } else if (tc.screenshot1) {
-      attachmentText = tc.screenshot1.startsWith('data:image') ? 'Screenshot Evidence' : tc.screenshot1;
-      firstUrl = tc.screenshot1;
-    }
-
-    if (firstUrl) {
-      base64ImgInfo = parseBase64Image(firstUrl);
-      if (base64ImgInfo) {
-        hasBase64Image = true;
-      }
-    }
-
-    row.height = hasBase64Image ? 95 : 42; // Height accommodates embedded image if available
+    const hasAnyImage = screenShots.some((s) => s && s.startsWith('data:image'));
+    row.height = hasAnyImage ? 95 : 44;
 
     const rowValues = [
       tc.testCaseId || '',
@@ -207,17 +210,19 @@ export async function buildTestCasesWorkbook(
       tc.featureTab || '',
       tc.testScenario || '',
       tc.testCases || '',
-      tc.testInputs || '',
       tc.expectedResult || '',
       tc.actualResult || '',
       (tc.status || 'not run').toLowerCase(),
-      attachmentText || 'None',
+      screenShots[0] ? (screenShots[0].startsWith('data:image') ? 'Screenshot 1' : screenShots[0]) : '',
+      screenShots[1] ? (screenShots[1].startsWith('data:image') ? 'Screenshot 2' : screenShots[1]) : '',
+      screenShots[2] ? (screenShots[2].startsWith('data:image') ? 'Screenshot 3' : screenShots[2]) : '',
+      screenShots[3] ? (screenShots[3].startsWith('data:image') ? 'Screenshot 4' : screenShots[3]) : '',
     ];
 
     rowValues.forEach((val, colIndex) => {
       const cell = row.getCell(colIndex + 1);
-      const isStatusCol = colIndex === 8;
-      const isAttCol = colIndex === 9;
+      const isStatusCol = colIndex === 7;
+      const isScreenshotCol = colIndex >= 8;
 
       // Fill & Borders
       cell.border = THIN_BORDER;
@@ -229,39 +234,42 @@ export async function buildTestCasesWorkbook(
         cell.fill = style.fill;
         cell.font = style.font;
         cell.alignment = { vertical: 'middle', horizontal: 'center' };
-      } else if (isAttCol) {
+      } else if (isScreenshotCol) {
         cell.fill = defaultFill;
-        if (hasBase64Image && base64ImgInfo) {
-          cell.value = attachmentText; // text label
-          cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF475569' } };
-          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+        const shotIdx = colIndex - 8;
+        const shotUrl = screenShots[shotIdx];
 
-          // Embed Base64 Image into Excel Worksheet!
-          try {
-            const imageId = workbook.addImage({
-              base64: base64ImgInfo.base64,
-              extension: base64ImgInfo.extension,
-            });
-
-            worksheet.addImage(imageId, {
-              tl: { col: 9, row: currentRowNumber - 1 }, // 0-based col (9 = column J) & 0-based row
-              ext: { width: 190, height: 85 },
-              editAs: 'oneCell',
-            });
-          } catch (e) {
-            console.error('Failed to embed base64 image into Excel', e);
+        if (shotUrl && shotUrl.startsWith('data:image')) {
+          const imgInfo = parseBase64Image(shotUrl);
+          if (imgInfo) {
+            cell.value = `Evidence ${shotIdx + 1}`;
+            cell.font = { name: 'Calibri', size: 9, color: { argb: 'FF475569' } };
+            cell.alignment = { vertical: 'top', horizontal: 'left' };
+            try {
+              const imageId = workbook.addImage({
+                base64: imgInfo.base64,
+                extension: imgInfo.extension,
+              });
+              worksheet.addImage(imageId, {
+                tl: { col: colIndex, row: currentRowNumber - 1 },
+                ext: { width: 170, height: 80 },
+                editAs: 'oneCell',
+              });
+            } catch (e) {
+              console.error('Failed to embed screenshot into Excel', e);
+            }
           }
-        } else if (firstUrl && firstUrl.startsWith('http')) {
+        } else if (shotUrl && shotUrl.startsWith('http')) {
           cell.value = {
-            text: attachmentText || 'View Attachment',
-            hyperlink: firstUrl,
+            text: `View Screenshot ${shotIdx + 1}`,
+            hyperlink: shotUrl,
           };
           cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF2563EB' }, underline: true };
-          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
         } else {
           cell.value = val;
-          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF1E293B' } };
-          cell.alignment = { vertical: 'top', horizontal: 'left', wrapText: true };
+          cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF64748B' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'center' };
         }
       } else {
         cell.value = val;
@@ -346,12 +354,14 @@ export async function buildObservationsWorkbook(
     { key: 'status', width: 26 },
   ];
 
-  // Metadata block (Rows 1-4)
+  // Metadata block (Rows 1-6 matching Picture 4)
   const metaRows = [
-    `Ticket Name : ${headerMeta.ticketName || ''}`,
-    `Ticket Number : ${headerMeta.ticketNo || ''}`,
-    `QA Owner : ${headerMeta.qaOwner || ''}`,
-    `Report Date : ${headerMeta.date || new Date().toISOString().split('T')[0]}`,
+    `Client Name:-${headerMeta.clientName || 'Treasury Master'}`,
+    `Client Name:-${headerMeta.clientName || 'Treasury Master'}`,
+    `SHA : ${headerMeta.sha || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}`,
+    `Task Name: ${headerMeta.taskName || headerMeta.ticketName || 'penalty overdue report'}`,
+    `Task done by-${headerMeta.qaOwner || 'Maseera Sayyed'}`,
+    `Sign off By - ${headerMeta.signOffBy || 'Ashwini poke'}`,
   ];
 
   metaRows.forEach((text, index) => {
@@ -370,10 +380,10 @@ export async function buildObservationsWorkbook(
     cell.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
   });
 
-  worksheet.getRow(5).height = 12; // spacing
+  worksheet.getRow(7).height = 12; // spacing
 
-  // Headers (Row 6)
-  const headerRow = worksheet.getRow(6);
+  // Headers (Row 8)
+  const headerRow = worksheet.getRow(8);
   headerRow.height = 28;
   const headers = [
     'Observation / RFE ID',
@@ -393,9 +403,9 @@ export async function buildObservationsWorkbook(
     cell.border = HEADER_BORDER;
   });
 
-  // Data rows (Row 7 onwards)
+  // Data rows (Row 9 onwards)
   observations.forEach((obs, rowIndex) => {
-    const rowNumber = 7 + rowIndex; // 1-based row index in Excel
+    const rowNumber = 9 + rowIndex; // 1-based row index in Excel
     const row = worksheet.getRow(rowNumber);
 
     const isEven = rowIndex % 2 === 0;

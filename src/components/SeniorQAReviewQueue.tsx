@@ -582,7 +582,28 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
             mode="qa"
             selectedTicketNumber={activeItem.ticket.ticketNumber}
             tickets={tickets}
-            developerName={activeItem.ticket.developer || activeItem.header.developer || ''}
+            clientName={activeItem.header.clientName || 'Treasury Master'}
+            onChangeClientName={(val) => {
+              const updatedHeader = { ...activeItem.header, clientName: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            moduleName={activeItem.ticket.moduleName || 'Term Loan'}
+            taskName={activeItem.header.taskName || activeItem.ticket.featureName || 'penalty overdue report'}
+            onChangeTaskName={(val) => {
+              const updatedHeader = { ...activeItem.header, taskName: val, description: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            sha={activeItem.header.sha || activeItem.ticket.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+            onChangeSha={(val) => {
+              const updatedHeader = { ...activeItem.header, sha: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            signOffBy={activeItem.header.signOffBy || activeItem.ticket.signOffBy || 'Ashwini poke'}
+            onChangeSignOffBy={(val) => {
+              const updatedHeader = { ...activeItem.header, signOffBy: val };
+              onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
+            }}
+            developerName={activeItem.ticket.developer || activeItem.header.developer || 'Rahul Sharma'}
             qaAssigneeName={activeItem.ticket.qaAssignee || activeItem.header.taskDoneBy || 'Maseera Sayyed'}
             reviewDoneBy={activeItem.header.reviewDoneBy || activeItem.header.approvedBy}
             reviewDoneAt={activeItem.header.reviewDoneAt || activeItem.header.approvedAt}

@@ -12,6 +12,7 @@ export interface ConvertedCommandResult {
     testScenario: string;
     testCases: string;
     expectedResult: string;
+    actualResult?: string;
     validationScenario: string;
   };
 }
@@ -170,18 +171,22 @@ export async function processLanguageCommand(
     console.warn('Backend command converter failed, using local parser:', err);
   }
 
-  // Local fallback
+  // Local fallback matching corporate GPT style
   const translated = translateHinglishOffline(command);
-  const isNegative = /error|invalid|fail|alert|disable|not|must not|cannot/i.test(translated);
+  const isNegative = /error|invalid|fail|alert|disable|not|must not|cannot|prevent/i.test(translated);
+  const cleanAction = translated.replace(/^(verify that|validate that|ensure that)\s+/i, '');
 
   return {
     englishText: translated,
     structuredTestCase: {
-      testScenario: translated,
-      testCases: `1. Open ${moduleName} workspace for Ticket #${ticketNo}.\n2. Input test data according to scenario.\n3. Execute action and verify system response.`,
+      testScenario: `Validate the functionality for ${cleanAction}`,
+      testCases: `Verify that when ${cleanAction}, the corresponding actions and data remain properly handled in ${moduleName} for Ticket #${ticketNo}.`,
       expectedResult: isNegative
-        ? 'System displays appropriate validation warning and prevents invalid data persistence.'
-        : 'System accepts the inputs, completes the transaction, and updates records accurately.',
+        ? `• System displays appropriate validation alert/error message.\n• Prevents invalid operation or mismatched balance.\n• Existing records remain unmodified.`
+        : `• Operation executes successfully without errors.\n• Both related actions and transaction balances remain fully synchronized.\n• Status updates to completed state.`,
+      actualResult: isNegative
+        ? 'System successfully triggered validation alert and prevented invalid operation as expected.'
+        : 'Operation completed successfully and all related actions and balances were synchronized correctly as expected.',
       validationScenario: isNegative ? 'Negative Validation' : 'Positive Workflow',
     },
   };

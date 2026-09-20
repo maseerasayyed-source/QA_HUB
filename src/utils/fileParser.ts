@@ -1,5 +1,12 @@
 import * as XLSX from 'xlsx';
-import { AttachedDocOrImage, TestCaseItem } from '../types';
+import { AttachedDocOrImage, TestCaseItem, TestCaseHeaderMeta } from '../types';
+
+export interface CorporateExcelParseResult {
+  headerMeta: Partial<TestCaseHeaderMeta>;
+  testCases: TestCaseItem[];
+  sheetName: string;
+  totalRows: number;
+}
 
 /**
  * Compresses an image data URL to a max dimension and quality
@@ -136,76 +143,230 @@ export async function parseUploadedFile(file: File): Promise<AttachedDocOrImage>
 }
 
 /**
+ * Parses a Corporate Test Case Excel Sheet (e.g. Treasury Master / Beacon Web format)
+ * Handles both the Top Metadata Block (Ticket No, Client Name, Branch, Task Name, Task done by, Sign off By)
+ * and the Test Cases Table starting at Row 9 or any dynamic header row.
+ */
+export async function parseCorporateExcelSheet(file: File): Promise<CorporateExcelParseResult> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const buffer = e.target?.result as ArrayBuffer;
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        
+        // Find best sheet: prefer "Test case", "Test Cases", or first sheet
+        let targetSheetName = workbook.SheetNames[0] || 'Sheet1';
+        for (const sName of workbook.SheetNames) {
+          const lower = sName.toLowerCase();
+          if (lower.includes('test case') || lower === 'testcase' || lower === 'test cases') {
+            targetSheetName = sName;
+            break;
+          }
+        }
+
+        const sheet = workbook.Sheets[targetSheetName];
+        if (!sheet) {
+          resolve({ headerMeta: {}, testCases: [], sheetName: targetSheetName, totalRows: 0 });
+          return;
+        }
+
+        // Get raw 2D grid
+        const rawGrid: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+
+        const headerMeta: Partial<TestCaseHeaderMeta> = {};
+
+        // 1. Scan rows 0 to 12 for Top Metadata Header (e.g. "Ticket No - FEATURE 22609", "Client Name:-Treasury Master", etc.)
+        for (let r = 0; r < Math.min(rawGrid.length, 12); r++) {
+          const row = rawGrid[r] || [];
+          for (let c = 0; c < Math.min(row.length, 5); c++) {
+            const cellStr = String(row[c] || '').trim();
+            if (!cellStr) continue;
+
+            const lower = cellStr.toLowerCase();
+            if (lower.includes('ticket no') || lower.includes('ticket:')) {
+              // Extract ticket number
+              const val = cellStr.replace(/^ticket\s*no\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.ticketNo = val;
+            } else if (lower.includes('client name')) {
+              const val = cellStr.replace(/^client\s*name\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.clientName = val;
+            } else if (lower.includes('branch:')) {
+              const val = cellStr.replace(/^branch\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.branch = val;
+            } else if (lower.includes('task name') || lower.includes('feature name')) {
+              const val = cellStr.replace(/^(task|feature)\s*name\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.taskName = val;
+            } else if (lower.includes('task done by') || lower.includes('task done') || lower.includes('qa:')) {
+              const val = cellStr.replace(/^task\s*done\s*by\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.taskDoneBy = val;
+            } else if (lower.includes('sign off by') || lower.includes('sign off:')) {
+              const val = cellStr.replace(/^sign\s*off\s*by\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.signOffBy = val;
+            } else if (lower.includes('sha :') || lower.includes('sha:')) {
+              const val = cellStr.replace(/^sha\s*[:-]?\s*/i, '').trim();
+              if (val) headerMeta.sha = val;
+            }
+          }
+        }
+
+        // 2. Locate Table Header Row (containing TestCase_ID or Test Scenario or Test Cases)
+        let headerRowIndex = -1;
+        let colMap: Record<string, number> = {};
+
+        for (let r = 0; r < Math.min(rawGrid.length, 25); r++) {
+          const row = rawGrid[r] || [];
+          const rowStr = row.map((c) => String(c).toLowerCase().replace(/[^a-z0-9]/g, '')).join(' ');
+
+          if (
+            rowStr.includes('testcase') ||
+            rowStr.includes('testscenario') ||
+            rowStr.includes('scenario') ||
+            (rowStr.includes('expected') && rowStr.includes('actual'))
+          ) {
+            headerRowIndex = r;
+            // Build column map
+            row.forEach((cellVal, cIdx) => {
+              const norm = String(cellVal).toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (norm.includes('testcaseid') || norm === 'tcid' || norm === 'id' || norm.includes('testcase')) {
+                if (!colMap['testCaseId']) colMap['testCaseId'] = cIdx;
+              }
+              if (norm.includes('testmodule') || (norm.includes('module') && !colMap['testModule'])) {
+                colMap['testModule'] = cIdx;
+              }
+              if (norm.includes('featuretab') || norm.includes('flag') || norm.includes('report') || norm.includes('tab')) {
+                colMap['featureTab'] = cIdx;
+              }
+              if (norm.includes('testscenario') || (norm.includes('scenario') && !colMap['testScenario'])) {
+                colMap['testScenario'] = cIdx;
+              }
+              if (
+                (norm.includes('testcases') || norm.includes('teststeps') || norm.includes('steps')) &&
+                cIdx !== colMap['testScenario']
+              ) {
+                colMap['testCases'] = cIdx;
+              }
+              if (norm.includes('inputs') || norm.includes('testinputs') || norm.includes('data')) {
+                colMap['testInputs'] = cIdx;
+              }
+              if (norm.includes('expected')) {
+                colMap['expectedResult'] = cIdx;
+              }
+              if (norm.includes('actual')) {
+                colMap['actualResult'] = cIdx;
+              }
+              if (norm.includes('status') || norm === 'result') {
+                colMap['status'] = cIdx;
+              }
+              if (norm.includes('screenshot1') || (norm.includes('screenshot') && !colMap['screenshot1'])) {
+                colMap['screenshot1'] = cIdx;
+              }
+              if (norm.includes('screenshot2')) colMap['screenshot2'] = cIdx;
+              if (norm.includes('screenshot3')) colMap['screenshot3'] = cIdx;
+              if (norm.includes('screenshot4')) colMap['screenshot4'] = cIdx;
+            });
+            break;
+          }
+        }
+
+        // Fallback column positions if specific columns were not matched by name
+        if (headerRowIndex !== -1) {
+          if (colMap['testCaseId'] === undefined) colMap['testCaseId'] = 0;
+          if (colMap['testScenario'] === undefined) colMap['testScenario'] = 3;
+          if (colMap['testCases'] === undefined) colMap['testCases'] = 4;
+          if (colMap['expectedResult'] === undefined) colMap['expectedResult'] = 6;
+          if (colMap['actualResult'] === undefined) colMap['actualResult'] = 7;
+        }
+
+        const testCases: TestCaseItem[] = [];
+
+        if (headerRowIndex !== -1) {
+          for (let r = headerRowIndex + 1; r < rawGrid.length; r++) {
+            const row = rawGrid[r] || [];
+            if (row.length === 0) continue;
+
+            const tcIdVal = String(row[colMap['testCaseId'] ?? 0] || '').trim();
+            const scenarioVal = String(row[colMap['testScenario'] ?? 3] || '').trim();
+            const stepsVal = String(row[colMap['testCases'] ?? 4] || '').trim();
+            const expectedVal = String(row[colMap['expectedResult'] ?? 6] || '').trim();
+            const actualVal = String(row[colMap['actualResult'] ?? 7] || '').trim();
+
+            // Skip completely empty rows
+            if (!tcIdVal && !scenarioVal && !stepsVal && !expectedVal) continue;
+
+            const moduleVal = colMap['testModule'] !== undefined ? String(row[colMap['testModule']] || '').trim() : '';
+            const featureTabVal = colMap['featureTab'] !== undefined ? String(row[colMap['featureTab']] || '').trim() : '';
+            const inputsVal = colMap['testInputs'] !== undefined ? String(row[colMap['testInputs']] || '').trim() : '';
+            const rawStatus = colMap['status'] !== undefined ? String(row[colMap['status']] || '').toLowerCase().trim() : '';
+
+            let status: 'pass' | 'fail' | 'blocked' | 'not run' = 'not run';
+            if (rawStatus.includes('pass')) status = 'pass';
+            else if (rawStatus.includes('fail')) status = 'fail';
+            else if (rawStatus.includes('block')) status = 'blocked';
+
+            const screenshot1 = colMap['screenshot1'] !== undefined ? String(row[colMap['screenshot1']] || '').trim() : '';
+            const screenshot2 = colMap['screenshot2'] !== undefined ? String(row[colMap['screenshot2']] || '').trim() : '';
+            const screenshot3 = colMap['screenshot3'] !== undefined ? String(row[colMap['screenshot3']] || '').trim() : '';
+            const screenshot4 = colMap['screenshot4'] !== undefined ? String(row[colMap['screenshot4']] || '').trim() : '';
+
+            const attachments = [];
+            if (screenshot1) attachments.push({ id: `att-${Date.now()}-1`, name: 'Evidence 1', url: screenshot1 });
+            if (screenshot2) attachments.push({ id: `att-${Date.now()}-2`, name: 'Evidence 2', url: screenshot2 });
+            if (screenshot3) attachments.push({ id: `att-${Date.now()}-3`, name: 'Evidence 3', url: screenshot3 });
+            if (screenshot4) attachments.push({ id: `att-${Date.now()}-4`, name: 'Evidence 4', url: screenshot4 });
+
+            testCases.push({
+              id: `imported-excel-${Date.now()}-${testCases.length + 1}`,
+              testCaseId: tcIdVal || `TC0${testCases.length + 1}`,
+              testModule: moduleVal || 'CC/OD and Bank Balance',
+              featureTab: featureTabVal || 'Bank Balance Master',
+              testScenario: scenarioVal || `Validate ${headerMeta.taskName || 'Scenario'}`,
+              testCases: stepsVal || '1. Navigate to screen.\n2. Execute test step.\n3. Verify response.',
+              testInputs: inputsVal,
+              expectedResult: expectedVal || 'System functions in accordance with specifications.',
+              actualResult: actualVal || 'Verified successfully as expected.',
+              status,
+              reviewStatus: 'Draft',
+              version: '1.0',
+              screenshot1: screenshot1 || undefined,
+              screenshot2: screenshot2 || undefined,
+              screenshot3: screenshot3 || undefined,
+              screenshot4: screenshot4 || undefined,
+              attachments,
+              isAiGenerated: false,
+              createdBy: headerMeta.taskDoneBy || 'Imported from Excel',
+              authorRole: 'QA',
+              createdAt: new Date().toLocaleDateString(),
+            });
+          }
+        }
+
+        resolve({
+          headerMeta,
+          testCases,
+          sheetName: targetSheetName,
+          totalRows: testCases.length,
+        });
+      } catch (err) {
+        console.error('Corporate Excel parser error:', err);
+        resolve({ headerMeta: {}, testCases: [], sheetName: 'Sheet1', totalRows: 0 });
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+/**
  * Extract test cases from an uploaded Excel or text file for QA Review
  */
 export async function parseTestCasesFromFile(file: File): Promise<TestCaseItem[]> {
   const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
 
   if (fileExt === 'xlsx' || fileExt === 'xls' || fileExt === 'csv') {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const buffer = e.target?.result as ArrayBuffer;
-          const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
-          const firstSheet = workbook.SheetNames[0];
-          const sheet = workbook.Sheets[firstSheet];
-          const rawRows: Record<string, any>[] = XLSX.utils.sheet_to_json(sheet);
-
-          if (rawRows.length > 0) {
-            const parsed: TestCaseItem[] = rawRows.map((row, idx) => {
-              // Flexible column matching
-              const findVal = (...keys: string[]) => {
-                for (const k of Object.keys(row)) {
-                  const lowerK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-                  for (const target of keys) {
-                    if (lowerK.includes(target.toLowerCase().replace(/[^a-z0-9]/g, ''))) {
-                      return String(row[k]);
-                    }
-                  }
-                }
-                return '';
-              };
-
-              const tcId = findVal('testcaseid', 'tcid', 'caseid', 'id') || `TC${idx + 1}`;
-              const scenario = findVal('scenario', 'testscenario', 'title', 'summary', 'feature') || `Test Scenario ${idx + 1}`;
-              const steps = findVal('testcases', 'steps', 'teststeps', 'action', 'description') || '1. Perform action.\n2. Verify result.';
-              const inputs = findVal('testinputs', 'inputs', 'data', 'parameters') || '';
-              const expected = findVal('expectedresult', 'expected', 'expectedoutput') || 'System executes operation successfully.';
-              const actual = findVal('actualresult', 'actual', 'outcome') || 'Pending execution';
-              const statusRaw = findVal('status', 'result', 'state').toLowerCase();
-
-              let status: 'pass' | 'fail' | 'blocked' | 'not run' = 'not run';
-              if (statusRaw.includes('pass')) status = 'pass';
-              else if (statusRaw.includes('fail')) status = 'fail';
-              else if (statusRaw.includes('block')) status = 'blocked';
-
-              return {
-                id: `import-tc-${Date.now()}-${idx}`,
-                testCaseId: tcId,
-                testModule: 'Term Loan',
-                featureTab: 'Review Import',
-                testScenario: scenario,
-                testCases: steps,
-                testInputs: inputs,
-                expectedResult: expected,
-                actualResult: actual,
-                status,
-                reviewStatus: 'In Review',
-                version: '1.0',
-                isAiGenerated: true,
-              };
-            });
-            resolve(parsed);
-            return;
-          }
-        } catch (err) {
-          console.error('Error parsing Excel file:', err);
-        }
-        resolve([]);
-      };
-      reader.readAsArrayBuffer(file);
-    });
+    const corpResult = await parseCorporateExcelSheet(file);
+    if (corpResult.testCases.length > 0) {
+      return corpResult.testCases;
+    }
   }
 
   // Fallback text/word parser

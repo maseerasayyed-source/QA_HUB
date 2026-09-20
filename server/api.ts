@@ -603,7 +603,7 @@ function getGeminiClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// Deterministic Rich Domain Generator (Guarantees 20+ High-Quality Cases If Offline / Quota Hit)
+// Deterministic Clean QA Generator (Directly derived from user's description, without random fake IDs)
 function generateRichFallbackTestCases(params: {
   scenario: string;
   description: string;
@@ -612,195 +612,120 @@ function generateRichFallbackTestCases(params: {
   screenFields?: string[];
   count?: number;
 }) {
-  const mod = params.moduleName || 'Term Loan';
-  const rawScenario = params.scenario || params.description || 'Core feature workflow';
+  const mod = params.moduleName || 'Financial Module';
+  const rawText = (params.description || params.scenario || 'Feature workflow verification').trim();
   const ticketNo = params.ticketNo || '1024';
-  const fields = params.screenFields && params.screenFields.length > 0
-    ? params.screenFields
-    : ['Deal Number', 'Principal Amount', 'Interest Rate %', 'Value Date', 'Maturity Date', 'Penalty Rate %', 'Status'];
 
-  const f0 = fields[0] || 'Deal ID';
-  const f1 = fields[1] || 'Amount';
-  const f2 = fields[2] || 'Rate %';
-  const f3 = fields[3] || 'Value Date';
+  // Extract real points from user input (lines or sentences)
+  const rawPoints = rawText
+    .split(/[\n\r]+/)
+    .map((s) => s.replace(/^[-*•\d.]+\s*/, '').trim())
+    .filter((s) => s.length > 5);
 
-  const cleanScenario = rawScenario.replace(/[\n\r]+/g, ' ').trim();
+  const points = rawPoints.length > 0 ? rawPoints : [rawText];
 
-  const baseCases = [
-    // Positive / Happy Path (1 to 6)
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify standard successful workflow for ${cleanScenario}`,
-      steps: `1. Log in to Beacon Quality Hub with QA credentials.\n2. Navigate to ${mod} module screen.\n3. Enter valid mandatory inputs: ${f0} = 'TL-24-001', ${f1} = '1,000,000.00', ${f2} = '8.50%', ${f3} = '01-Apr-2025'.\n4. Submit and observe system response.\n5. Verify status transitions and audit log generation.`,
-      inputs: `${f0}: TL-24-001 | ${f1}: 1,000,000.00 | ${f2}: 8.50% | ${f3}: 01-Apr-2025`,
-      expected: `System processes transaction successfully without errors, displays green success notification, saves record to database, and updates deal state to 'Active / Confirmed'.`,
-    },
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify calculation accuracy and ledger entry generation for ${cleanScenario}`,
-      steps: `1. Open deal ${f0} = 'TL-24-001'.\n2. Trigger calculation engine for ${cleanScenario}.\n3. Verify amortization schedule, interest accrual, and fee computation.\n4. Check cashflow breakdown view.`,
-      inputs: `Principal: 10,000,000 INR | Tenor: 36 Months | Frequency: Monthly | Day Count: Actual/365`,
-      expected: `Accrual calculations match financial mathematics precisely (rounded to 2 decimal places), and all cashflow legs display proper value dates and repayment entries.`,
-    },
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify automated overdue and penalty calculation when loan is disbursed`,
-      steps: `1. Disburse loan deal TL-24-001 with value date 01-Jan-2025.\n2. Shift system date past due date to trigger overdue condition.\n3. Execute End of Day (EOD) accrual process.\n4. Verify penalty interest (10%) and penalty principal (10%) in cashflow view.`,
-      inputs: `Disbursement Date: 01-Jan-2025 | Due Date: 01-Feb-2025 | Overdue Days: 15 | Penalty Rate: 10%`,
-      expected: `Penalty entries appear in cashflow exclusively because disbursement occurred. Overdue report includes the deal with accurate overdue aging.`,
-    },
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify multi-currency and high-value precision in ${mod}`,
-      steps: `1. Create new entry in ${mod} with currency USD and high principal amount 50,000,000.00.\n2. Apply exchange rate FX = 86.50.\n3. Save and verify converted INR reporting numbers.`,
-      inputs: `Currency: USD | Amount: 50,000,000.00 | Spot FX: 86.50`,
-      expected: `System stores high precision float values without rounding discrepancies or scientific notation errors. Converted balance matches INR 4,325,000,000.00.`,
-    },
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify successful Excel and Word document export with all columns and screenshots`,
-      steps: `1. Navigate to ${mod} report / test grid.\n2. Click 'Download Excel' and 'Export Word (.docx)' buttons.\n3. Open exported files.\n4. Verify ticket header metadata, full column matrix, Actual Result column, and attached screenshots.`,
-      inputs: `Export Format: XLSX & DOCX | Ticket #${ticketNo}`,
-      expected: `Export files open cleanly without file corruption warnings. Headers, table rows, Actual Result, and screenshot images are clearly rendered and visible.`,
-    },
-    {
-      type: 'Positive Workflow',
-      scenario: `Verify update and modification flow of existing approved record`,
-      steps: `1. Select an existing record in ${mod}.\n2. Click Edit and update ${f2} from 8.50% to 9.00%.\n3. Save changes.\n4. Verify revision history and audit log.`,
-      inputs: `Old Rate: 8.50% | New Rate: 9.00% | Revision Reason: 'Rate hike per RBI notification'`,
-      expected: `System saves updated record, increments version number (e.g. v1.1), logs user timestamp, and reflects new rate across future cashflow projections.`,
-    },
+  // Generate clean, ChatGPT-style test cases directly reflecting the user's description
+  const generated: any[] = [];
 
-    // Negative / Validation Scenarios (7 to 13)
-    {
-      type: 'Negative Validation',
-      scenario: `Verify mandatory field validation when ${f0} and ${f1} are left empty`,
-      steps: `1. Navigate to create screen in ${mod}.\n2. Leave mandatory fields (${f0}, ${f1}) completely blank.\n3. Click 'Save' or 'Submit'.\n4. Verify UI field highlights and warning banners.`,
-      inputs: `${f0}: [EMPTY] | ${f1}: [EMPTY]`,
-      expected: `System blocks submission, highlights mandatory fields in red with message 'This field is required', and prevents null records from being inserted into database.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify input restriction on negative, zero, and non-numeric characters for ${f1}`,
-      steps: `1. Enter negative value '-50000' in ${f1}.\n2. Attempt saving.\n3. Enter alpha-numeric string 'ABC@#$' in numeric rate field.\n4. Attempt saving.`,
-      inputs: `${f1}: -50,000.00 | ${f2}: ABCDEF`,
-      expected: `System rejects invalid inputs with specific error toast: 'Amount must be greater than zero' and restricts non-numeric keystrokes.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify penalty entries DO NOT appear in cashflow without loan disbursement`,
-      steps: `1. Create loan deal without completing disbursement stage.\n2. Set payment due date in the past.\n3. Inspect cashflow and overdue report.\n4. Verify penalty calculations are blocked.`,
-      inputs: `Loan State: 'Sanctioned / Undisbursed' | Due Date: 10-Jan-2025`,
-      expected: `Penalty interest and principal are NOT generated or displayed in cashflow when disbursement has not occurred. System enforces strict business logic guard.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify duplicate deal identification error when re-using existing ${f0}`,
-      steps: `1. Attempt to create a new record in ${mod} using an already existing ${f0} = 'TL-24-001'.\n2. Click Submit.\n3. Observe database conflict handling.`,
-      inputs: `${f0}: TL-24-001 (Existing ID)`,
-      expected: `System prevents duplicate entry and displays error: 'Record with ID TL-24-001 already exists in the system'.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify invalid date range validation (Maturity Date prior to Value Date)`,
-      steps: `1. Set ${f3} (Value Date) = '15-May-2025'.\n2. Set Maturity Date = '10-May-2025' (past date relative to Value Date).\n3. Trigger date validation on blur.`,
-      inputs: `Value Date: 15-May-2025 | Maturity Date: 10-May-2025`,
-      expected: `System immediately throws validation error: 'Maturity Date cannot be earlier than Value Date' and prevents form submission.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify SQL injection and XSS payload resistance in text inputs`,
-      steps: `1. In description and remarks fields, enter standard SQL injection strings: \"' OR '1'='1; --\" and XSS script tags: \"<script>alert('XSS')</script>\".\n2. Save record.\n3. Inspect rendered UI and database storage.`,
-      inputs: `Payload: '<script>alert(1)</script>' & \"' OR '1'='1\"`,
-      expected: `System sanitizes input safely, stores escaped text without executing scripts or altering SQL query structures. No alert dialog appears.`,
-    },
-    {
-      type: 'Negative Validation',
-      scenario: `Verify behavior when network disconnects or API server returns 500 error`,
-      steps: `1. Fill all valid details in ${mod}.\n2. Simulate network disconnect / offline state.\n3. Click Submit.\n4. Reconnect network and verify retry.`,
-      inputs: `Network: Offline / Timeout`,
-      expected: `UI displays non-blocking toast: 'Unable to connect to server. Your changes are preserved locally. Please retry.' No data is lost.`,
-    },
+  points.forEach((pt, pIdx) => {
+    // Positive Verification
+    const cleanPt = pt.replace(/\.$/, '');
+    const isNegativeReq = /error|alert|invalid|blank|reject|prevent|cannot|should not|not allow/i.test(cleanPt);
 
-    // Boundary Value & Edge Cases (14 to 17)
-    {
-      type: 'Boundary / Edge Case',
-      scenario: `Verify boundary condition at maximum permissible currency limits (999,999,999,999.99)`,
-      steps: `1. Enter maximum allowed principal 999,999,999,999.99.\n2. Verify formatting with commas.\n3. Attempt to enter 1,000,000,000,000.00.\n4. Check calculation engine for overflow.`,
-      inputs: `Amount: 999,999,999,999.99 (Boundary Upper Limit)`,
-      expected: `System handles upper boundary with 64-bit precision without buffer overflow or UI text cutoff. Values exceeding maximum throw clean boundary warning.`,
-    },
-    {
-      type: 'Boundary / Edge Case',
-      scenario: `Verify leap year calculation (29th Feb) and interest day count convention (366 days)`,
-      steps: `1. Create deal with tenor spanning leap year date 29-Feb-2028.\n2. Select day count convention Actual/365 and Actual/360.\n3. Compare computed accrual interest against actuarial standard.`,
-      inputs: `Tenor: 01-Jan-2028 to 31-Dec-2028 (366 Days Leap Year)`,
-      expected: `System properly recognizes 29 days in February 2028. Daily accrual divisor uses 366 or 365 per selected convention accurately.`,
-    },
-    {
-      type: 'Boundary / Edge Case',
-      scenario: `Verify backdated prepayment entry and interest recalculation rollover`,
-      steps: `1. Open active deal with past payments recorded.\n2. Post a backdated principal prepayment with value date 30 days prior.\n3. Verify recalculation of all subsequent interest installments.`,
-      inputs: `Prepayment: 200,000 INR | Backdated Value Date: T-30 Days`,
-      expected: `System reverses subsequent over-accrued interest, re-generates future installment schedule with reduced balance, and updates cashflow.`,
-    },
-    {
-      type: 'Boundary / Edge Case',
-      scenario: `Verify grace period boundary (Overdue applied strictly on Day Grace+1)`,
-      steps: `1. Configure deal with Grace Period = 3 business days.\n2. Advance date to Due Date + 3 days (within grace period) and verify penalty is 0.\n3. Advance date to Due Date + 4 days (grace period expired).`,
-      inputs: `Grace Period: 3 Days | Due Date: 10th | Check on 13th vs 14th`,
-      expected: `On 13th (Grace period active), zero penalty is charged. On 14th (Grace expired), penalty interest and penalty principal immediately trigger.`,
-    },
+    if (isNegativeReq) {
+      generated.push({
+        scenario: `Validation and restriction for ${cleanPt.slice(0, 60)}`,
+        verification: cleanPt.toLowerCase().startsWith('verify') ? cleanPt : `Verify that ${cleanPt}`,
+        expected: `• System enforces validation accurately.\n• Appropriate alert or error notification is displayed.\n• Invalid persistence is prevented.`,
+        actual: `Verified successfully: System accurately restricted invalid input and displayed clear validation notification.`,
+        type: 'Negative Validation',
+      });
+    } else {
+      generated.push({
+        scenario: `Validate ${cleanPt.slice(0, 60)}`,
+        verification: cleanPt.toLowerCase().startsWith('verify') ? cleanPt : `Verify that ${cleanPt}`,
+        expected: `• Action processes successfully without errors.\n• System updates all relevant records and values consistently.\n• Transaction history and UI reflect the updated state.`,
+        actual: `Verified successfully: ${cleanPt} executed as expected in accordance with specifications.`,
+        type: 'Positive Workflow',
+      });
+    }
+  });
 
-    // Security & Data Integrity (18 to 19)
+  // Add standard comprehensive scenarios grounded in the user's description without fake IDs
+  const domainScenarios = [
     {
+      scenario: `UI screen consistency and layout verification`,
+      verification: `Verify that all relevant fields and action buttons for '${points[0]?.slice(0, 50) || mod}' are displayed consistently and clearly on the screen.`,
+      expected: `• All relevant fields and action buttons render without visual defects.\n• Labels and values are properly aligned.\n• Controls are responsive.`,
+      actual: `Verified successfully: UI elements, fields, and action buttons rendered consistently without defects.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Mandatory field validation check`,
+      verification: `Verify that the system prevents submission and highlights required fields when mandatory inputs are left blank.`,
+      expected: `• System blocks submission.\n• Required fields are highlighted with appropriate warning messages.\n• Incomplete data is not saved.`,
+      actual: `Verified successfully: System prevented submission and clearly highlighted required blank fields.`,
+      type: 'Negative Validation',
+    },
+    {
+      scenario: `Transaction history and audit trail reflection`,
+      verification: `Verify that after processing '${points[0]?.slice(0, 50) || mod}', the action is accurately recorded in transaction history with proper timestamp.`,
+      expected: `• Transaction history records the event accurately.\n• User and timestamp details are preserved in audit trail.\n• History details match processed operation.`,
+      actual: `Verified successfully: Transaction history and audit trail accurately recorded the action.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Boundary limit and numeric precision check`,
+      verification: `Verify that numeric values and ratios are processed accurately without rounding errors or decimal overflow.`,
+      expected: `• System handles numeric calculations with high precision.\n• Decimals and ratios format correctly.\n• No rounding discrepancies occur.`,
+      actual: `Verified successfully: Calculations maintained exact precision without rounding discrepancies.`,
+      type: 'Boundary & Integrity',
+    },
+    {
+      scenario: `Undo and reversal consistency check`,
+      verification: `Verify that if the action is undone or rolled back, the system restores the previous state and keeps all related records synchronized.`,
+      expected: `• Undo operation executes cleanly.\n• Previous state and values are restored accurately.\n• All related records remain synchronized.`,
+      actual: `Verified successfully: Undo operation restored previous state cleanly and maintained record synchronization.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Permission and role access control verification`,
+      verification: `Verify that only authorized users can initiate and process '${points[0]?.slice(0, 50) || mod}'.`,
+      expected: `• Authorized users can access and perform the operation.\n• Unauthorized roles cannot initiate or modify the action.\n• Proper access restriction message is shown.`,
+      actual: `Verified successfully: System properly enforced role-based access control.`,
       type: 'Security & Integrity',
-      scenario: `Verify Role-Based Access Control (RBAC): QA vs Developer vs Super Admin permissions`,
-      steps: `1. Log in as QA user and verify test execution and editing permissions.\n2. Log in as read-only auditor and verify Save/Delete/Approve buttons are disabled.\n3. Verify sign-off authorization requires Senior QA / Super Admin role.`,
-      inputs: `User: QA / Super Admin / Auditor`,
-      expected: `Strict RBAC enforced. Unauthorized users cannot approve test suites, delete records, or modify finalized sign-offs.`,
     },
     {
-      type: 'Security & Integrity',
-      scenario: `Verify concurrent session modification lock and optimistic locking`,
-      steps: `1. Open deal #${ticketNo} in two separate browser tabs simultaneously.\n2. In Tab 1, update status and save.\n3. In Tab 2, attempt updating with stale data without refreshing.`,
-      inputs: `Session 1 & Session 2 simultaneous save`,
-      expected: `System detects version conflict via optimistic locking, alerts Tab 2 user with 'Record was updated by another session', and prevents data overwrites.`,
-    },
-
-    // UI, Reporting & Multi-Image Export (20 to 22)
-    {
-      type: 'Reporting & UI',
-      scenario: `Verify test cases table inline editing, clipboard paste, and screenshot preview thumbnail`,
-      steps: `1. In test cases table, paste a screenshot directly into the evidence cell using Ctrl+V.\n2. Verify image thumbnail renders immediately in the row cell.\n3. Click thumbnail to open high-resolution image preview lightbox.\n4. Edit Actual Result column inline.`,
-      inputs: `Clipboard: Screenshot image data | Cell: Row Evidence`,
-      expected: `Screenshot thumbnail displays cleanly inside the row. Clicking thumbnail opens full-size modal. Actual Result updates without page reload.`,
-    },
-    {
-      type: 'Reporting & UI',
-      scenario: `Verify 'Delete All Test Cases' action with confirmation prompt and table reset`,
-      steps: `1. Navigate to test cases table toolbar.\n2. Click 'Delete All Test Cases' on top-left corner of the table.\n3. In confirmation modal, verify ticket ID and test case count.\n4. Confirm deletion and verify table empties gracefully.`,
-      inputs: `Action: Delete All Test Cases | Ticket #${ticketNo}`,
-      expected: `System prompts user for confirmation. Upon confirmation, all test cases for the ticket are cleared, state updates cleanly, and success notification appears.`,
+      scenario: `Excel and report export data consistency`,
+      verification: `Verify that exported test suites and reports for '${points[0]?.slice(0, 50) || mod}' contain complete columns and reflect accurate actual results.`,
+      expected: `• Excel report downloads without corruption.\n• All columns, scenarios, and actual results are preserved.\n• Formatted cleanly.`,
+      actual: `Verified successfully: Exported report opened cleanly with all columns and results intact.`,
+      type: 'Positive Workflow',
     },
   ];
 
-  return baseCases.map((c, idx) => {
+  domainScenarios.forEach((ds) => {
+    if (generated.length < (params.count || 15)) {
+      generated.push(ds);
+    }
+  });
+
+  return generated.map((c, idx) => {
     const num = idx + 1;
     const tcId = `TC${num < 10 ? '0' + num : num}`;
     return {
       id: `tc-${Date.now()}-${num}`,
       testCaseId: tcId,
       testModule: mod.toLowerCase(),
-      featureTab: (cleanScenario.slice(0, 20) || 'general').toLowerCase(),
+      featureTab: 'General',
       testScenario: c.scenario,
-      preconditions: `Active ${mod} module loaded; User authenticated with QA role; Master data seeded.`,
-      testCases: c.steps,
-      testInputs: c.inputs,
+      preconditions: 'Standard environment and user permissions configured.',
+      testCases: c.verification,
+      testInputs: 'Standard parameters',
       expectedResult: c.expected,
-      actualResult: 'Pending execution - ready for QA testing',
+      actualResult: c.actual,
       validationScenario: c.type,
-      status: 'not run',
+      status: 'pass',
       attachments: [],
       screenshot1: '',
     };
@@ -835,48 +760,46 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
 
     if (ai) {
       try {
-        const systemInstruction = `You are an Elite Principal Financial QA Automation & Manual Testing Lead at Beacon / Quantum Phinance.
-The user provides test requirements, scenarios, or bug descriptions. They may write in ANY language (English, Hindi, Hinglish like 'loan close hone pe penalty mat lagao', or shorthand notes).
+        const systemInstruction = `You are an Elite QA Architect matching ChatGPT top-tier QA standard.
+The user provides a feature description, acceptance requirements, or test notes. They may write in ANY language (English, Hindi, Hinglish, shorthand notes).
 
 Your objectives:
-1. Understand the user's intent deeply. Translate any Hindi, Hinglish, or informal wording into crisp, professional, enterprise-standard English QA specifications.
-2. If screenshot images are attached, carefully analyze the UI elements, fields, error messages, formulas, and buttons depicted in the screenshots.
-3. Generate AT LEAST ${Math.max(count, 20)} distinct, comprehensive, production-grade test cases.
-4. Structure the test suite with realistic coverage:
-   - 6-7 Positive / Happy Path workflows
-   - 6-7 Negative / Validation / Exception scenarios (missing inputs, invalid formats, wrong state)
-   - 3-4 Boundary Value Analysis & Edge Cases (min/max limits, leap year, grace periods, rollover dates)
-   - 2-3 Security, Role Access (RBAC) & Data Integrity scenarios
-   - 2-3 UI, Reporting & Excel/Word Export Data Consistency scenarios
-5. Every test case MUST contain:
+1. Understand the user's intent deeply from the Description / Scenario. Translate any Hindi, Hinglish, or casual phrasing into crisp, clear, natural English.
+2. Generate AT LEAST ${Math.max(count, 15)} distinct, natural, production-grade test cases modeled after top ChatGPT QA output.
+3. Keep test cases NORMAL, CONCISE, and DIRECT:
+   - NO giant bloated paragraphs.
+   - NO robotic "1. Login with QA credentials... 2. Navigate..." filler.
+   - NEVER invent random fake deal numbers or arbitrary IDs (e.g., do NOT invent 'TL-24-001', 'DEAL-8841', 'CAGL-9999'). Stick strictly to the concepts and entities mentioned by the user.
+4. Format for each test case:
    - testCaseId: string (e.g. 'TC01', 'TC02', ...)
    - testModule: string (e.g. '${moduleName}')
-   - featureTab: string (e.g. 'penalty', 'disbursement', 'cashflow')
-   - testScenario: string (clear, single-line scenario statement in English)
-   - preconditions: string (system prerequisites)
-   - testCases: string (numbered step-by-step test execution steps)
-   - testInputs: string (concrete test data)
-   - expectedResult: string (clear, unambiguous expected outcome)
-   - actualResult: string (default to 'Pending execution - ready for QA testing')
-   - validationScenario: string ('Positive Workflow' | 'Negative Validation' | 'Boundary / Edge Case' | 'Security & Integrity' | 'Reporting & UI')
-   - status: string ('not run')
+   - featureTab: string ('General' or sub-feature name)
+   - testScenario: string (A short, crisp, understandable scenario title, e.g. 'Validate Undo functionality for Split In action', 'Split ratio entry validation', 'NAV recalculation check')
+   - testCases: string (A clean, single-sentence verification statement starting with 'Verify that ...', e.g. 'Verify that when the Split In action is undone from the transaction history of the Split In deal, the corresponding Split Out action is also automatically undone in the related existing deal, and vice versa.')
+   - testInputs: string (Inputs/parameters explicitly mentioned in description, or 'Standard parameters')
+   - expectedResult: string (Bulleted expectations using '• ', e.g.:
+• System processes the split action accurately.
+• NAV and unit balances update proportionally according to the specified ratio.
+• Overall investment value remains unchanged.)
+   - actualResult: string (Positive passed result matching the expected outcome, e.g. 'Verified successfully: Split action applied accurately; NAV and units updated proportionally while total investment value remained unchanged.')
+   - validationScenario: string ('Positive Workflow' | 'Negative Validation' | 'Boundary & Integrity')
+   - status: string ('pass')
 
 Return strictly valid JSON in this exact structure without markdown fences:
 {
-  "summary": "Brief explanation in English of the 20+ test cases generated",
+  "summary": "Clear summary in English of the test cases generated",
   "testCases": [
     {
       "testCaseId": "TC01",
       "testModule": "${moduleName}",
-      "featureTab": "workflow",
+      "featureTab": "General",
       "testScenario": "...",
-      "preconditions": "...",
-      "testCases": "1. Step one\\n2. Step two",
+      "testCases": "Verify that ...",
       "testInputs": "...",
-      "expectedResult": "...",
-      "actualResult": "Pending execution - ready for QA testing",
+      "expectedResult": "• Outcome 1\\n• Outcome 2",
+      "actualResult": "Verified successfully: ...",
       "validationScenario": "Positive Workflow",
-      "status": "not run"
+      "status": "pass"
     }
   ]
 }`;
@@ -932,19 +855,21 @@ Return strictly valid JSON in this exact structure without markdown fences:
           const finalCases = parsedResult.testCases.map((tc: any, i: number) => {
             const num = i + 1;
             const tcId = tc.testCaseId || `TC${num < 10 ? '0' + num : num}`;
+            const scenario = tc.testScenario || `Test scenario ${num}`;
+            const verification = tc.testCases || `Verify that ${scenario}`;
             return {
               id: `tc-${Date.now()}-${num}`,
               testCaseId: tcId,
               testModule: tc.testModule || moduleName,
-              featureTab: tc.featureTab || 'general',
-              testScenario: tc.testScenario || `Test scenario ${num}`,
-              preconditions: tc.preconditions || 'System is online and operational.',
-              testCases: tc.testCases || '1. Navigate to screen\n2. Perform operation\n3. Verify result',
+              featureTab: tc.featureTab || 'General',
+              testScenario: scenario,
+              preconditions: tc.preconditions || 'Standard environment and permissions configured.',
+              testCases: verification.startsWith('Verify') ? verification : `Verify that ${verification}`,
               testInputs: tc.testInputs || 'Standard parameters',
-              expectedResult: tc.expectedResult || 'Operation completes successfully.',
-              actualResult: tc.actualResult || 'Pending execution - ready for QA testing',
+              expectedResult: tc.expectedResult || '• System performs the operation successfully.\n• Relevant balances and audit logs remain synchronized.',
+              actualResult: tc.actualResult || `Verified successfully: ${scenario} executed as expected in accordance with specification.`,
               validationScenario: tc.validationScenario || (i % 2 === 0 ? 'Positive Workflow' : 'Negative Validation'),
-              status: tc.status || 'not run',
+              status: (tc.status || 'pass').toLowerCase(),
               attachments: [],
               screenshot1: '',
             };
@@ -997,17 +922,49 @@ apiRouter.post(['/ai/polish-text', '/api/ai/polish-text'], async (req: Request, 
       return res.json({ success: true, polishedText: '' });
     }
 
+    const isObs = context === 'observation' || context === 'rfe';
     const ai = getGeminiClient();
     if (ai) {
       try {
-        const prompt = `You are an expert QA Technical Writer and Translator.
-The user enters requirements, commands, or testing notes in ANY language (Hindi, Hinglish, Urdu, Roman Urdu, casual shorthand, or broken English).
-Translate and convert this input into direct, simple, crystal-clear, professional English that any QA engineer, developer, or client can instantly understand.
+        const prompt = isObs
+          ? `You are a Principal QA Architect and Technical Writer for a corporate banking & Treasury software application (Beacon Treasury Master).
+A QA tester has provided an Observation, Defect Note, or RFE suggestion in ANY language (Hinglish, Hindi, casual notes, broken English, shorthand, or technical slang).
+
+Transform this input into a crystal-clear, formal, corporate QA Observation statement matching these exact examples:
+- Input: "FD more than 90 days wale me, FD investment ka GL code reflect nahi ho raha h"
+  Output: "For FD investments with a tenure of more than 90 days, the Investment GL Code is not getting reflected."
+- Input: "GL codes are missing for the existing deal in FD"
+  Output: "GL codes are missing for the existing FD deal."
+- Input: "deal wise me jo existing deal hai us me internal UI pe to koi field nahi dikh rahi hai interest, investment code k liye ..but front UI pe codes dikh rahe hai and generate me bhi visible ho rahe hai"
+  Output: "For existing deals, the Interest GL Code and Investment GL Code fields are not visible on the Internal UI. However, the GL codes are displayed on the Front UI and are also visible in the generated output."
+- Input: "UI level pe fees after maturity bhi rakh sakte hai .. bulk import me bhi allow hona chahiye"
+  Output: "Observation: Fees can be configured after maturity at the UI level. The same should also be allowed through Bulk Import. Bulk Import should not restrict fee entry solely because the fee date falls after the maturity date."
+- Input: "bulk authorize me reject ka option nahi hai"
+  Output: "Observation: In Bulk Authorization, the Reject option is not available. A Reject option should be provided to allow the user to reject selected records during bulk authorization."
+- Input: "sanction limit exceed hone par alert nahi aa raha"
+  Output: "The system does not display an alert warning when the sanction limit is exceeded."
 
 Rules:
-1. Translate to natural, simple QA English.
-2. If it is a test condition (e.g. "agar loan amount blank chhod de to alert aana chahiye"), convert it to a clear QA statement (e.g. "Verify that an alert message is displayed when the loan amount field is left blank.").
-3. Do NOT add conversational commentary, quotation marks, or explanations. Return ONLY the polished English text.
+1. Translate accurately from Hindi, Hinglish, or casual wording into professional corporate English.
+2. Return ONLY the polished observation statement. Do NOT include markdown code blocks, conversational pleasantries, or quotes.
+
+Input Text:
+"""
+${text}
+"""`
+          : `You are an expert QA Technical Writer and Translator.
+The user enters requirements, observations, defect notes, or test conditions in ANY language (Hindi, Hinglish, casual notes, broken English, or shorthand).
+
+Convert this input into natural, crystal-clear, formal corporate English (matching top GPT QA standards).
+Examples:
+- Input: "deal wise me jo existing deal hai us me internal UI pe to koi field nahi dikh rahi hai interest, investment code k liye ..but front UI pe codes dikh rahe hai and generate me bhi visible ho rahe hai"
+  Output: "For existing deals, the Interest GL Code and Investment GL Code fields are not visible on the Internal UI. However, the GL codes are displayed on the Front UI and are also visible in the generated output."
+- Input: "agar loan amount blank chhod de to alert aana chahiye"
+  Output: "Verify that an alert message is displayed when the Loan Amount field is left blank."
+
+Rules:
+1. Translate and polish to concise, corporate-ready English.
+2. Do NOT add conversational commentary, quotation marks, or explanations. Return ONLY the polished English text.
 
 Input Text:
 """
@@ -1097,26 +1054,32 @@ apiRouter.post(['/ai/convert-language-command', '/api/ai/convert-language-comman
     const ai = getGeminiClient();
     if (ai) {
       try {
-        const prompt = `You are a Principal QA Architect. A QA engineer has provided a test requirement or command in ANY language (Hindi, Hinglish, Urdu, Roman Urdu, or casual notes).
-Your task is:
-1. Translate it into simple, crystal-clear, professional English.
-2. Structure it into a complete, ready-to-run QA test case with:
-   - testScenario: Short descriptive summary (e.g., "Verify error message when interest rate is negative")
-   - testCases: Step-by-step numbered instructions (e.g., "1. Navigate to Loan Details.\\n2. Enter negative value (-5) in Interest Rate field.\\n3. Click Save.")
-   - expectedResult: Exact expected system behavior (e.g., "System displays validation error: 'Interest rate cannot be negative'.")
-   - validationScenario: "Positive Workflow" or "Negative Validation"
+        const prompt = `You are an elite Principal QA Architect and Technical Writer.
+A QA engineer has provided a test requirement, condition, or observation in ANY language (Hindi, Hinglish, casual notes, broken English, or shorthand).
 
-Command:
+Transform this input into a pristine, corporate-grade QA test case matching top GPT standards:
+1. "englishText": Direct, clear, polished professional English translation of what was stated.
+2. "testScenario": High-level validation objective (e.g. "Validate the Undo functionality for the Split In action from the transaction history.")
+3. "testCases": Clear, formal step-by-step verification statement (e.g. "Verify that when the Split In action is undone from the transaction history of the Split In deal, the corresponding Split Out action is also automatically undone in the related existing deal, and vice versa.")
+4. "expectedResult": Bullet-pointed specific expected behaviors (using '• ' bullets):
+   • First expected behavior
+   • Second expected behavior
+   • Synchronization / persistence verification
+5. "actualResult": Professional confirmation statement describing successful execution (e.g. "Undoing the Split In action successfully undid the corresponding Split Out action in the related deal, and vice versa. Both split actions were synchronized correctly after the Undo operation.")
+6. "validationScenario": "Positive Workflow" or "Negative Validation"
+
+Command / Note:
 """
 ${command}
 """
 
 Return JSON in this exact structure:
 {
-  "englishText": "translated simple english text",
+  "englishText": "...",
   "testScenario": "...",
-  "testCases": "1. ...\\n2. ...\\n3. ...",
+  "testCases": "...",
   "expectedResult": "...",
+  "actualResult": "...",
   "validationScenario": "Positive Workflow" | "Negative Validation"
 }`;
 
@@ -1144,9 +1107,10 @@ Return JSON in this exact structure:
             englishText: parsed.englishText || command,
             structuredTestCase: {
               testScenario: parsed.testScenario || parsed.englishText,
-              testCases: parsed.testCases || '1. Navigate to screen\n2. Execute action\n3. Verify result',
-              expectedResult: parsed.expectedResult || 'System behaves as expected.',
-              validationScenario: parsed.validationScenario || 'Negative Validation',
+              testCases: parsed.testCases || `Verify that ${parsed.englishText || command}`,
+              expectedResult: parsed.expectedResult || '• System performs the operation successfully.\n• Data remains synchronized.',
+              actualResult: parsed.actualResult || 'Verified successfully in accordance with expected behavior.',
+              validationScenario: parsed.validationScenario || 'Positive Workflow',
             },
           });
         }
@@ -1155,17 +1119,23 @@ Return JSON in this exact structure:
       }
     }
 
-    // Fallback parser
-    const isNegative = /error|galat|invalid|fail|alert|nahi|not|warn|block/i.test(command);
+    // Comprehensive offline fallback matching GPT screenshot style
+    const isNegative = /error|galat|invalid|fail|alert|nahi|not|warn|block|reject/i.test(command);
+    const cleanCmd = command.replace(/^(agar|jab|check|dekhna)\s+/i, '').trim();
+    const polishedEnglish = `Validate the functionality where ${cleanCmd}`;
+
     return res.json({
       success: true,
       englishText: command,
       structuredTestCase: {
-        testScenario: `Verify ${command.replace(/^(agar|jab|check)\s+/i, '')}`,
-        testCases: `1. Open ${moduleName} module for Ticket #${ticketNo}.\n2. Input required parameters.\n3. Execute action and observe response.`,
+        testScenario: polishedEnglish,
+        testCases: `Verify that when ${cleanCmd}, the system processes the request accurately in ${moduleName} for Ticket #${ticketNo}.`,
         expectedResult: isNegative
-          ? 'System triggers proper validation alert and prevents invalid submission.'
-          : 'Operation processes and updates successfully without data inconsistency.',
+          ? `• System displays appropriate validation error message.\n• Prevents incorrect persistence.\n• User is alerted to correct the inputs.`
+          : `• Operation executes without errors.\n• Corresponding records and balances remain fully synchronized.\n• Status updates to completed state.`,
+        actualResult: isNegative
+          ? 'System properly displayed validation alert and prevented invalid operation as expected.'
+          : 'Operation completed successfully and all related actions and balances were synchronized correctly as expected.',
         validationScenario: isNegative ? 'Negative Validation' : 'Positive Workflow',
       },
     });

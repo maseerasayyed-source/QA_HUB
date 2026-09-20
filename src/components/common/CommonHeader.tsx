@@ -25,6 +25,7 @@ import { TicketSummary, AttachedDocOrImage } from '../../types';
 import { polishObservationText } from '../../utils/textPolisher';
 import { parseUploadedFile } from '../../utils/fileParser';
 import { translateToSimpleEnglish } from '../../utils/languageAi';
+import { CorporateTicketHeader } from './CorporateTicketHeader';
 
 interface CommonHeaderProps {
   mode?: 'developer' | 'qa' | 'observations';
@@ -38,6 +39,16 @@ interface CommonHeaderProps {
   reviewDoneBy?: string;
   reviewDoneAt?: string;
   reviewStatus?: string;
+  clientName?: string;
+  onChangeClientName?: (value: string) => void;
+  moduleName?: string;
+  onChangeModuleName?: (value: string) => void;
+  taskName?: string;
+  onChangeTaskName?: (value: string) => void;
+  sha?: string;
+  onChangeSha?: (value: string) => void;
+  signOffBy?: string;
+  onChangeSignOffBy?: (value: string) => void;
   attachedDocs?: AttachedDocOrImage[];
   onUpdateAttachedDocs?: (docs: AttachedDocOrImage[]) => void;
   screenFields?: string[];
@@ -50,6 +61,8 @@ interface CommonHeaderProps {
   generateButtonText?: string;
   showGenerateButton?: boolean;
   readOnly?: boolean;
+  onAiGenerateSuccess?: (data: any) => void;
+  onAiGenerateMultiScenarios?: (scenarios: string[]) => void;
 }
 
 export const CommonHeader: React.FC<CommonHeaderProps> = ({
@@ -64,6 +77,16 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   reviewDoneBy,
   reviewDoneAt,
   reviewStatus,
+  clientName,
+  onChangeClientName,
+  moduleName,
+  onChangeModuleName,
+  taskName,
+  onChangeTaskName,
+  sha,
+  onChangeSha,
+  signOffBy,
+  onChangeSignOffBy,
   attachedDocs = [],
   onUpdateAttachedDocs,
   screenFields = [],
@@ -176,7 +199,7 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
     (t) => t.ticketNumber.toLowerCase() === selectedTicketNumber.toLowerCase()
   );
 
-  const devName = developerName || currentTicket?.developer || '';
+  const devName = developerName !== undefined ? developerName : (currentTicket?.developer || '');
   const qaName = qaAssigneeName || currentTicket?.qaAssignee || 'Maseera Sayyed';
 
   const [isTranslatingDesc, setIsTranslatingDesc] = useState(false);
@@ -327,258 +350,183 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
         </div>
       )}
 
-      {/* 1. Header Information Bar: Ticket ID, Developer Name, QA Name & Review Status */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
-        <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-          {/* Ticket Selector */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Ticket:</span>
-            <select
-              value={selectedTicketNumber}
-              onChange={(e) => onSelectTicket(e.target.value)}
-              className="px-2.5 py-1.5 bg-blue-50/80 border border-blue-200 rounded-lg text-xs font-extrabold text-blue-800 hover:bg-blue-100/70 focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+      {/* 1. Enhanced Corporate Header Bar: Client Name, Module, Ticket ID (dropdown + editable), Task Name (1-line), QA Assignee, Developer, SHA, Sign Off By */}
+      <CorporateTicketHeader
+        selectedTicketNumber={selectedTicketNumber}
+        tickets={tickets}
+        onSelectTicket={onSelectTicket}
+        clientName={clientName}
+        onChangeClientName={onChangeClientName}
+        moduleName={moduleName || currentTicket?.moduleName}
+        onChangeModuleName={onChangeModuleName}
+        taskName={taskName || currentTicket?.featureName}
+        onChangeTaskName={onChangeTaskName}
+        qaAssignee={qaName}
+        developer={devName}
+        onChangeDeveloper={onChangeDeveloperName}
+        sha={sha || currentTicket?.shaCommit}
+        onChangeSha={onChangeSha}
+        signOffBy={signOffBy || reviewDoneBy || currentTicket?.signOffBy}
+        onChangeSignOffBy={onChangeSignOffBy}
+        readOnly={readOnly}
+      />
+
+      {/* 2. Main Input: Description (Full Width) */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
+          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+            Description / Requirements {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(read-only)</span>}
+          </label>
+          {!readOnly && (
+            <button
+              type="button"
+              onClick={handleTranslateDescription}
+              disabled={isTranslatingDesc}
+              title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
+              className="px-2.5 py-1 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
             >
-              {tickets.map((t) => (
-                <option key={t.id} value={t.ticketNumber}>
-                  #{t.ticketNumber} – {t.featureName}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Developer Name Badge (Always in developer testing, also in QA) */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 border border-amber-200/80 rounded-lg text-xs">
-            <Code2 className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-            <span className="text-slate-500 font-medium">Developer:</span>
-            {onChangeDeveloperName && !readOnly ? (
-              <input
-                type="text"
-                value={devName}
-                onChange={(e) => onChangeDeveloperName(e.target.value)}
-                placeholder="Assign developer..."
-                title="Click to edit developer name - synchronizes across all developer fields for this ticket"
-                className="font-bold text-amber-900 bg-amber-100/50 hover:bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300/60 focus:bg-white focus:outline-none focus:ring-1 focus:ring-amber-500 text-xs w-28 sm:w-36"
-              />
-            ) : (
-              <span className="font-bold text-amber-900">{devName || 'Unassigned'}</span>
-            )}
-          </div>
-
-          {/* QA Name Badge (In QA & Observation modes) */}
-          {mode !== 'developer' && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-teal-50 border border-teal-200/80 rounded-lg text-xs">
-              <User className="w-3.5 h-3.5 text-teal-600" />
-              <span className="text-slate-500 font-medium">QA Assignee:</span>
-              <span className="font-bold text-teal-900">{qaName}</span>
-            </div>
+              <Languages className="w-3.5 h-3.5 text-purple-600" />
+              <span>{isTranslatingDesc ? 'Translating to English...' : '🌐 Convert to Simple English'}</span>
+            </button>
           )}
+        </div>
+        <textarea
+          rows={3}
+          value={description}
+          readOnly={readOnly}
+          onChange={(e) => !readOnly && onChangeDescription(e.target.value)}
+          placeholder="Enter ticket description or requirements..."
+          className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
+            readOnly
+              ? 'bg-slate-100/80 border-slate-200 text-slate-700 cursor-default'
+              : 'bg-slate-50 border-slate-300 text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+          }`}
+        />
+      </div>
 
-          {/* Review Done By Badge if Approved / Signed-off */}
-          {(reviewStatus === 'Approved' || reviewDoneBy) && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-50 border border-emerald-300 rounded-lg text-xs shadow-2xs animate-in fade-in duration-300">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="text-emerald-700 font-medium">Review Done By:</span>
-              <span className="font-extrabold text-emerald-900">{reviewDoneBy || 'Maseera Sayyed'}</span>
-              {reviewDoneAt && <span className="text-[10px] text-emerald-600 font-medium">({reviewDoneAt})</span>}
+      {/* 3. Attached Files & Screenshots (Full Width) */}
+      <div className="space-y-2 pt-1">
+        <div className="flex items-center justify-between">
+          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+            <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+            <span>Attached UI Screenshots / Files {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}</span>
+            {attachedDocs.length > 0 && (
+              <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                {attachedDocs.length} {attachedDocs.length === 1 ? 'file' : 'files'}
+              </span>
+            )}
+          </label>
+          {!readOnly && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleClipboardPasteClick}
+                className="inline-flex items-center gap-1 px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-md text-[11px] font-bold transition-colors cursor-pointer shadow-2xs"
+                title="Paste screenshot directly from clipboard (Ctrl+V)"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span>📋 Paste Screenshot (Ctrl+V)</span>
+              </button>
+              <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">or Drag &amp; Drop / Upload below</span>
             </div>
           )}
         </div>
 
-        {/* Module Indicator */}
-        {currentTicket && (
-          <div className="flex items-center gap-1.5 text-xs text-slate-500">
-            <Layers className="w-3.5 h-3.5 text-slate-400" />
-            <span>Module:</span>
-            <span className="font-semibold text-slate-700 bg-slate-100 px-2 py-0.5 rounded text-[11px]">
-              {currentTicket.moduleName}
-            </span>
+        {/* Drag & Drop / Upload Area */}
+        {!readOnly && (
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              handleFileUpload(e.dataTransfer.files);
+            }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`border-2 border-dashed rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 cursor-pointer transition-colors ${
+              isDragging
+                ? 'border-blue-500 bg-blue-50/70'
+                : 'border-slate-300 bg-slate-50/70 hover:bg-slate-50 hover:border-blue-400'
+            }`}
+          >
+            <input
+              type="file"
+              ref={fileInputRef}
+              multiple
+              accept="image/*,.xlsx,.xls,.csv,.docx,.doc,.txt,.pdf"
+              className="hidden"
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                handleFileUpload(e.target.files);
+                if (e.target) e.target.value = '';
+              }}
+            />
+            <div className="flex items-center gap-2.5 text-xs text-slate-600">
+              <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+                <Upload className="w-4 h-4 shrink-0" />
+              </div>
+              <div>
+                <span className="font-bold text-slate-800">
+                  Click or drag and drop UI screenshots, Excel or spec documents here
+                </span>
+                <p className="text-[11px] text-slate-500">Supports PNG, JPG, Excel (.xlsx, .csv), Word (.docx), and PDF</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                fileInputRef.current?.click();
+              }}
+              className="text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
+            >
+              Browse Files
+            </button>
           </div>
         )}
-      </div>
 
-      {/* 2. Main Inputs Grid: Description & Testing Scenarios */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Description Field */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Description {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(read-only)</span>}
-            </label>
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={handleTranslateDescription}
-                disabled={isTranslatingDesc}
-                title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
-                className="px-2.5 py-1 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
+        {/* Attached Files List Chips & Previews */}
+        {attachedDocs.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-1">
+            {attachedDocs.map((doc) => (
+              <div
+                key={doc.id}
+                className="flex items-center justify-between gap-2 p-2 bg-white border border-slate-200 hover:border-blue-300 rounded-xl text-xs shadow-2xs group transition-all"
               >
-                <Languages className="w-3.5 h-3.5 text-purple-600" />
-                <span>{isTranslatingDesc ? 'Translating to English...' : '🌐 Convert to Simple English'}</span>
-              </button>
-            )}
-          </div>
-          <textarea
-            rows={2}
-            value={description}
-            readOnly={readOnly}
-            onChange={(e) => !readOnly && onChangeDescription(e.target.value)}
-            placeholder="Enter ticket description or requirements..."
-            className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
-              readOnly
-                ? 'bg-slate-100/80 border-slate-200 text-slate-700 cursor-default'
-                : 'bg-slate-50 border-slate-300 text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
-            }`}
-          />
-        </div>
-
-        {/* Testing Scenarios / Points */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Testing Scenarios / Points {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(read-only)</span>}
-            </label>
-            {!readOnly && (
-              <button
-                type="button"
-                onClick={handleTranslateScenarios}
-                disabled={isTranslatingScenarios}
-                title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
-                className="px-2.5 py-1 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs"
-              >
-                <Languages className="w-3.5 h-3.5 text-purple-600" />
-                <span>{isTranslatingScenarios ? 'Translating to English...' : '🌐 Convert to Simple English'}</span>
-              </button>
-            )}
-          </div>
-          <textarea
-            rows={2}
-            value={testingScenarios}
-            readOnly={readOnly}
-            onChange={(e) => !readOnly && onChangeTestingScenarios(e.target.value)}
-            placeholder="E.g. Positive overdue calculation; Pre-disbursement guard check; Report export (Multiple scenarios will be generated into table)"
-            className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
-              readOnly
-                ? 'bg-slate-100/80 border-slate-200 text-slate-700 cursor-default'
-                : 'bg-slate-50 border-slate-300 text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
-            }`}
-          />
-        </div>
-      </div>
-
-      {/* 3. Attachment Field (SS, Excel, Word Doc) & Screen Fields Specification */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-        {/* Attached Files & Screenshots */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
-              <Paperclip className="w-3.5 h-3.5 text-blue-600" />
-              <span>Attached UI Screenshots / Files {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}</span>
-            </label>
-            {!readOnly && (
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleClipboardPasteClick}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded text-[11px] font-semibold transition-colors cursor-pointer"
-                  title="Paste screenshot directly from clipboard (Ctrl+V)"
-                >
-                  <ClipboardPaste className="w-3 h-3" />
-                  <span>📋 Paste (Ctrl+V)</span>
-                </button>
-                <span className="text-[10px] text-slate-400 font-medium hidden sm:inline">or Drag &amp; Drop</span>
-              </div>
-            )}
-          </div>
-
-          {/* Drag & Drop / Upload Area */}
-          {!readOnly ? (
-            <div
-              onDragOver={(e) => {
-                e.preventDefault();
-                setIsDragging(true);
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(e) => {
-                e.preventDefault();
-                setIsDragging(false);
-                handleFileUpload(e.dataTransfer.files);
-              }}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border border-dashed rounded-lg p-2.5 flex flex-wrap items-center justify-between gap-2 cursor-pointer transition-colors ${
-                isDragging
-                  ? 'border-blue-500 bg-blue-50/50'
-                  : 'border-slate-300 bg-slate-50/70 hover:bg-slate-50 hover:border-blue-400'
-              }`}
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                multiple
-                accept="image/*,.xlsx,.xls,.csv,.docx,.doc,.txt,.pdf"
-                className="hidden"
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  handleFileUpload(e.target.files);
-                  if (e.target) e.target.value = '';
-                }}
-              />
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <Upload className="w-4 h-4 text-blue-600 shrink-0" />
-                <span className="font-medium">
-                  Click or drop UI screenshot, Excel or spec document
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  fileInputRef.current?.click();
-                }}
-                className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 hover:bg-blue-200 px-2.5 py-1 rounded cursor-pointer transition-colors"
-              >
-                Browse Files
-              </button>
-            </div>
-          ) : attachedDocs.length === 0 ? (
-            <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 italic">
-              No attached documents or screenshots for this ticket.
-            </div>
-          ) : null}
-
-          {/* Attached Files List Chips */}
-          {attachedDocs.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              {attachedDocs.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="flex items-center gap-2 px-2.5 py-1.5 bg-white border border-slate-200 hover:border-blue-300 rounded-lg text-xs shadow-2xs group transition-all"
-                >
-                  {doc.type === 'image' && doc.url ? (
+                <div className="flex items-center gap-2 min-w-0">
+                  {doc.type === 'image' && (doc.url || doc.dataUrl) ? (
                     <img
-                      src={doc.url}
+                      src={doc.url || doc.dataUrl}
                       alt={doc.name}
-                      className="w-5 h-5 rounded object-cover border border-slate-200 shrink-0"
+                      onClick={() => setPreviewDoc(doc)}
+                      className="w-9 h-9 rounded-lg object-cover border border-slate-200 shrink-0 cursor-pointer hover:opacity-85"
                     />
                   ) : doc.type === 'image' ? (
-                    <ImageIcon className="w-4 h-4 text-purple-600 shrink-0" />
+                    <div className="w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center text-purple-700 shrink-0">
+                      <ImageIcon className="w-5 h-5" />
+                    </div>
                   ) : doc.type === 'excel' ? (
-                    <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div className="w-9 h-9 rounded-lg bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                      <FileSpreadsheet className="w-5 h-5" />
+                    </div>
                   ) : (
-                    <FileText className="w-4 h-4 text-blue-600 shrink-0" />
+                    <div className="w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center text-blue-700 shrink-0">
+                      <FileText className="w-5 h-5" />
+                    </div>
                   )}
 
-                  <span className="font-semibold text-slate-800 max-w-[140px] truncate" title={doc.name}>
-                    {doc.name}
-                  </span>
-
-                  {doc.size && <span className="text-[10px] text-slate-400">({doc.size})</span>}
-
-                  {doc.detectedFields && doc.detectedFields.length > 0 && (
-                    <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200/60 px-1.5 py-0.2 rounded-full font-bold">
-                      +{doc.detectedFields.length} fields
+                  <div className="min-w-0">
+                    <span className="font-bold text-slate-800 block truncate text-xs" title={doc.name}>
+                      {doc.name}
                     </span>
-                  )}
+                    {doc.size && <span className="text-[10px] text-slate-400 block">{doc.size}</span>}
+                  </div>
+                </div>
 
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Preview Button */}
                   <button
                     type="button"
@@ -587,9 +535,9 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                       setPreviewDoc(doc);
                     }}
                     title="Preview file content / screenshot"
-                    className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded cursor-pointer transition-colors"
+                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg cursor-pointer transition-colors"
                   >
-                    <Eye className="w-3.5 h-3.5 text-blue-600" />
+                    <Eye className="w-4 h-4 text-blue-600" />
                   </button>
 
                   {!readOnly && (
@@ -600,113 +548,20 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                         handleRemoveDoc(doc.id);
                       }}
                       title="Remove attachment"
-                      className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded cursor-pointer transition-colors"
+                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg cursor-pointer transition-colors flex items-center gap-1"
                     >
-                      <X className="w-3.5 h-3.5" />
+                      <X className="w-4 h-4 text-red-500" />
                     </button>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Screen / Form Fields List */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                Screen / Form Fields Available for Testing {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}
-              </label>
-              {screenFields.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setIsPreviewFieldsOpen(true)}
-                  className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold flex items-center gap-1 cursor-pointer"
-                  title="Open Preview of all fields"
-                >
-                  <Eye className="w-3 h-3" />
-                  <span>Preview ({screenFields.length})</span>
-                </button>
-              )}
-            </div>
-            {!readOnly && (
-              <div className="flex items-center gap-1 text-[10px]">
-                <span className="text-slate-400">Presets:</span>
-                <button
-                  type="button"
-                  onClick={() => handleAddPresetFields('deal')}
-                  className="text-blue-600 hover:underline cursor-pointer font-medium"
-                >
-                  +Deal
-                </button>
-                <span className="text-slate-300">•</span>
-                <button
-                  type="button"
-                  onClick={() => handleAddPresetFields('rate')}
-                  className="text-blue-600 hover:underline cursor-pointer font-medium"
-                >
-                  +Rate
-                </button>
-                <span className="text-slate-300">•</span>
-                <button
-                  type="button"
-                  onClick={() => handleAddPresetFields('penalty')}
-                  className="text-blue-600 hover:underline cursor-pointer font-medium"
-                >
-                  +Penalty
-                </button>
               </div>
-            )}
-          </div>
-
-          <div className="p-2 bg-slate-50 border border-slate-300 rounded-lg min-h-[42px] flex flex-wrap items-center gap-1.5">
-            {screenFields.map((field) => (
-              <span
-                key={field}
-                className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200/80 rounded-md text-[11px] font-semibold"
-              >
-                {field}
-                {!readOnly && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveField(field)}
-                    className="hover:text-rose-600 cursor-pointer ml-0.5"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                )}
-              </span>
             ))}
-
-            {/* Inline Input for New Field (Supports copy-pasting multiple values separated by commas or tabs) */}
-            {!readOnly && (
-              <div className="inline-flex items-center gap-1">
-                <input
-                  type="text"
-                  value={newFieldInput}
-                  onChange={(e) => setNewFieldInput(e.target.value)}
-                  onKeyDown={handleAddField}
-                  onPaste={handleFieldPaste}
-                  placeholder={screenFields.length === 0 ? "Type or paste fields (e.g. Deal ID, Rate, Amount)..." : "+ Add or paste field..."}
-                  className="text-xs bg-transparent border-none focus:outline-none text-slate-800 placeholder:text-slate-400 min-w-[160px]"
-                />
-                {newFieldInput.trim() && (
-                  <button
-                    type="button"
-                    onClick={handleAddField}
-                    className="p-0.5 bg-blue-600 text-white rounded cursor-pointer"
-                  >
-                    <Plus className="w-3 h-3" />
-                  </button>
-                )}
-              </div>
-            )}
           </div>
-          <p className="text-[10px] text-slate-500">
-            * AI uses these fields to generate field-level validations, boundary checks &amp; mandatory field tests even if only screenshot/file is provided.
-          </p>
-        </div>
+        ) : readOnly ? (
+          <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-500 italic">
+            No attached documents or screenshots for this ticket.
+          </div>
+        ) : null}
       </div>
 
       {/* 4. Action Row: AI Auto-Generate Button & Duplicate Prevention Badge */}

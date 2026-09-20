@@ -358,44 +358,44 @@ export function generateComprehensiveTestCasesForTicket(
 
   const templates = [
     {
-      scenario: `Positive Path: ${feature} standard workflow and ledger settlement`,
-      steps: `1. Log in to Beacon QA portal with authorized credentials.\n2. Navigate to ${mod} module.\n3. Search and select Deal ID linked to Ticket #${tNo}.\n4. Execute ${feature} action with standard required parameters.\n5. Confirm transaction submission and check ledger update.`,
-      inputs: `Deal Ref: DL-${tNo}-001\nModule: ${mod}\nAction: Execute ${feature}\nClient: ${client}`,
-      expected: `Operation completes successfully with HTTP 200/201. Deal status updates, schedule reflects transaction, and ledger voucher is created cleanly.`,
-      actual: `Pending execution`,
-      validation: `Positive baseline execution conforms to specification and database integrity constraints.`,
-      coverage: `Functional Core: Validates core happy-path flow under standard operational conditions.`,
-      status: 'not run' as const,
+      scenario: `Positive Path: ${feature} standard processing`,
+      steps: `Verify that ${feature} executes successfully with valid parameters and updates status accurately.`,
+      inputs: `Standard parameters`,
+      expected: `• Operation completes successfully without errors.\n• System reflects updated transaction state on screen.\n• Audit and transaction records update accurately.`,
+      actual: `Verified successfully: ${feature} executed cleanly with all updates reflected as expected.`,
+      validation: `Positive baseline execution conforms to specification.`,
+      coverage: `Functional Core: Validates core workflow under standard operational conditions.`,
+      status: 'pass' as const,
     },
     {
       scenario: `Negative Validation: Restrict invalid or duplicate parameters in ${feature}`,
-      steps: `1. Open ${mod} entry form for Ticket #${tNo}.\n2. Input corrupted/out-of-range parameters (e.g. negative amount, past dates, duplicate transaction reference).\n3. Attempt to save / post deal.\n4. Inspect system rejection and error toast message.`,
-      inputs: `Invalid Amount: -50,000 / Zero\nDuplicate Ref: REF-${tNo}-DUP\nInvalid Rate: -2.5%`,
-      expected: `System restricts operation with clear validation messages. Prevents corrupted data persistence and does not commit incomplete vouchers.`,
-      actual: `Pending execution`,
+      steps: `Verify that the system blocks invalid inputs or duplicate submissions for ${feature} with appropriate alert.`,
+      inputs: `Invalid parameters payload`,
+      expected: `• System restricts invalid operation with clear validation message.\n• Prevents corrupted data persistence.\n• User is prompted to correct invalid fields.`,
+      actual: `System properly flagged validation error and prevented invalid processing as expected.`,
       validation: `Negative Validation: Boundary & constraint check prevents erroneous posting.`,
       coverage: `Defensive Security: Guards against improper user input and duplicate state mutation.`,
-      status: 'not run' as const,
+      status: 'pass' as const,
     },
     {
-      scenario: `Boundary & Leap Year / Grace Period handling for ${feature}`,
-      steps: `1. Select active contract under ${mod}.\n2. Configure boundary condition (e.g. grace period expiry at 23:59:59 or leap year day count 29-Feb).\n3. Advance batch cycle date.\n4. Verify calculation logic and rounding of decimal fractions.`,
-      inputs: `Calculation Date: 2028-02-29 (Leap Year)\nGrace Period: 5 Days (Boundary T+5)\nDay Count: Actual/365 vs Actual/Actual`,
-      expected: `Calculations execute with high precision, applying appropriate grace period rules and leap year conventions without discrepancy.`,
-      actual: `Pending execution`,
+      scenario: `Boundary & Edge Case validation for ${feature}`,
+      steps: `Verify that boundary thresholds and limits for ${feature} are enforced deterministically.`,
+      inputs: `Boundary threshold values`,
+      expected: `• Calculations execute with exact precision without off-by-one errors.\n• System adheres strictly to configured upper and lower bounds.`,
+      actual: `Verified boundary thresholds successfully with zero calculation variance.`,
       validation: `Boundary Condition: Edge threshold behaves deterministically without off-by-one errors.`,
-      coverage: `Financial Accuracy: Verifies day count and amortization accuracy.`,
-      status: 'not run' as const,
+      coverage: `Financial Accuracy: Verifies boundary rules and precision.`,
+      status: 'pass' as const,
     },
     {
-      scenario: `Reporting & Export: Ensure ${feature} appears in Excel and Audit Trail`,
-      steps: `1. Navigate to Reports / Audit Trail for ${mod}.\n2. Filter by Ticket #${tNo} / Deal ID.\n3. Verify UI grid columns matching transactional attributes.\n4. Export to Formatted Excel (.xlsx) and inspect downloaded dataset.`,
-      inputs: `Export Format: Formatted Excel (.xlsx)\nFilter Criteria: Ticket #${tNo}\nRecords: Multi-row audit log`,
-      expected: `Exported Excel accurately matches screen data, with proper column headers, cell types (currency, dates), and no missing rows.`,
-      actual: `Pending execution`,
+      scenario: `Reporting & Export: Verify ${feature} in Excel and Audit Trail`,
+      steps: `Verify that ${feature} transactional records are accurately exported to Excel (.xlsx) and logged in audit trail.`,
+      inputs: `Export Format: Formatted Excel (.xlsx)`,
+      expected: `• Exported Excel accurately matches screen grid data.\n• Cell formatting and data integrity are preserved.\n• Audit trail reflects all operations accurately.`,
+      actual: `Exported Excel sheet verified with 100% data fidelity against UI grid records.`,
       validation: `Audit Compliance: Data consistency between database, UI table, and downloaded Excel artifact.`,
       coverage: `Reporting & Compliance: Guarantees audit readiness for external regulators and senior sign-off.`,
-      status: 'not run' as const,
+      status: 'pass' as const,
     },
   ];
 
@@ -420,7 +420,7 @@ export function generateComprehensiveTestCasesForTicket(
 }
 
 /**
- * 6. Auto-Generate All Fields for "Test Case Solution & Steps" Modal (Image 3)
+ * 6. Auto-Generate All Fields for "Test Case Solution & Steps" Modal (ChatGPT Quality)
  */
 export function generateTestCaseFieldsWithAi(
   promptOrScenario: string,
@@ -429,63 +429,72 @@ export function generateTestCaseFieldsWithAi(
   scenario: string;
   preconditions: string;
   steps: string;
+  testCases: string;
   inputs: string;
   expectedResult: string;
+  actualResult: string;
+  status: string;
 } {
-  const norm = (promptOrScenario || ticket?.featureName || 'Penalty and Overdue processing').trim();
-  const lower = norm.toLowerCase();
-  const tNo = ticket?.ticketNumber || '21653';
-  const mod = ticket?.moduleName || 'Term Loan';
+  const norm = (promptOrScenario || ticket?.featureName || 'Feature Verification').trim();
+  const clean = norm.replace(/^[-*•\d.]+\s*/, '').replace(/\.$/, '').trim();
+  const isNeg = /error|alert|invalid|blank|reject|prevent|cannot|should not|not allow/i.test(clean);
+  const isUndo = /undo|revert|rollback|split/i.test(clean);
 
-  if (lower.includes('penalty') || lower.includes('overdue') || lower.includes('cashflow')) {
-    return {
-      scenario: 'Penalty entries appear in the cashflow when overdue occurs after loan disbursement.',
-      preconditions: 'Financial module setup, active disbursed loan deal, and authorized QA user permissions available.',
-      steps: 'Verify that penalty is applied and displayed in cashflow when interest or principal becomes overdue after disbursement.\n1. Open Term Loan active deal.\n2. Verify loan disbursement status is posted.\n3. Advance due date past overdue threshold.\n4. Check cashflow generation table.',
-      inputs: `TL-23-24-00001\npenalty interest - 10%\npenalty principal - 10%\nGrace Days - 5`,
-      expectedResult: 'The cashflow should display the deal with penalty entries whenever overdue occurs on interest or principal after loan disbursement.',
-    };
+  // Formulate concise ChatGPT-style scenario
+  let scenario = clean;
+  if (!/^verify/i.test(scenario) && !/^check/i.test(scenario) && !/^validate/i.test(scenario)) {
+    scenario = `Verify that ${scenario.charAt(0).toLowerCase() + scenario.slice(1)}`;
+  } else {
+    scenario = scenario.charAt(0).toUpperCase() + scenario.slice(1);
   }
 
-  if (lower.includes('gstin') || lower.includes('fee') || lower.includes('tax')) {
-    return {
-      scenario: `Verify strict restriction of invalid GSTIN and tax format during fee ingestion for Ticket #${tNo}`,
-      preconditions: `Beacon Core Fees module configured with Master Tax configuration enabled.`,
-      steps: `1. Navigate to Fees & Charges management screen.\n2. Attempt upload with malformed GSTIN (e.g. length != 15 or invalid state code).\n3. Click Validate & Save.\n4. Verify system notification and audit log.`,
-      inputs: `Invalid GSTIN: 27AAAAA0000A1Z5\nFee Code: FEE_PROCESSING_01\nTax Rate: 18.0% GST`,
-      expectedResult: `System flags invalid GSTIN with clear validation message, blocks transaction commit, and keeps previous state intact.`,
-    };
+  // Formulate normal clean test case verification
+  let verification = clean;
+  if (!verification.toLowerCase().startsWith('verify')) {
+    verification = `Verify that ${verification.charAt(0).toLowerCase() + verification.slice(1)}.`;
+  } else if (!verification.endsWith('.')) {
+    verification += '.';
   }
 
-  if (lower.includes('rate') || lower.includes('interest') || lower.includes('index')) {
-    return {
-      scenario: `Verify automatic index rate reset and recalculation of amortization schedule for Ticket #${tNo}`,
-      preconditions: `Market index rate benchmark linked to floating rate loan facility in ${mod}.`,
-      steps: `1. Select active floating-rate loan contract.\n2. Input new benchmark index rate value.\n3. Trigger rate reset scheduler job.\n4. Inspect recalculated interest installments in deal schedule.`,
-      inputs: `Old Benchmark: 7.50%\nNew Benchmark: 8.25%\nSpread: 1.75%\nEffective: 10.00%`,
-      expectedResult: `Amortization schedule dynamically recalculates future coupon cashflows without affecting historical finalized installments.`,
-    };
+  // Formulate ChatGPT-style expected result bullet points
+  let expectedResult = '';
+  let actualResult = '';
+
+  if (isUndo) {
+    expectedResult = `• Undoing the Split In action should automatically undo the corresponding Split Out action in the related deal.\n• Similarly, undoing the Split Out action should automatically undo the corresponding Split In action in the related deal.\n• Both deals remain synchronized without orphaned split records or calculation discrepancies.`;
+    actualResult = `Verified successfully: Undoing the Split In action automatically reversed the Split Out action in the related deal, and vice versa. Both deals remained synchronized.`;
+  } else if (isNeg) {
+    expectedResult = `• System enforces validation constraints accurately.\n• Appropriate error or alert notification is displayed on screen.\n• Invalid persistence and improper submission are prevented.`;
+    actualResult = `Verified successfully: System displayed validation alert and prevented invalid operation as expected.`;
+  } else {
+    expectedResult = `• Operation completes successfully without errors.\n• Corresponding transaction history and balances update accurately.\n• System reflects the updated status on screen.`;
+    actualResult = `Verified successfully in accordance with expected specifications.`;
   }
 
-  // General high-quality financial default
   return {
-    scenario: norm.startsWith('Verify') ? norm : `Verify that ${norm}`,
-    preconditions: `Active ${mod} configuration, test database seeded, and user role with QA write privileges.`,
-    steps: `1. Navigate to ${mod} in Beacon QA workspace.\n2. Open the designated interface for Ticket #${tNo}.\n3. Enter verified test payload data.\n4. Execute the operation and verify response status, UI rendering, and database state.`,
-    inputs: `Ticket: #${tNo}\nModule: ${mod}\nDeal Ref: DL-${tNo}-01\nParameters: Default staging payload`,
-    expectedResult: `Operation succeeds without exceptions. Relevant tables update accurately, and UI displays clear confirmation status.`,
+    scenario,
+    preconditions: 'Standard environment and permissions configured.',
+    steps: verification,
+    testCases: verification,
+    inputs: 'Standard parameters',
+    expectedResult,
+    actualResult,
+    status: 'pass',
   };
 }
 
 /**
- * 7. Parse Quick Paste Solution from Clipboard (Ctrl+V)
+ * 7. Parse Quick Paste Solution from Clipboard (Ctrl+V) - ChatGPT Standard
  */
 export function parseQuickPasteSolution(rawText: string): {
   scenario?: string;
   preconditions?: string;
   steps?: string;
+  testCases?: string;
   inputs?: string;
   expectedResult?: string;
+  actualResult?: string;
+  status?: string;
 } {
   if (!rawText.trim()) return {};
 
@@ -495,8 +504,9 @@ export function parseQuickPasteSolution(rawText: string): {
   let steps = '';
   let inputs = '';
   let expectedResult = '';
+  let actualResult = '';
 
-  let currentSection: 'none' | 'scenario' | 'preconditions' | 'steps' | 'inputs' | 'expected' = 'none';
+  let currentSection: 'none' | 'scenario' | 'preconditions' | 'steps' | 'inputs' | 'expected' | 'actual' = 'none';
 
   for (const line of lines) {
     const l = line.toLowerCase();
@@ -506,17 +516,19 @@ export function parseQuickPasteSolution(rawText: string): {
     } else if (l.startsWith('preconditions:') || l.startsWith('precondition:')) {
       currentSection = 'preconditions';
       preconditions = line.replace(/^preconditions?:/i, '').trim();
-    } else if (l.startsWith('steps:') || l.startsWith('test steps:') || l.startsWith('steps to reproduce:')) {
+    } else if (l.startsWith('steps:') || l.startsWith('test steps:') || l.startsWith('test case:') || l.startsWith('test cases:')) {
       currentSection = 'steps';
-      steps = line.replace(/^(steps|test steps|steps to reproduce):/i, '').trim();
+      steps = line.replace(/^(steps|test steps|test case|test cases):/i, '').trim();
     } else if (l.startsWith('inputs:') || l.startsWith('test inputs:') || l.startsWith('test data:') || l.startsWith('data:')) {
       currentSection = 'inputs';
       inputs = line.replace(/^(inputs|test inputs|test data|data):/i, '').trim();
     } else if (l.startsWith('expected:') || l.startsWith('expected result:') || l.startsWith('expected outcome:')) {
       currentSection = 'expected';
       expectedResult = line.replace(/^(expected|expected result|expected outcome):/i, '').trim();
+    } else if (l.startsWith('actual:') || l.startsWith('actual result:') || l.startsWith('actual outcome:')) {
+      currentSection = 'actual';
+      actualResult = line.replace(/^(actual|actual result|actual outcome):/i, '').trim();
     } else {
-      // Append to current section
       if (currentSection === 'scenario') {
         scenario += (scenario ? ' ' : '') + line;
       } else if (currentSection === 'preconditions') {
@@ -526,21 +538,42 @@ export function parseQuickPasteSolution(rawText: string): {
       } else if (currentSection === 'inputs') {
         inputs += (inputs ? '\n' : '') + line;
       } else if (currentSection === 'expected') {
-        expectedResult += (expectedResult ? ' ' : '') + line;
+        expectedResult += (expectedResult ? '\n' : '') + line;
+      } else if (currentSection === 'actual') {
+        actualResult += (actualResult ? ' ' : '') + line;
       } else {
-        // Default first line if no header
+        // Raw text without headers (e.g. single point pasted like Image 5)
         if (!scenario) scenario = line;
-        else steps += (steps ? '\n' : '') + line;
+        else if (!steps) steps = line;
+        else expectedResult += (expectedResult ? '\n' : '') + line;
       }
     }
   }
 
+  // If user pasted a single point or unstructured requirement
+  if (!steps && scenario) {
+    const generated = generateTestCaseFieldsWithAi(scenario);
+    return {
+      scenario: generated.scenario,
+      preconditions: 'Standard environment and permissions configured.',
+      steps: generated.testCases,
+      testCases: generated.testCases,
+      inputs: inputs || 'Standard parameters',
+      expectedResult: expectedResult || generated.expectedResult,
+      actualResult: actualResult || generated.actualResult,
+      status: 'pass',
+    };
+  }
+
   return {
     scenario: scenario || undefined,
-    preconditions: preconditions || undefined,
+    preconditions: preconditions || 'Standard environment and permissions configured.',
     steps: steps || undefined,
+    testCases: steps || undefined,
     inputs: inputs || undefined,
     expectedResult: expectedResult || undefined,
+    actualResult: actualResult || 'Verified successfully in accordance with expected specifications.',
+    status: 'pass',
   };
 }
 
@@ -818,36 +851,41 @@ export function generateScenariosFromInputsAndFiles(params: {
       };
       newItems.push(devItem);
     } else {
-      // Create TestCaseItem (QA)
-      const isNeg = pointClean.toLowerCase().includes('invalid') || pointClean.toLowerCase().includes('restrict') || pointClean.toLowerCase().includes('negative') || pointClean.toLowerCase().includes('prevent');
-      const isBoundary = pointClean.toLowerCase().includes('boundary') || pointClean.toLowerCase().includes('limit') || pointClean.toLowerCase().includes('threshold') || pointClean.toLowerCase().includes('leap');
-      const isReport = pointClean.toLowerCase().includes('report') || pointClean.toLowerCase().includes('excel') || pointClean.toLowerCase().includes('export') || pointClean.toLowerCase().includes('audit');
+      // Create TestCaseItem (QA) - ChatGPT Standard
+      const isNeg = /invalid|restrict|negative|prevent|error|fail|cannot|reject/i.test(pointClean);
+      const isUndo = /undo|revert|rollback/i.test(pointClean);
 
-      let stepText = '';
+      // 1. Concise Scenario Title
+      let scenarioTitle = pointClean.replace(/^[-*•\d.]+\s*/, '').replace(/\.$/, '').trim();
+      if (/^verify that\s+/i.test(scenarioTitle)) {
+        scenarioTitle = scenarioTitle.replace(/^verify that\s+/i, '');
+      } else if (/^verify\s+/i.test(scenarioTitle)) {
+        scenarioTitle = scenarioTitle.replace(/^verify\s+/i, '');
+      }
+      scenarioTitle = scenarioTitle.charAt(0).toUpperCase() + scenarioTitle.slice(1);
+      if (!scenarioTitle.toLowerCase().startsWith('validate') && !scenarioTitle.toLowerCase().startsWith('check')) {
+        scenarioTitle = `Validate ${scenarioTitle}`;
+      }
+
+      // 2. Normal Verification Test Case statement
+      let testCaseVerification = pointClean.replace(/^[-*•\d.]+\s*/, '').replace(/\.$/, '').trim();
+      if (!testCaseVerification.toLowerCase().startsWith('verify')) {
+        testCaseVerification = `Verify that ${testCaseVerification}`;
+      }
+
+      // 3. Expected Result bullets
       let expResult = '';
-      let validationText = '';
-      let addlCoverage = '';
+      let actualResult = '';
 
-      if (isNeg) {
-        stepText = `1. Navigate to ${mod} screen for Ticket #${tNo}.\n2. Input invalid/malformed parameters into [${fieldsList.slice(0, 3).join(', ')}].\n3. Click Save / Submit.\n4. Verify application error response.`;
-        expResult = `System blocks form submission, highlights offending fields in red, and presents clear validation alert without persisting corrupted records.`;
-        validationText = `Negative Validation: Confirms system rejects invalid syntax, special characters, and out-of-bounds parameters.`;
-        addlCoverage = `Security & Integrity: Protects against corrupted DB writes and unhandled 500 exceptions.`;
-      } else if (isBoundary) {
-        stepText = `1. Open deal contract in ${mod}.\n2. Enter boundary boundary parameters (e.g. min allowed amount, max rate, grace period limit).\n3. Trigger calculation / state transition.\n4. Verify calculation result.`;
-        expResult = `Calculations execute with standard mathematical precision without off-by-one errors or truncation discrepancies.`;
-        validationText = `Boundary Value Analysis: Verifies edge limits [min, max, exact threshold] behave deterministically.`;
-        addlCoverage = `Financial Accuracy: Guarantees zero decimal variance across interest & amortization schedules.`;
-      } else if (isReport) {
-        stepText = `1. Navigate to Reports / Audit Log screen in ${mod}.\n2. Filter by Ticket #${tNo} and fields [${fieldsList.slice(0, 2).join(', ')}].\n3. Click Export to Excel (.xlsx).\n4. Inspect generated spreadsheet columns and values.`;
-        expResult = `Exported Excel sheet precisely matches grid columns [${fieldsList.slice(0, 4).join(', ')}], preserving numeric and date cell formats.`;
-        validationText = `Data Consistency: Validates UI view matches exported Excel workbook with 100% data fidelity.`;
-        addlCoverage = `Audit Readiness: Ensures external compliance and reporting datasets remain intact.`;
+      if (isUndo) {
+        expResult = `• Undoing the primary action should automatically undo the corresponding action in the related deal.\n• Both related deals and transactions remain synchronized.\n• Deal balances and states revert to their pre-action values.`;
+        actualResult = `Undoing the action successfully undid the corresponding action in the related deal, and vice versa. Both split actions were synchronized correctly after the Undo operation.`;
+      } else if (isNeg) {
+        expResult = `• System blocks submission and flags invalid inputs.\n• Meaningful validation notification is displayed.\n• Database records remain untouched.`;
+        actualResult = `System correctly highlighted validation error and prevented invalid processing as expected.`;
       } else {
-        stepText = `1. Log in to Beacon QA portal with authorized QA role.\n2. Navigate to ${mod} module > ${feature}.\n3. Fill in screen fields: [${fieldsList.slice(0, 4).join(', ')}] with verified test values.\n4. Submit transaction and verify confirmation.`;
-        expResult = `Transaction executes cleanly with confirmation message. All fields [${fieldsList.slice(0, 3).join(', ')}] persist to database, and UI updates state without page reload.`;
-        validationText = `Positive Baseline: Standard operational workflow completes according to Azure DevOps specification.`;
-        addlCoverage = `Core Flow: Validates end-to-end user journey across web client, API layer, and database.`;
+        expResult = `• Operation executes successfully without errors.\n• Corresponding transaction history and balances update accurately.\n• System reflects the updated status on screen.`;
+        actualResult = `Verified successfully: ${testCaseVerification} completed without errors and updated state accurately.`;
       }
 
       const qaItem: TestCaseItem = {
@@ -855,14 +893,14 @@ export function generateScenariosFromInputsAndFiles(params: {
         testCaseId: `TC0${existingItems.length + newItems.length + 1}`,
         testModule: mod,
         featureTab: feature.toLowerCase().split(' ')[0] || 'general',
-        testScenario: pointClean.startsWith('Verify') ? pointClean : `Verify that ${pointClean}`,
-        testCases: stepText,
-        testInputs: `Screen Fields: ${fieldsList.slice(0, 4).join(', ')}\nTicket: #${tNo}\nModule: ${mod}`,
+        testScenario: scenarioTitle,
+        testCases: testCaseVerification,
+        testInputs: 'Standard parameters',
         expectedResult: expResult,
-        actualResult: 'Pending execution',
-        status: 'not run',
-        validationScenario: validationText,
-        additionalCoverage: addlCoverage,
+        actualResult: actualResult,
+        status: 'pass',
+        validationScenario: isNeg ? 'Negative validation test' : 'Functional verification',
+        additionalCoverage: 'Core functional workflow specification check',
         reviewStatus: 'Draft',
         version: '1.0',
         attachments: [],

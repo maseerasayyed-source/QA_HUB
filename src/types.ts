@@ -55,6 +55,7 @@ export interface TicketSummary {
   creatorEmail?: string;
   signOffBy?: string;
   clientName?: string;
+  branch?: string;
   shaCommit?: string;
   priority: 'Critical' | 'High' | 'Medium' | 'Low';
   status:
@@ -133,6 +134,7 @@ export interface TestCaseHeaderMeta {
   ticketNo: string;
   clientName: string;
   sha: string;
+  branch?: string;
   taskName: string;
   taskDoneBy: string; // Assigned QA / Submitted By
   signOffBy: string; // Senior QA / Submitted To
@@ -191,6 +193,9 @@ export interface TestCaseItem {
   validationScenario?: string;
   additionalCoverage?: string;
   screenshot1?: string;
+  screenshot2?: string;
+  screenshot3?: string;
+  screenshot4?: string;
   attachments?: FileAttachment[];
   isAiGenerated?: boolean;
   createdBy?: string;
@@ -211,6 +216,10 @@ export interface ObservationHeaderMeta {
   ticketNo: string;
   qaOwner: string;
   clientName?: string;
+  developer?: string;
+  sha?: string;
+  signOffBy?: string;
+  taskName?: string;
   date: string;
 }
 
@@ -237,6 +246,10 @@ export interface DeveloperTestHeaderMeta {
   ticketNo: string;
   featureName: string;
   developer: string;
+  qaAssignee?: string;
+  clientName?: string;
+  taskName?: string;
+  sha?: string;
   devTestDate: string;
   description?: string;
   testingScenarios?: string;
