@@ -1498,13 +1498,13 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           setHeader(next);
           saveStateToStore(items, next);
         }}
-        qaAssigneeName={header.qaAssignee || currentTicket?.qaAssignee || 'Maseera Sayyed'}
+        qaAssigneeName={header.qaAssignee !== undefined ? header.qaAssignee : (currentTicket?.qaAssignee || '')}
         onChangeQaAssigneeName={(val) => {
           const next = { ...header, qaAssignee: val };
           setHeader(next);
           saveStateToStore(items, next);
         }}
-        developerName={header.developer || currentTicket?.developer || 'Rahul Sharma'}
+        developerName={header.developer !== undefined ? header.developer : (currentTicket?.developer || '')}
         onChangeDeveloperName={(val) => {
           const next = { ...header, developer: val };
           setHeader(next);
@@ -1514,13 +1514,13 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           }));
           saveStateToStore(updatedItems, next);
         }}
-        sha={header.sha || header.shaCommit || currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+        sha={header.sha !== undefined ? header.sha : (header.shaCommit || currentTicket?.shaCommit || '')}
         onChangeSha={(val) => {
           const next = { ...header, sha: val, shaCommit: val };
           setHeader(next);
           saveStateToStore(items, next);
         }}
-        signOffBy={header.signOffBy || currentTicket?.signOffBy || 'Ashwini poke'}
+        signOffBy={header.signOffBy !== undefined ? header.signOffBy : (currentTicket?.signOffBy || '')}
         onChangeSignOffBy={(val) => {
           const next = { ...header, signOffBy: val };
           setHeader(next);

@@ -41,7 +41,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newModuleId, setNewModuleId] = useState(modules[0]?.id || 'mod-1');
   const [customModuleName, setCustomModuleName] = useState('');
   const [newDeveloper, setNewDeveloper] = useState('');
-  const [newQaAssignee, setNewQaAssignee] = useState(currentUser?.name || 'Maseera Sayyed');
+  const [newQaAssignee, setNewQaAssignee] = useState(currentUser?.name || '');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState(false);
 
@@ -309,9 +309,9 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       moduleId: finalModuleId,
       moduleName: finalModuleName,
       developer: newDeveloper.trim() || (matchedExisting?.developer || ''),
-      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || 'Maseera Sayyed'),
-      createdBy: currentUser?.name || 'Maseera Sayyed',
-      creatorEmail: currentUser?.email || 'maseerasayyed@quantumphinance.com',
+      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || ''),
+      createdBy: currentUser?.name || '',
+      creatorEmail: currentUser?.email || '',
       signOffBy: '',
       clientName: matchedExisting?.clientName || 'Treasury Master',
       shaCommit: matchedExisting?.shaCommit || `SHA-1: ${Math.random().toString(36).substring(2, 10)}`,

@@ -195,12 +195,13 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
     }
   };
 
+  const cleanSelNo = (selectedTicketNumber || '').trim().replace(/^#+/, '').toLowerCase();
   const currentTicket = tickets.find(
-    (t) => t.ticketNumber.toLowerCase() === selectedTicketNumber.toLowerCase()
+    (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanSelNo
   );
 
   const devName = developerName !== undefined ? developerName : (currentTicket?.developer || '');
-  const qaName = qaAssigneeName || currentTicket?.qaAssignee || 'Maseera Sayyed';
+  const qaName = qaAssigneeName !== undefined ? qaAssigneeName : (currentTicket?.qaAssignee || '');
 
   const [isTranslatingDesc, setIsTranslatingDesc] = useState(false);
   const [isTranslatingScenarios, setIsTranslatingScenarios] = useState(false);
@@ -357,16 +358,16 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
         onSelectTicket={onSelectTicket}
         clientName={clientName}
         onChangeClientName={onChangeClientName}
-        moduleName={moduleName || currentTicket?.moduleName}
+        moduleName={moduleName !== undefined ? moduleName : (currentTicket?.moduleName || '')}
         onChangeModuleName={onChangeModuleName}
-        taskName={taskName || currentTicket?.featureName}
+        taskName={taskName !== undefined ? taskName : (currentTicket?.featureName || '')}
         onChangeTaskName={onChangeTaskName}
         qaAssignee={qaName}
         developer={devName}
         onChangeDeveloper={onChangeDeveloperName}
-        sha={sha || currentTicket?.shaCommit}
+        sha={sha !== undefined ? sha : (currentTicket?.shaCommit || '')}
         onChangeSha={onChangeSha}
-        signOffBy={signOffBy || reviewDoneBy || currentTicket?.signOffBy}
+        signOffBy={signOffBy !== undefined ? signOffBy : (reviewDoneBy || currentTicket?.signOffBy || '')}
         onChangeSignOffBy={onChangeSignOffBy}
         readOnly={readOnly}
       />

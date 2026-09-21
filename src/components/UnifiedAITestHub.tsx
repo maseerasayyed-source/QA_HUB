@@ -123,14 +123,38 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     }
   }, [activeTicketNumber]);
 
+  // System-wide tickets created on this client across all modules (including Azure DevOps)
+  const systemTicketsList = useMemo(() => {
+    const map = new Map<string, TicketSummary>();
+    (tickets || []).forEach((t) => {
+      if (t.ticketNumber) {
+        map.set(t.ticketNumber.trim().replace(/^#+/, '').toLowerCase(), t);
+      }
+    });
+    const storedTickets = getAllCreatedTicketsOnSystem();
+    storedTickets.forEach((st) => {
+      if (st.ticketNumber) {
+        const cleanSt = st.ticketNumber.trim().replace(/^#+/, '').toLowerCase();
+        if (!map.has(cleanSt)) {
+          map.set(cleanSt, st);
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [tickets]);
+
   // Currently Matched Ticket
   const matchedTicket = useMemo(() => {
+    const cleanSel = (selectedTicketNumber || '').trim().replace(/^#+/, '').toLowerCase();
     return (
-      tickets.find((t) => t.ticketNumber.toLowerCase() === selectedTicketNumber.toLowerCase()) ||
+      systemTicketsList.find(
+        (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanSel
+      ) ||
+      systemTicketsList[0] ||
       tickets[0] ||
       undefined
     );
-  }, [tickets, selectedTicketNumber]);
+  }, [systemTicketsList, tickets, selectedTicketNumber]);
 
   // Header Metadata - synchronized with testCaseHeadersMap
   const [header, setHeader] = useState<TestCaseHeaderMeta>(() => {
@@ -140,7 +164,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       ...initialHeader,
       ticketNo: matchedTicket?.ticketNumber || initialHeader.ticketNo || '',
       taskName: matchedTicket?.featureName || initialHeader.taskName || '',
-      taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || currentUser?.name || 'Maseera Sayyed',
+      taskDoneBy: matchedTicket?.qaAssignee || initialHeader.taskDoneBy || currentUser?.name || '',
       signOffBy: matchedTicket?.signOffBy || initialHeader.signOffBy || '',
       reviewStatus: initialHeader.reviewStatus || 'Draft',
       version: initialHeader.version || '1.0',
@@ -196,7 +220,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [customModuleName, setCustomModuleName] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
   const [newDeveloper, setNewDeveloper] = useState<string>('');
-  const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || 'Maseera Sayyed');
+  const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || '');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
   const [fetchedHeaderNotice, setFetchedHeaderNotice] = useState<string | null>(null);
@@ -208,28 +232,11 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [isTranslatingAll, setIsTranslatingAll] = useState<boolean>(false);
   const [isTranslatingModalScenario, setIsTranslatingModalScenario] = useState<boolean>(false);
 
-  // System-wide tickets created on this client across all modules
-  const systemTicketsList = useMemo(() => {
-    const map = new Map<string, TicketSummary>();
-    (tickets || []).forEach((t) => {
-      if (t.ticketNumber) {
-        map.set(t.ticketNumber.trim().toLowerCase(), t);
-      }
-    });
-    const storedTickets = getAllCreatedTicketsOnSystem();
-    storedTickets.forEach((st) => {
-      if (st.ticketNumber && !map.has(st.ticketNumber.trim().toLowerCase())) {
-        map.set(st.ticketNumber.trim().toLowerCase(), st);
-      }
-    });
-    return Array.from(map.values());
-  }, [tickets]);
-
   const handleSelectExistingTicket = (selectedId: string) => {
     if (!selectedId) return;
-    const cleanId = selectedId.trim().toLowerCase().replace('#', '');
+    const cleanId = selectedId.trim().replace(/^#+/, '').toLowerCase();
     const matched = systemTicketsList.find(
-      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === cleanId
+      (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanId
     );
     if (!matched) return;
 
@@ -248,10 +255,10 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
   const handleTicketNumberChange = (val: string) => {
     setNewTicketNumber(val);
-    const clean = val.trim().toLowerCase().replace('#', '');
+    const clean = val.trim().replace(/^#+/, '').toLowerCase();
     if (clean.length >= 2) {
       const matched = systemTicketsList.find(
-        (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === clean
+        (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === clean
       );
       if (matched) {
         setNewFeatureName(matched.featureName || '');
@@ -2027,40 +2034,40 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       <CommonHeader
         mode="qa"
         selectedTicketNumber={selectedTicketNumber}
-        tickets={tickets}
-        clientName={header.clientName || 'Treasury Master'}
+        tickets={systemTicketsList}
+        clientName={header.clientName}
         onChangeClientName={(val) => {
           const next = { ...header, clientName: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
         moduleName={matchedTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName || headerDescription || matchedTicket?.featureName || 'penalty overdue report'}
+        taskName={header.taskName !== undefined ? header.taskName : (headerDescription || matchedTicket?.featureName || '')}
         onChangeTaskName={(val) => {
           const next = { ...header, taskName: val, description: val };
           setHeader(next);
           setHeaderDescription(val);
           onUpdateHeader?.(next);
         }}
-        sha={header.sha || matchedTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+        sha={header.sha !== undefined ? header.sha : (matchedTicket?.shaCommit || '')}
         onChangeSha={(val) => {
           const next = { ...header, sha: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        signOffBy={header.signOffBy || matchedTicket?.signOffBy || 'Ashwini poke'}
+        signOffBy={header.signOffBy !== undefined ? header.signOffBy : (matchedTicket?.signOffBy || '')}
         onChangeSignOffBy={(val) => {
           const next = { ...header, signOffBy: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        developerName={matchedTicket?.developer || header.developer || 'Rahul Sharma'}
+        developerName={header.developer !== undefined ? header.developer : (matchedTicket?.developer || '')}
         onChangeDeveloperName={(val) => {
           const next = { ...header, developer: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        qaAssigneeName={matchedTicket?.qaAssignee || header.taskDoneBy || 'Maseera Sayyed'}
+        qaAssigneeName={header.taskDoneBy !== undefined ? header.taskDoneBy : (matchedTicket?.qaAssignee || '')}
         onChangeQaAssigneeName={(val) => {
           const next = { ...header, taskDoneBy: val };
           setHeader(next);
@@ -2086,7 +2093,10 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         onSelectTicket={(tNo) => {
           setSelectedTicketNumber(tNo);
           onSelectTicket?.(tNo);
-          const found = tickets.find((t) => t.ticketNumber === tNo);
+          const clean = (tNo || '').trim().replace(/^#+/, '').toLowerCase();
+          const found = systemTicketsList.find(
+            (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === clean
+          ) || tickets.find((t) => t.ticketNumber === tNo);
           if (found) {
             handleOpenTestCasesScreen(found);
           }

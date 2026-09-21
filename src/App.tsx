@@ -49,7 +49,8 @@ import { SeniorQAReviewQueue } from './components/SeniorQAReviewQueue';
 import { UserManualView } from './components/UserManualView';
 import { DailyTaskUpdatesView } from './components/DailyTaskUpdatesView';
 import { LoginPage } from './components/LoginPage';
-import { X, UserCheck, ShieldCheck, Mail, LogOut } from 'lucide-react';
+import { GeminiQaChatbot } from './components/GeminiQaChatbot';
+import { X, UserCheck, ShieldCheck, Mail, LogOut, Sparkles } from 'lucide-react';
 
 export default function App() {
   // Load Initial Data from persistent localStorage store
@@ -103,6 +104,7 @@ export default function App() {
   const [isGuideOpen, setIsGuideOpen] = useState<boolean>(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
 
   // Authority Check:
   // Maseera Sayyed -> Super Admin (sees all tickets across organization)
@@ -768,6 +770,7 @@ export default function App() {
           }}
           isSidebarCollapsed={isSidebarCollapsed}
           onToggleSidebar={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          onOpenChat={() => setIsChatOpen(true)}
         />
 
         <main className="flex-1 overflow-y-auto">
@@ -886,6 +889,37 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Floating AI QA Chatbot Launcher Button */}
+      {!isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-5 right-5 z-40 px-4 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-full shadow-2xl flex items-center gap-2.5 cursor-pointer transition-all hover:scale-105 active:scale-95 border border-white/20"
+          title="Open Beacon AI QA Chatbot (ChatGPT Style)"
+        >
+          <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
+          <span className="text-xs tracking-wide">AI QA Chatbot</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+        </button>
+      )}
+
+      {/* Gemini AI Multi-Turn QA Chatbot */}
+      <GeminiQaChatbot
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        currentUser={currentUser}
+        activeTicket={currentTicket || null}
+        onApplyTestCases={(ticketNo, newCases) => {
+          setTestCasesMap((prev) => {
+            const updated = {
+              ...prev,
+              [ticketNo]: [...newCases, ...(prev[ticketNo] || [])],
+            };
+            saveTestCasesMapToStorage(updated);
+            return updated;
+          });
+        }}
+      />
     </div>
   );
 }

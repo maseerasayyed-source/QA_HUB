@@ -593,18 +593,18 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
               const updatedHeader = { ...activeItem.header, taskName: val, description: val };
               onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
             }}
-            sha={activeItem.header.sha || activeItem.ticket.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+            sha={activeItem.header.sha !== undefined ? activeItem.header.sha : (activeItem.ticket.shaCommit || '')}
             onChangeSha={(val) => {
               const updatedHeader = { ...activeItem.header, sha: val };
               onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
             }}
-            signOffBy={activeItem.header.signOffBy || activeItem.ticket.signOffBy || 'Ashwini poke'}
+            signOffBy={activeItem.header.signOffBy !== undefined ? activeItem.header.signOffBy : (activeItem.ticket.signOffBy || '')}
             onChangeSignOffBy={(val) => {
               const updatedHeader = { ...activeItem.header, signOffBy: val };
               onUpdateHeader?.(activeItem.ticket.ticketNumber, updatedHeader);
             }}
-            developerName={activeItem.ticket.developer || activeItem.header.developer || 'Rahul Sharma'}
-            qaAssigneeName={activeItem.ticket.qaAssignee || activeItem.header.taskDoneBy || 'Maseera Sayyed'}
+            developerName={activeItem.ticket.developer || activeItem.header.developer || ''}
+            qaAssigneeName={activeItem.ticket.qaAssignee || activeItem.header.taskDoneBy || ''}
             reviewDoneBy={activeItem.header.reviewDoneBy || activeItem.header.approvedBy}
             reviewDoneAt={activeItem.header.reviewDoneAt || activeItem.header.approvedAt}
             reviewStatus={activeItem.header.reviewStatus}

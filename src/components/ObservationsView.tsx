@@ -91,26 +91,50 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const [ticketModuleFilter, setTicketModuleFilter] = useState<string>('all');
   const [ticketStatusFilter, setTicketStatusFilter] = useState<string>('all');
 
+  // System-wide tickets created on this client across all modules (including Azure DevOps)
+  const systemTicketsList = useMemo(() => {
+    const map = new Map<string, TicketSummary>();
+    (tickets || []).forEach((t) => {
+      if (t.ticketNumber) {
+        map.set(t.ticketNumber.trim().replace(/^#+/, '').toLowerCase(), t);
+      }
+    });
+    const storedTickets = getAllCreatedTicketsOnSystem();
+    storedTickets.forEach((st) => {
+      if (st.ticketNumber) {
+        const cleanSt = st.ticketNumber.trim().replace(/^#+/, '').toLowerCase();
+        if (!map.has(cleanSt)) {
+          map.set(cleanSt, st);
+        }
+      }
+    });
+    return Array.from(map.values());
+  }, [tickets]);
+
   // Match current ticket
   const currentTicket = useMemo(() => {
+    const cleanSel = (selectedTicketNo || '').trim().replace(/^#+/, '').toLowerCase();
     return (
-      tickets.find((t) => t.ticketNumber.toLowerCase() === selectedTicketNo.toLowerCase()) ||
+      systemTicketsList.find(
+        (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanSel
+      ) ||
+      systemTicketsList[0] ||
       tickets[0]
     );
-  }, [tickets, selectedTicketNo]);
+  }, [systemTicketsList, tickets, selectedTicketNo]);
 
   // Observation Sheet Header
   const [header, setHeader] = useState<ObservationHeaderMeta & { testingScenarios?: string }>(() => {
     return {
       ...initialHeader,
-      clientName: initialHeader.clientName || 'Treasury Master',
+      clientName: initialHeader.clientName || currentTicket?.clientName || 'Treasury Master',
       ticketNo: currentTicket?.ticketNumber || defaultTicketNo,
-      ticketName: currentTicket?.featureName || initialHeader.ticketName,
-      taskName: currentTicket?.featureName || initialHeader.taskName || 'penalty overdue report',
-      qaOwner: currentTicket?.qaAssignee || initialHeader.qaOwner || currentUser?.name || 'Maseera Sayyed',
-      developer: currentTicket?.developer || initialHeader.developer || 'Rahul Sharma',
-      sha: currentTicket?.shaCommit || initialHeader.sha || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
-      signOffBy: currentTicket?.signOffBy || initialHeader.signOffBy || 'Ashwini poke',
+      ticketName: currentTicket?.featureName || initialHeader.ticketName || '',
+      taskName: currentTicket?.featureName || initialHeader.taskName || '',
+      qaOwner: currentTicket?.qaAssignee || initialHeader.qaOwner || currentUser?.name || '',
+      developer: currentTicket?.developer || initialHeader.developer || '',
+      sha: currentTicket?.shaCommit || initialHeader.sha || '',
+      signOffBy: currentTicket?.signOffBy || initialHeader.signOffBy || '',
       date: new Date().toISOString().split('T')[0],
       testingScenarios: currentTicket?.testingScenarios || currentTicket?.scenarioDetails || '',
     };
@@ -136,33 +160,16 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const [customModuleName, setCustomModuleName] = useState<string>('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
   const [newDeveloper, setNewDeveloper] = useState<string>('');
-  const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || 'Maseera Sayyed');
+  const [newQaAssignee, setNewQaAssignee] = useState<string>(currentUser?.name || '');
   const [newScenarioDetails, setNewScenarioDetails] = useState<string>('');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState<boolean>(false);
   const [fetchedHeaderNotice, setFetchedHeaderNotice] = useState<string | null>(null);
 
-  // System-wide tickets created on this client across all modules
-  const systemTicketsList = useMemo(() => {
-    const map = new Map<string, TicketSummary>();
-    (tickets || []).forEach((t) => {
-      if (t.ticketNumber) {
-        map.set(t.ticketNumber.trim().toLowerCase(), t);
-      }
-    });
-    const storedTickets = getAllCreatedTicketsOnSystem();
-    storedTickets.forEach((st) => {
-      if (st.ticketNumber && !map.has(st.ticketNumber.trim().toLowerCase())) {
-        map.set(st.ticketNumber.trim().toLowerCase(), st);
-      }
-    });
-    return Array.from(map.values());
-  }, [tickets]);
-
   const handleSelectExistingTicket = (selectedId: string) => {
     if (!selectedId) return;
-    const cleanId = selectedId.trim().toLowerCase().replace('#', '');
+    const cleanId = selectedId.trim().replace(/^#+/, '').toLowerCase();
     const matched = systemTicketsList.find(
-      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === cleanId
+      (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanId
     );
     if (!matched) return;
 
@@ -249,22 +256,26 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   const handleTicketChange = (tNo: string) => {
     setSelectedTicketNo(tNo);
     onSelectTicket?.(tNo);
-    const found = tickets.find((t) => t.ticketNumber.toLowerCase() === tNo.toLowerCase());
+    const cleanTNo = (tNo || '').trim().replace(/^#+/, '').toLowerCase();
+    const found = systemTicketsList.find(
+      (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanTNo
+    );
     const nextH = {
       ...header,
-      ticketNo: tNo,
-      ticketName: found ? found.featureName : header.ticketName,
-      taskName: found ? found.featureName : header.taskName,
-      qaOwner: found ? found.qaAssignee : header.qaOwner,
-      developer: found?.developer || header.developer,
-      sha: found?.shaCommit || header.sha,
-      signOffBy: found?.signOffBy || header.signOffBy,
+      ticketNo: tNo.replace(/^#+/, ''),
+      ticketName: found?.featureName !== undefined ? found.featureName : (header.ticketName || ''),
+      taskName: found?.featureName !== undefined ? found.featureName : (header.taskName !== undefined ? header.taskName : (header.ticketName || '')),
+      qaOwner: found?.qaAssignee !== undefined ? found.qaAssignee : (header.qaOwner !== undefined ? header.qaOwner : (currentUser?.name || '')),
+      developer: found?.developer !== undefined ? found.developer : (header.developer !== undefined ? header.developer : ''),
+      sha: found?.shaCommit !== undefined ? found.shaCommit : (header.sha !== undefined ? header.sha : ''),
+      signOffBy: found?.signOffBy !== undefined ? found.signOffBy : (header.signOffBy !== undefined ? header.signOffBy : ''),
+      clientName: found?.clientName || (header.clientName !== undefined ? header.clientName : 'Treasury Master'),
       testingScenarios: found?.testingScenarios || found?.scenarioDetails || '',
     };
     setHeader(nextH);
     onUpdateHeader?.(nextH);
 
-    const existingObs = observationsMap[tNo];
+    const existingObs = observationsMap[tNo] || observationsMap[cleanTNo];
     if (existingObs && existingObs.length > 0) {
       setObservations(existingObs);
     } else {
@@ -657,9 +668,9 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       });
   }, [observations, globalSearch, selectedTypeFilter, columnFilters, sortKey, sortDirection]);
 
-  // Filtered Tickets for Tickets List Table
+  // Filtered Tickets for Tickets List Table (includes all tickets created on Azure or across system)
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
+    return systemTicketsList.filter((t) => {
       if (ticketSearch.trim()) {
         const q = ticketSearch.toLowerCase();
         const matches =
@@ -685,7 +696,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
 
       return true;
     });
-  }, [tickets, ticketSearch, ticketModuleFilter, ticketStatusFilter]);
+  }, [systemTicketsList, ticketSearch, ticketModuleFilter, ticketStatusFilter]);
 
   // Add Ticket Submit Handler (with Custom Module support)
   const handleCreateTicketSubmit = (e: React.FormEvent) => {
@@ -701,17 +712,17 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         : modules.find((m) => m.id === newModuleId)?.name || 'Term Loan';
 
     const matchedExisting = systemTicketsList.find(
-      (t) => t.ticketNumber.trim().toLowerCase().replace('#', '') === newTicketNumber.trim().toLowerCase().replace('#', '')
+      (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === newTicketNumber.trim().replace(/^#+/, '').toLowerCase()
     );
 
     const newTicket: TicketSummary = {
       id: `ticket-${Date.now()}`,
-      ticketNumber: newTicketNumber.trim().replace('#', ''),
+      ticketNumber: newTicketNumber.trim().replace(/^#+/, ''),
       featureName: newFeatureName.trim(),
       moduleId: newModuleId === 'other' ? 'custom' : newModuleId,
       moduleName: effectiveModuleName,
       developer: newDeveloper.trim() || (matchedExisting?.developer || ''),
-      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || 'Maseera Sayyed'),
+      qaAssignee: newQaAssignee.trim() || (matchedExisting?.qaAssignee || currentUser?.name || ''),
       priority: newPriority,
       status: 'Ready for QA',
       testCasesCount: 0,
@@ -1284,40 +1295,40 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       {/* ENHANCED CORPORATE TICKET HEADER - Strictly Header & Respective Ticket Matching Picture 4 */}
       <CorporateTicketHeader
         selectedTicketNumber={selectedTicketNo}
-        tickets={tickets}
+        tickets={systemTicketsList}
         onSelectTicket={handleTicketChange}
-        clientName={header.clientName || 'Treasury Master'}
+        clientName={header.clientName}
         onChangeClientName={(val) => {
           const next = { ...header, clientName: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
         moduleName={currentTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName || header.ticketName || 'penalty overdue report'}
+        taskName={header.taskName !== undefined ? header.taskName : (header.ticketName || '')}
         onChangeTaskName={(val) => {
           const next = { ...header, taskName: val, ticketName: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        qaAssignee={header.qaOwner || currentTicket?.qaAssignee || 'Maseera Sayyed'}
+        qaAssignee={header.qaOwner}
         onChangeQaAssignee={(val) => {
           const next = { ...header, qaOwner: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        developer={header.developer || currentTicket?.developer || 'Rahul Sharma'}
+        developer={header.developer}
         onChangeDeveloper={(val) => {
           const next = { ...header, developer: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        sha={header.sha || currentTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*'}
+        sha={header.sha}
         onChangeSha={(val) => {
           const next = { ...header, sha: val };
           setHeader(next);
           onUpdateHeader?.(next);
         }}
-        signOffBy={header.signOffBy || currentTicket?.signOffBy || 'Ashwini poke'}
+        signOffBy={header.signOffBy}
         onChangeSignOffBy={(val) => {
           const next = { ...header, signOffBy: val };
           setHeader(next);

@@ -43,19 +43,19 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
   selectedTicketNumber,
   tickets,
   onSelectTicket,
-  clientName = 'Treasury Master',
+  clientName,
   onChangeClientName,
   moduleName,
   onChangeModuleName,
-  taskName = '',
+  taskName,
   onChangeTaskName,
-  qaAssignee = 'Maseera Sayyed',
+  qaAssignee,
   onChangeQaAssignee,
-  developer = '',
+  developer,
   onChangeDeveloper,
-  sha = 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*',
+  sha,
   onChangeSha,
-  signOffBy = 'Ashwini poke',
+  signOffBy,
   onChangeSignOffBy,
   readOnly = false,
   compact = false,
@@ -63,24 +63,31 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
 }) => {
   const [copiedSha, setCopiedSha] = useState(false);
   const [editableTicketInput, setEditableTicketInput] = useState(selectedTicketNumber);
+  const [isTypingTicket, setIsTypingTicket] = useState(false);
 
-  // Synchronize internal editable ticket string when selectedTicketNumber changes
+  // Synchronize internal editable ticket string when selectedTicketNumber changes,
+  // BUT only when the user is not actively typing in the input!
   useEffect(() => {
-    setEditableTicketInput(selectedTicketNumber);
-  }, [selectedTicketNumber]);
+    if (!isTypingTicket) {
+      setEditableTicketInput(selectedTicketNumber);
+    }
+  }, [selectedTicketNumber, isTypingTicket]);
 
   // Combine system tickets with prop tickets so all Azure and created tickets are present
   const allAvailableTickets = useMemo(() => {
     const map = new Map<string, TicketSummary>();
     tickets.forEach((t) => {
       if (t.ticketNumber) {
-        map.set(t.ticketNumber.trim().toLowerCase(), t);
+        map.set(t.ticketNumber.trim().replace(/^#+/, '').toLowerCase(), t);
       }
     });
     const storedTickets = getAllCreatedTicketsOnSystem();
     storedTickets.forEach((st) => {
-      if (st.ticketNumber && !map.has(st.ticketNumber.trim().toLowerCase())) {
-        map.set(st.ticketNumber.trim().toLowerCase(), st);
+      if (st.ticketNumber) {
+        const cleanSt = st.ticketNumber.trim().replace(/^#+/, '').toLowerCase();
+        if (!map.has(cleanSt)) {
+          map.set(cleanSt, st);
+        }
       }
     });
     return Array.from(map.values());
@@ -88,33 +95,71 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
 
   // Matched ticket for fast auto-fill
   const matchedTicket = useMemo(() => {
+    const cleanSel = selectedTicketNumber.trim().replace(/^#+/, '').toLowerCase();
     return allAvailableTickets.find(
       (t) =>
-        t.ticketNumber.trim().toLowerCase() ===
-        selectedTicketNumber.trim().toLowerCase().replace('#', '')
+        t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanSel
     );
   }, [allAvailableTickets, selectedTicketNumber]);
 
-  const effectiveTaskName = taskName || matchedTicket?.featureName || 'penalty overdue report';
-  const effectiveQa = qaAssignee || matchedTicket?.qaAssignee || 'Maseera Sayyed';
-  const effectiveDev = developer || matchedTicket?.developer || 'Rahul Sharma';
-  const effectiveSha =
-    sha || matchedTicket?.shaCommit || 'SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*';
-  const effectiveClient = clientName || matchedTicket?.clientName || 'Treasury Master';
-  const effectiveSignOff = signOffBy || matchedTicket?.signOffBy || 'Ashwini poke';
-  const effectiveModule = moduleName || matchedTicket?.moduleName || 'Term Loan';
+  // Effective values: Respect user's explicit values (including empty string "" when backspacing!)
+  // Fall back to matched ticket fields ONLY if undefined
+  const effectiveTaskName = taskName !== undefined ? taskName : (matchedTicket?.featureName || '');
+  const effectiveQa = qaAssignee !== undefined ? qaAssignee : (matchedTicket?.qaAssignee || '');
+  const effectiveDev = developer !== undefined ? developer : (matchedTicket?.developer || '');
+  const effectiveSha = sha !== undefined ? sha : (matchedTicket?.shaCommit || '');
+  const effectiveClient = clientName !== undefined ? clientName : (matchedTicket?.clientName || 'Treasury Master');
+  const effectiveSignOff = signOffBy !== undefined ? signOffBy : (matchedTicket?.signOffBy || '');
+  const effectiveModule = moduleName !== undefined ? moduleName : (matchedTicket?.moduleName || '');
 
   const handleCopySha = () => {
+    if (!effectiveSha) return;
     navigator.clipboard?.writeText(effectiveSha);
     setCopiedSha(true);
     setTimeout(() => setCopiedSha(false), 2000);
   };
 
+  const handleSelectDropdownTicket = (ticketNo: string) => {
+    setIsTypingTicket(false);
+    const clean = ticketNo.trim().replace(/^#+/, '');
+    setEditableTicketInput(clean);
+    onSelectTicket(clean);
+
+    // Auto-fetch fields from matched ticket
+    const cleanSel = clean.toLowerCase();
+    const matched = allAvailableTickets.find(
+      (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanSel
+    );
+    if (matched) {
+      if (onChangeTaskName) onChangeTaskName(matched.featureName || '');
+      if (onChangeQaAssignee) onChangeQaAssignee(matched.qaAssignee || '');
+      if (onChangeDeveloper) onChangeDeveloper(matched.developer || '');
+      if (onChangeSha) onChangeSha(matched.shaCommit || '');
+      if (onChangeClientName) onChangeClientName(matched.clientName || 'Treasury Master');
+      if (onChangeModuleName) onChangeModuleName(matched.moduleName || '');
+      if (onChangeSignOffBy) onChangeSignOffBy(matched.signOffBy || '');
+    }
+  };
+
   const handleTicketInputChange = (val: string) => {
     setEditableTicketInput(val);
-    const clean = val.trim().replace('#', '');
+    const clean = val.trim().replace(/^#+/, '');
+    onSelectTicket(clean);
+
     if (clean) {
-      onSelectTicket(clean);
+      const cleanSel = clean.toLowerCase();
+      const matched = allAvailableTickets.find(
+        (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanSel
+      );
+      if (matched) {
+        if (onChangeTaskName) onChangeTaskName(matched.featureName || '');
+        if (onChangeQaAssignee) onChangeQaAssignee(matched.qaAssignee || '');
+        if (onChangeDeveloper) onChangeDeveloper(matched.developer || '');
+        if (onChangeSha) onChangeSha(matched.shaCommit || '');
+        if (onChangeClientName) onChangeClientName(matched.clientName || 'Treasury Master');
+        if (onChangeModuleName) onChangeModuleName(matched.moduleName || '');
+        if (onChangeSignOffBy) onChangeSignOffBy(matched.signOffBy || '');
+      }
     }
   };
 
@@ -196,10 +241,8 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
               {/* Dropdown containing all Azure & System tickets */}
               <div className="relative shrink-0">
                 <select
-                  value={selectedTicketNumber.replace('#', '')}
-                  onChange={(e) => {
-                    onSelectTicket(e.target.value);
-                  }}
+                  value={selectedTicketNumber.replace(/^#+/, '')}
+                  onChange={(e) => handleSelectDropdownTicket(e.target.value)}
                   title="Select Ticket from Azure DevOps / System list"
                   className="appearance-none bg-blue-100 hover:bg-blue-200/80 text-blue-900 text-xs font-black px-2.5 py-1 pr-6 rounded-lg cursor-pointer outline-none transition-colors max-w-[130px] truncate"
                 >
@@ -209,10 +252,10 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                     </option>
                   ))}
                   {allAvailableTickets.every(
-                    (t) => t.ticketNumber !== selectedTicketNumber.replace('#', '')
+                    (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() !== selectedTicketNumber.trim().replace(/^#+/, '').toLowerCase()
                   ) && (
-                    <option value={selectedTicketNumber.replace('#', '')}>
-                      #{selectedTicketNumber.replace('#', '')} (Custom)
+                    <option value={selectedTicketNumber.replace(/^#+/, '')}>
+                      #{selectedTicketNumber.replace(/^#+/, '')} (Custom)
                     </option>
                   )}
                 </select>
@@ -224,7 +267,13 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                 <span className="text-xs font-bold text-blue-500">#</span>
                 <input
                   type="text"
-                  value={editableTicketInput.replace('#', '')}
+                  value={editableTicketInput}
+                  onFocus={() => setIsTypingTicket(true)}
+                  onBlur={() => {
+                    setIsTypingTicket(false);
+                    const clean = editableTicketInput.trim().replace(/^#+/, '');
+                    onSelectTicket(clean);
+                  }}
                   onChange={(e) => handleTicketInputChange(e.target.value)}
                   placeholder="Ticket #"
                   title="Type or edit Ticket ID directly"
@@ -251,7 +300,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
               type="text"
               value={effectiveTaskName}
               onChange={(e) => onChangeTaskName?.(e.target.value)}
-              placeholder="e.g. penalty overdue report (feature or ticket one line)"
+              placeholder="One-line task / feature name"
               title="One-line task / feature summary (editable)"
               className="w-full text-xs font-black text-blue-950 bg-transparent outline-none focus:text-blue-700 placeholder:text-slate-400 font-sans"
             />
@@ -275,7 +324,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                 type="text"
                 value={effectiveSha}
                 onChange={(e) => onChangeSha?.(e.target.value)}
-                placeholder="SHA-1: 4710b619ea012cba75ee657d64ebd49e656948df*"
+                placeholder="SHA-1 commit hash"
                 className="w-full text-xs font-mono font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
               />
             )}
@@ -310,7 +359,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                 type="text"
                 value={effectiveQa}
                 onChange={(e) => onChangeQaAssignee?.(e.target.value)}
-                placeholder="QA Assignee (e.g. Maseera Sayyed)"
+                placeholder="QA Assignee name"
                 className="w-full text-xs font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
               />
             )}
@@ -329,7 +378,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                 type="text"
                 value={effectiveDev}
                 onChange={(e) => onChangeDeveloper?.(e.target.value)}
-                placeholder="Developer Name"
+                placeholder="Developer name"
                 className="w-full text-xs font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
               />
             )}
@@ -348,7 +397,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
                 type="text"
                 value={effectiveSignOff}
                 onChange={(e) => onChangeSignOffBy?.(e.target.value)}
-                placeholder="Senior QA / Sign off Lead (e.g. Ashwini poke)"
+                placeholder="Senior QA / Sign off Lead"
                 className="w-full text-xs font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
               />
             )}

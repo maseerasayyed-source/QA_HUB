@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette, LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { Search, Bell, BookOpen, ShieldCheck, UserCheck, Palette, LogOut, PanelLeftClose, PanelLeftOpen, Sparkles, Bot } from 'lucide-react';
 import { UserProfile, ColourTheme } from '../types';
 
 interface TopBarProps {
@@ -14,6 +14,7 @@ interface TopBarProps {
   onSelectTheme?: (theme: ColourTheme) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
+  onOpenChat?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -28,6 +29,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectTheme,
   isSidebarCollapsed = false,
   onToggleSidebar,
+  onOpenChat,
 }) => {
   const themes: { id: ColourTheme; label: string; colorClass: string }[] = [
     { id: 'Default', label: 'Default Navy', colorClass: 'bg-slate-900' },
@@ -111,6 +113,18 @@ export const TopBar: React.FC<TopBarProps> = ({
               ))}
             </div>
           </div>
+        )}
+
+        {/* Gemini AI QA Chatbot Button */}
+        {onOpenChat && (
+          <button
+            onClick={onOpenChat}
+            className="flex items-center gap-1.5 px-3 py-1.5 font-bold text-white bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 rounded-lg shadow-xs transition-all cursor-pointer active:scale-95"
+            title="Open Beacon AI QA Chatbot (ChatGPT Style)"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+            <span className="hidden sm:inline">AI QA Chat</span>
+          </button>
         )}
 
         {/* Authority Level Badge & User Switcher */}

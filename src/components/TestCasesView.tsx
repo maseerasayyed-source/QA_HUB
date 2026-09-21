@@ -36,7 +36,7 @@ export const TestCasesView: React.FC<TestCasesViewProps> = ({
       clientName: 'Treasury Master',
       sha: '',
       taskName: '',
-      taskDoneBy: 'Maseera Sayyed',
+      taskDoneBy: '',
       signOffBy: '',
       reviewStatus: 'Draft',
       version: '1.0',

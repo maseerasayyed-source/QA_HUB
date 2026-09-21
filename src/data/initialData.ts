@@ -38,7 +38,7 @@ export const INITIAL_TEST_CASE_HEADER: import('../types').TestCaseHeaderMeta = {
   clientName: 'Treasury Master',
   sha: '',
   taskName: '',
-  taskDoneBy: 'Maseera Sayyed',
+  taskDoneBy: '',
   signOffBy: '',
   reviewStatus: 'Draft',
   version: '1.0',
@@ -50,7 +50,7 @@ export const INITIAL_TEST_CASES: import('../types').TestCaseItem[] = [];
 export const INITIAL_OBSERVATION_HEADER: import('../types').ObservationHeaderMeta = {
   ticketName: '',
   ticketNo: '',
-  qaOwner: 'Maseera Sayyed',
+  qaOwner: '',
   clientName: 'Treasury Master',
   date: new Date().toISOString().split('T')[0],
 };
