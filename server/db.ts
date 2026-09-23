@@ -19,6 +19,10 @@ if (connectionString) {
       ssl: isCloud ? { rejectUnauthorized: false } : undefined,
       connectionTimeoutMillis: 5000,
     });
+    pool.on('error', (err) => {
+      console.warn('[QA Hub DB Pool Error — fallback active]:', err.message);
+      isFallback = true;
+    });
     console.log('[QA Hub DB] PostgreSQL pool configured with SSL support.');
   } catch {
     console.warn('[QA Hub DB] DB initialization failed — mock fallback active');

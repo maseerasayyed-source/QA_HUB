@@ -87,6 +87,13 @@ export function translateHinglishOffline(text: string): string {
     [/\bcheck\s+karo\s+ki\b/gi, 'verify that'],
     [/\bdekhna\s+hai\s+ki\b/gi, 'verify that'],
     [/\bnahi\s+chalna\s+chahiye\b/gi, 'should not function'],
+    [/\bhar\s+field\s+(ko\s+)?(check|validate)\s+krna\s+hai\b/gi, 'validate every field, calculation and constraint'],
+    [/\bfield\s+validate\s+karo\b/gi, 'validate all fields'],
+    [/\bgl\s+code\s+reflect\s+nahi\s+ho\s+raha\s*(h|hai)?\b/gi, 'GL code is not getting reflected'],
+    [/\bgl\s+code\s+missing\s*(h|hai)?\b/gi, 'GL codes are missing'],
+    [/\bvisible\s+nahi\s+ho\s+raha\s*(h|hai)?\b/gi, 'is not visible on the UI'],
+    [/\bentry\s+nahi\s+banna\s+chahiye\b/gi, 'no voucher entries should be created'],
+    [/\bdiscription\b/gi, 'description'],
   ];
 
   for (const [pattern, replacement] of phraseReplacements) {
@@ -98,7 +105,7 @@ export function translateHinglishOffline(text: string): string {
     res = res.charAt(0).toUpperCase() + res.slice(1);
   }
   // Ensure it starts with Verify if it sounds like a QA scenario
-  if (!/^(verify|validate|ensure|confirm|check|if|when)\b/i.test(res)) {
+  if (!/^(verify|validate|ensure|confirm|check|if|when|for)\b/i.test(res)) {
     res = `Verify that ${res.charAt(0).toLowerCase() + res.slice(1)}`;
   }
   if (!/[.!?]$/.test(res)) {
@@ -136,6 +143,34 @@ export async function translateToSimpleEnglish(
   }
 
   return translateHinglishOffline(rawText);
+}
+
+/**
+ * High-speed batch translation for all test cases in the table.
+ * Translates in 1 single Gemini call rather than 80 individual calls.
+ */
+export async function batchTranslateTestCases(testCases: TestCaseItem[]): Promise<TestCaseItem[]> {
+  if (!testCases || testCases.length === 0) return [];
+
+  try {
+    const res = await fetch('/api/ai/batch-translate-testcases', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ testCases }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.success && Array.isArray(data.testCases)) {
+        return data.testCases;
+      }
+    }
+  } catch (err) {
+    console.warn('Batch translation API call failed, falling back to per-item translator:', err);
+  }
+
+  // Fallback: translate using autoTranslateTestCaseItem
+  return Promise.all(testCases.map((tc) => autoTranslateTestCaseItem(tc, true)));
 }
 
 /**
@@ -195,8 +230,12 @@ export async function processLanguageCommand(
 /**
  * Automatically translates and standardizes an entire TestCase item.
  */
-export async function autoTranslateTestCaseItem(tc: TestCaseItem): Promise<TestCaseItem> {
+export async function autoTranslateTestCaseItem(
+  tc: TestCaseItem,
+  forceTranslate: boolean = false
+): Promise<TestCaseItem> {
   const needsTranslation =
+    forceTranslate ||
     isNonEnglishOrHinglish(tc.testScenario) ||
     isNonEnglishOrHinglish(tc.testCases) ||
     isNonEnglishOrHinglish(tc.expectedResult) ||
@@ -205,10 +244,10 @@ export async function autoTranslateTestCaseItem(tc: TestCaseItem): Promise<TestC
   if (!needsTranslation) return tc;
 
   const [translatedScenario, translatedCases, translatedExpected, translatedActual] = await Promise.all([
-    isNonEnglishOrHinglish(tc.testScenario) ? translateToSimpleEnglish(tc.testScenario) : Promise.resolve(tc.testScenario),
-    isNonEnglishOrHinglish(tc.testCases) ? translateToSimpleEnglish(tc.testCases) : Promise.resolve(tc.testCases),
-    isNonEnglishOrHinglish(tc.expectedResult) ? translateToSimpleEnglish(tc.expectedResult) : Promise.resolve(tc.expectedResult),
-    tc.actualResult && isNonEnglishOrHinglish(tc.actualResult)
+    (forceTranslate || isNonEnglishOrHinglish(tc.testScenario)) ? translateToSimpleEnglish(tc.testScenario) : Promise.resolve(tc.testScenario),
+    (forceTranslate || isNonEnglishOrHinglish(tc.testCases)) ? translateToSimpleEnglish(tc.testCases) : Promise.resolve(tc.testCases),
+    (forceTranslate || isNonEnglishOrHinglish(tc.expectedResult)) ? translateToSimpleEnglish(tc.expectedResult) : Promise.resolve(tc.expectedResult),
+    (tc.actualResult && (forceTranslate || isNonEnglishOrHinglish(tc.actualResult)))
       ? translateToSimpleEnglish(tc.actualResult)
       : Promise.resolve(tc.actualResult || ''),
   ]);

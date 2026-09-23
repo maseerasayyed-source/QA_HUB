@@ -106,17 +106,26 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   const [previewDoc, setPreviewDoc] = useState<AttachedDocOrImage | null>(null);
   const [isPreviewFieldsOpen, setIsPreviewFieldsOpen] = useState(false);
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
+  const pasteCaptureRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus paste capture area when modal opens
+  useEffect(() => {
+    if (isPasteModalOpen) {
+      setTimeout(() => {
+        pasteCaptureRef.current?.focus();
+      }, 80);
+    }
+  }, [isPasteModalOpen]);
 
   // Global window paste listener: automatically catches any screenshot or file pasted anywhere
   useEffect(() => {
     const handleGlobalPaste = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      for (let i = 0; i < items.length; i++) {
-        if (items[i].type.indexOf('image') !== -1) {
-          const file = items[i].getAsFile();
-          if (file) {
+      // 1. First check files in clipboard (e.g. copied image file from desktop or explorer)
+      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
+        for (let i = 0; i < e.clipboardData.files.length; i++) {
+          const file = e.clipboardData.files[i];
+          if (file.type.startsWith('image/')) {
             e.preventDefault();
             const parsed = await parseUploadedFile(file);
             const updated = [...attachedDocs, parsed];
@@ -126,11 +135,48 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
               parsed.detectedFields.forEach((f) => currentSet.add(f));
               onUpdateScreenFields?.(Array.from(currentSet));
             }
-            setPasteNotice(`✅ Pasted screenshot "${parsed.name}" attached successfully! Click 👁️ Preview to view.`);
+            setPasteNotice(`✅ Pasted screenshot "${parsed.name}" attached successfully!`);
             setTimeout(() => setPasteNotice(null), 4000);
-            break;
+            return;
           }
         }
+      }
+
+      // 2. Check clipboard items for image blob (e.g. Win+Shift+S snipping tool, PrtScn)
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              e.preventDefault();
+              const parsed = await parseUploadedFile(file);
+              const updated = [...attachedDocs, parsed];
+              onUpdateAttachedDocs?.(updated);
+              if (parsed.detectedFields && parsed.detectedFields.length > 0) {
+                const currentSet = new Set(screenFields);
+                parsed.detectedFields.forEach((f) => currentSet.add(f));
+                onUpdateScreenFields?.(Array.from(currentSet));
+              }
+              setPasteNotice(`✅ Pasted screenshot "${parsed.name}" attached successfully!`);
+              setTimeout(() => setPasteNotice(null), 4000);
+              return;
+            }
+          }
+        }
+      }
+
+      // 3. Check for text data URL
+      const text = e.clipboardData?.getData('text');
+      if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)/i.test(text))) {
+        e.preventDefault();
+        const parsed = await parseUploadedFile(new File([new Blob([text])], `pasted_img_${Date.now()}.png`, { type: 'image/png' }));
+        parsed.url = text;
+        parsed.dataUrl = text;
+        const updated = [...attachedDocs, parsed];
+        onUpdateAttachedDocs?.(updated);
+        setPasteNotice(`✅ Pasted image link attached successfully!`);
+        setTimeout(() => setPasteNotice(null), 4000);
       }
     };
 
@@ -158,25 +204,35 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                 onUpdateScreenFields?.(Array.from(currentSet));
               }
               attached = true;
-              setPasteNotice(`✅ Screenshot pasted from clipboard! Click 👁️ Preview to view.`);
+              setPreviewDoc(parsed);
+              setPasteNotice(`✅ Screenshot pasted from clipboard! Preview opened.`);
               setTimeout(() => setPasteNotice(null), 4000);
               break;
             }
           }
           if (attached) break;
         }
-        if (!attached) {
-          setPasteNotice('ℹ️ No image found in clipboard. Take a screenshot (PrtScn or Win+Shift+S) and press Ctrl+V to paste.');
-          setTimeout(() => setPasteNotice(null), 4500);
+        if (attached) return;
+
+        if (navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)/i.test(text))) {
+            const parsed = await parseUploadedFile(new File([new Blob([text])], `pasted_img_${Date.now()}.png`, { type: 'image/png' }));
+            parsed.url = text;
+            parsed.dataUrl = text;
+            onUpdateAttachedDocs?.([...attachedDocs, parsed]);
+            setPreviewDoc(parsed);
+            setPasteNotice(`✅ Pasted image link attached! Preview opened.`);
+            setTimeout(() => setPasteNotice(null), 4000);
+            return;
+          }
         }
-      } else {
-        setPasteNotice('ℹ️ Press Ctrl+V on your keyboard to paste screenshot directly.');
-        setTimeout(() => setPasteNotice(null), 4000);
       }
-    } catch (err) {
-      setPasteNotice('ℹ️ Press Ctrl+V on your keyboard to paste screenshot directly.');
-      setTimeout(() => setPasteNotice(null), 4000);
+    } catch {
+      // Browser permission blocked clipboard.read() in iframe.
     }
+    // Fallback: open dedicated interactive paste capture dialog
+    setIsPasteModalOpen(true);
   };
 
   // Paste handler for the Screen Fields input box (splits comma, newline, or tab separated values)
@@ -419,6 +475,17 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
           </label>
           {!readOnly && (
             <div className="flex items-center gap-2">
+              {attachedDocs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(attachedDocs[attachedDocs.length - 1])}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[11px] font-bold transition-colors cursor-pointer shadow-2xs"
+                  title="Preview latest attached screenshot or document"
+                >
+                  <Eye className="w-3.5 h-3.5 text-blue-600" />
+                  <span>👁️ Preview Screenshot ({attachedDocs.length})</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleClipboardPasteClick}
@@ -433,9 +500,10 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
           )}
         </div>
 
-        {/* Drag & Drop / Upload Area */}
+        {/* Drag & Drop / Paste / Upload Area */}
         {!readOnly && (
           <div
+            tabIndex={0}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragging(true);
@@ -446,11 +514,10 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
               setIsDragging(false);
               handleFileUpload(e.dataTransfer.files);
             }}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 cursor-pointer transition-colors ${
+            className={`border-2 border-dashed rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 transition-colors outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 ${
               isDragging
                 ? 'border-blue-500 bg-blue-50/70'
-                : 'border-slate-300 bg-slate-50/70 hover:bg-slate-50 hover:border-blue-400'
+                : 'border-slate-300 bg-slate-50/70 hover:border-purple-300'
             }`}
           >
             <input
@@ -466,26 +533,50 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
               }}
             />
             <div className="flex items-center gap-2.5 text-xs text-slate-600">
-              <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-                <Upload className="w-4 h-4 shrink-0" />
+              <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+                <ClipboardPaste className="w-4 h-4" />
               </div>
               <div>
                 <span className="font-bold text-slate-800">
-                  Click or drag and drop UI screenshots, Excel or spec documents here
+                  Paste Screenshot (Ctrl+V), or Drag &amp; Drop documents here
                 </span>
-                <p className="text-[11px] text-slate-500">Supports PNG, JPG, Excel (.xlsx, .csv), Word (.docx), and PDF</p>
+                <p className="text-[11px] text-slate-500">
+                  Direct paste for Snips / Win+Shift+S / PrtScn / Copied files. Or click &ldquo;Browse Files&rdquo; for local disk files.
+                </p>
               </div>
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                fileInputRef.current?.click();
-              }}
-              className="text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors"
-            >
-              Browse Files
-            </button>
+            <div className="flex items-center gap-2">
+              {attachedDocs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(attachedDocs[attachedDocs.length - 1])}
+                  className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs"
+                  title="Preview attached screenshot"
+                >
+                  <Eye className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Preview ({attachedDocs.length})</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleClipboardPasteClick}
+                className="text-xs font-bold text-purple-700 bg-purple-100 hover:bg-purple-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs"
+              >
+                <ClipboardPaste className="w-3.5 h-3.5" />
+                <span>Paste Screenshot</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  fileInputRef.current?.click();
+                }}
+                className="text-xs font-bold text-blue-700 bg-blue-100 hover:bg-blue-200 px-3 py-1.5 rounded-lg cursor-pointer transition-colors flex items-center gap-1.5 shadow-2xs"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Browse Files</span>
+              </button>
+            </div>
           </div>
         )}
 
@@ -755,6 +846,101 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                 className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors"
               >
                 Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Direct Screenshot Paste Capture Modal for iframe safety */}
+      {isPasteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-purple-100 text-purple-700 rounded-lg">
+                  <ClipboardPaste className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Paste UI Screenshot</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPasteModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-md"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div
+              className="p-6 border-2 border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-50/80 rounded-xl text-center cursor-pointer transition-colors"
+              onClick={() => pasteCaptureRef.current?.focus()}
+            >
+              <ClipboardPaste className="w-10 h-10 text-purple-600 mx-auto mb-2" />
+              <div className="text-xs font-bold text-purple-950 mb-1">
+                Press Ctrl+V anywhere now
+              </div>
+              <div className="text-[11px] text-purple-700 mb-3">
+                Or Right Click → Paste below (Win+Shift+S / PrtScn / Copied file)
+              </div>
+              <textarea
+                ref={pasteCaptureRef}
+                rows={2}
+                onPaste={async (e) => {
+                  const files = e.clipboardData?.files;
+                  if (files && files.length > 0) {
+                    for (let i = 0; i < files.length; i++) {
+                      if (files[i].type.startsWith('image/')) {
+                        e.preventDefault();
+                        const parsed = await parseUploadedFile(files[i]);
+                        const updated = [...attachedDocs, parsed];
+                        onUpdateAttachedDocs?.(updated);
+                        setIsPasteModalOpen(false);
+                        setPreviewDoc(parsed);
+                        return;
+                      }
+                    }
+                  }
+                  const items = e.clipboardData?.items;
+                  if (items) {
+                    for (let i = 0; i < items.length; i++) {
+                      if (items[i].type.indexOf('image') !== -1) {
+                        const file = items[i].getAsFile();
+                        if (file) {
+                          e.preventDefault();
+                          const parsed = await parseUploadedFile(file);
+                          const updated = [...attachedDocs, parsed];
+                          onUpdateAttachedDocs?.(updated);
+                          setIsPasteModalOpen(false);
+                          setPreviewDoc(parsed);
+                          return;
+                        }
+                      }
+                    }
+                  }
+                }}
+                placeholder="Click here and press Ctrl+V to paste your screenshot..."
+                className="w-full text-xs p-2.5 bg-white border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-center text-slate-700 resize-none shadow-2xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-xs pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPasteModalOpen(false);
+                  fileInputRef.current?.click();
+                }}
+                className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline flex items-center gap-1"
+              >
+                <Upload className="w-3 h-3" />
+                <span>Browse from disk instead</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPasteModalOpen(false)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold cursor-pointer transition-colors"
+              >
+                Cancel
               </button>
             </div>
           </div>

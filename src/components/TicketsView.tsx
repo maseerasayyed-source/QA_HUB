@@ -14,6 +14,7 @@ interface TicketsViewProps {
   onSelectTicket: (ticket: TicketSummary) => void;
   onNavigateTab: (tab: any) => void;
   onAddTicket?: (newTicket: TicketSummary) => void;
+  onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
 }
 
 export const TicketsView: React.FC<TicketsViewProps> = ({
@@ -23,12 +24,17 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   onSelectTicket,
   onNavigateTab,
   onAddTicket,
+  onDeleteTicket,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [moduleFilter, setModuleFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [qaFilter, setQaFilter] = useState<string>('all');
+
+  // Delete ticket confirmation modal state
+  const [deleteTicketTarget, setDeleteTicketTarget] = useState<TicketSummary | null>(null);
+  const [deleteMode, setDeleteMode] = useState<'all_modules' | 'tickets_tab_only'>('all_modules');
 
   // Azure DevOps Modal state
   const [isAdoModalOpen, setIsAdoModalOpen] = useState(false);
@@ -572,6 +578,17 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                       <UploadCloud className="w-3 h-3" />
                       <span>Attach</span>
                     </button>
+                    <button
+                      onClick={() => {
+                        setDeleteTicketTarget(t);
+                        setDeleteMode('all_modules');
+                      }}
+                      title="Delete ticket with options"
+                      className="px-2 py-1 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 rounded text-[11px] font-semibold transition-colors inline-flex items-center gap-1 cursor-pointer border border-rose-200 hover:border-rose-600"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      <span>Delete</span>
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -942,6 +959,122 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
           }
           defaultComment={`QA Test Cases & Execution Matrix for "${selectedAdoTicket.featureName}" (Ticket #${selectedAdoTicket.ticketNumber}) verified by ${selectedAdoTicket.qaAssignee}.`}
         />
+      )}
+      {/* Delete Ticket Confirmation Modal */}
+      {deleteTicketTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full overflow-hidden">
+            <div className="bg-rose-600 text-white p-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-4 h-4 text-rose-200" />
+                <h3 className="text-sm font-bold">
+                  Delete Ticket #{deleteTicketTarget.ticketNumber}
+                </h3>
+              </div>
+              <button
+                onClick={() => setDeleteTicketTarget(null)}
+                className="text-rose-200 hover:text-white p-1 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4 text-xs">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <p className="font-bold text-slate-800">{deleteTicketTarget.featureName}</p>
+                <div className="flex items-center gap-3 text-slate-500 text-[11px] mt-1">
+                  <span>Module: <strong>{deleteTicketTarget.moduleName}</strong></span>
+                  <span>QA: <strong>{deleteTicketTarget.qaAssignee}</strong></span>
+                </div>
+              </div>
+
+              <p className="font-bold text-slate-700">
+                Choose deletion scope (Delete ka tarika chunein):
+              </p>
+
+              <div className="space-y-2.5">
+                {/* Option 1: Delete from Every Module */}
+                <label
+                  onClick={() => setDeleteMode('all_modules')}
+                  className={`block p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    deleteMode === 'all_modules'
+                      ? 'border-rose-500 bg-rose-50/60'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="radio"
+                      name="deleteMode"
+                      checked={deleteMode === 'all_modules'}
+                      onChange={() => setDeleteMode('all_modules')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <div className="font-bold text-rose-950 text-xs">
+                        Delete from Every Module (Sare modules se delete ho jayegi)
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        Permanently deletes this ticket and all its test cases, observations, and developer testing across all modules and database.
+                      </p>
+                    </div>
+                  </div>
+                </label>
+
+                {/* Option 2: Delete from Tickets Tab Only */}
+                <label
+                  onClick={() => setDeleteMode('tickets_tab_only')}
+                  className={`block p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                    deleteMode === 'tickets_tab_only'
+                      ? 'border-blue-500 bg-blue-50/60'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <input
+                      type="radio"
+                      name="deleteMode"
+                      checked={deleteMode === 'tickets_tab_only'}
+                      onChange={() => setDeleteMode('tickets_tab_only')}
+                      className="mt-0.5 text-blue-600 focus:ring-blue-500"
+                    />
+                    <div>
+                      <div className="font-bold text-blue-950 text-xs">
+                        Delete from Tickets Tab Only (Sirf Tickets tab se delete karein)
+                      </div>
+                      <p className="text-[11px] text-slate-600 mt-0.5 leading-relaxed">
+                        Sirf Tickets tab ki list se delete hogi. Jab user kisi doosre module se is ticket ko open karke <strong>Save &amp; Submit</strong> karega, to ye wapas Tickets aur Dashboard me show ho jayegi.
+                      </p>
+                    </div>
+                  </div>
+                </label>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeleteTicketTarget(null)}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (deleteTicketTarget && onDeleteTicket) {
+                      onDeleteTicket(deleteTicketTarget.ticketNumber, deleteMode);
+                    }
+                    setDeleteTicketTarget(null);
+                  }}
+                  className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-xs"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Confirm Delete</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

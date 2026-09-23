@@ -393,24 +393,126 @@ export default function App() {
 
   // Save and Submit Ticket: Switches ticket from Draft/Edit mode to Submitted
   // Makes the test cases, observations, and developer testing accessible to all other users in Read-Only mode
+  // If the ticket was deleted from Tickets tab only, saving and submitting from another module restores it into Tickets & Dashboard!
   const handleSaveAndSubmitTicket = (ticketNo: string) => {
+    const cleanNo = ticketNo.trim().replace(/^#+/, '');
     const nowStr = new Date().toLocaleString();
-    const updatedTickets = tickets.map((t) => {
-      if (t.ticketNumber.toLowerCase().trim() === ticketNo.toLowerCase().trim()) {
-        return {
-          ...t,
-          submissionState: 'Submitted' as const,
-          isEditing: false,
-          submittedAt: nowStr,
-          submittedBy: currentUser?.name || t.createdBy || 'QA User',
-        };
-      }
-      return t;
-    });
+    const existingIndex = tickets.findIndex(
+      (t) => t.ticketNumber.toLowerCase().trim() === cleanNo.toLowerCase()
+    );
+
+    let updatedTickets: TicketSummary[];
+    if (existingIndex !== -1) {
+      updatedTickets = tickets.map((t) => {
+        if (t.ticketNumber.toLowerCase().trim() === cleanNo.toLowerCase()) {
+          return {
+            ...t,
+            submissionState: 'Submitted' as const,
+            isEditing: false,
+            submittedAt: nowStr,
+            submittedBy: currentUser?.name || t.createdBy || 'QA User',
+          };
+        }
+        return t;
+      });
+    } else {
+      // Re-add to tickets and dashboard because user submitted from another module
+      const headerMeta = testCaseHeadersMap[cleanNo] || devTestingHeadersMap[cleanNo];
+      const tcList = testCasesMap[cleanNo] || [];
+      const obsList = observationsMap[cleanNo] || [];
+      const mod = modules.find((m) => m.name.toLowerCase() === (headerMeta?.moduleName || '').toLowerCase()) || modules[0];
+      const restoredTicket: TicketSummary = {
+        id: `ticket-restored-${Date.now()}`,
+        ticketNumber: cleanNo,
+        featureName: headerMeta?.taskName || `Feature #${cleanNo}`,
+        moduleId: mod?.id || 'mod-term-loan',
+        moduleName: mod?.name || 'Term Loan',
+        receivedDate: new Date().toISOString().split('T')[0],
+        priority: 'High',
+        status: 'In Testing',
+        developer: headerMeta?.developer || 'Developer',
+        qaAssignee: currentUser?.name || headerMeta?.taskDoneBy || 'Maseera Sayyed',
+        testCasesCount: tcList.length,
+        passedCount: tcList.filter((c) => c.status === 'pass').length,
+        failedCount: tcList.filter((c) => c.status === 'fail').length,
+        blockedCount: tcList.filter((c) => c.status === 'blocked').length,
+        observationsCount: obsList.length,
+        submissionState: 'Submitted',
+        isEditing: false,
+        submittedAt: nowStr,
+        submittedBy: currentUser?.name || 'Maseera Sayyed',
+        createdBy: currentUser?.name || 'Maseera Sayyed',
+        creatorEmail: currentUser?.email || 'maseerasayyed@quantumphinance.com',
+      };
+      updatedTickets = [restoredTicket, ...tickets];
+    }
 
     setTickets(updatedTickets);
     saveTicketsToStorage(updatedTickets);
     pushSyncToServer({ tickets: updatedTickets });
+  };
+
+  // Delete Ticket handler supporting:
+  // 1. 'all_modules': Deletes ticket, test cases, observations, dev testing across the whole system
+  // 2. 'tickets_tab_only': Deletes from tickets tab only; can reappear if user saves & submits from another module
+  const handleDeleteTicket = (
+    ticketNo: string,
+    mode: 'all_modules' | 'tickets_tab_only'
+  ) => {
+    const cleanNo = ticketNo.trim().replace(/^#+/, '');
+
+    // 1. Remove from tickets list
+    const updatedTickets = tickets.filter(
+      (t) => t.ticketNumber.trim().toLowerCase() !== cleanNo.toLowerCase()
+    );
+    setTickets(updatedTickets);
+    saveTicketsToStorage(updatedTickets);
+
+    // If active ticket is the one being deleted, switch active ticket to the first available or empty
+    if (activeTicketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanNo.toLowerCase()) {
+      const nextTicket = updatedTickets.length > 0 ? updatedTickets[0].ticketNumber : '';
+      setActiveTicketNumber(nextTicket);
+    }
+
+    if (mode === 'all_modules') {
+      // Purge from all modules
+      const updatedTcMap = { ...testCasesMap };
+      delete updatedTcMap[cleanNo];
+      setTestCasesMap(updatedTcMap);
+      saveTestCasesMapToStorage(updatedTcMap);
+
+      const updatedTcHeaders = { ...testCaseHeadersMap };
+      delete updatedTcHeaders[cleanNo];
+      setTestCaseHeadersMap(updatedTcHeaders);
+      saveTestCaseHeadersMapToStorage(updatedTcHeaders);
+
+      const updatedObsMap = { ...observationsMap };
+      delete updatedObsMap[cleanNo];
+      setObservationsMap(updatedObsMap);
+      saveObservationsMapToStorage(updatedObsMap);
+
+      const updatedDevMap = { ...devTestingMap };
+      delete updatedDevMap[cleanNo];
+      setDevTestingMap(updatedDevMap);
+      saveDevTestingMapToStorage(updatedDevMap);
+
+      const updatedDevHeaders = { ...devTestingHeadersMap };
+      delete updatedDevHeaders[cleanNo];
+      setDevTestingHeadersMap(updatedDevHeaders);
+      saveDevTestingHeadersMapToStorage(updatedDevHeaders);
+
+      pushSyncToServer({
+        tickets: updatedTickets,
+        testCasesMap: updatedTcMap,
+        testCaseHeadersMap: updatedTcHeaders,
+        observationsMap: updatedObsMap,
+        devTestingMap: updatedDevMap,
+        devTestingHeadersMap: updatedDevHeaders,
+      });
+    } else {
+      // Tickets tab only
+      pushSyncToServer({ tickets: updatedTickets });
+    }
   };
 
   // Reopen Edit Mode for Creator
@@ -533,6 +635,7 @@ export default function App() {
               handleNavigateTab(tab);
             }}
             onAddTicket={handleAddTicket}
+            onDeleteTicket={handleDeleteTicket}
             currentUser={currentUser}
           />
         );
@@ -551,6 +654,7 @@ export default function App() {
             onAddTicket={handleAddTicket}
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
+            onDeleteTicket={handleDeleteTicket}
           />
         );
 
@@ -577,6 +681,7 @@ export default function App() {
             onAddTicket={handleAddTicket}
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
+            onDeleteTicket={handleDeleteTicket}
           />
         );
 
@@ -651,6 +756,7 @@ export default function App() {
             onAddTicket={handleAddTicket}
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
+            onDeleteTicket={handleDeleteTicket}
           />
         );
 

@@ -894,53 +894,83 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
       description,
       screenFields,
       attachedImages = [],
+      attachments = [],
       ticketNo = '1024',
+      ticketNumber,
       moduleName = 'Term Loan',
       clientName = 'Treasury Master',
       count = 20,
     } = req.body;
 
+    const finalTicketNo = String(ticketNumber || ticketNo || '1024').trim().replace(/^#+/, '');
+
+    // Extract any document text and image attachments
+    const docTexts: string[] = [];
+    const imagePayloads: string[] = [...(Array.isArray(attachedImages) ? attachedImages : [])];
+
+    if (Array.isArray(attachments)) {
+      for (const att of attachments) {
+        if (!att) continue;
+        if (att.type === 'image' && typeof att.content === 'string' && att.content.startsWith('data:image/')) {
+          imagePayloads.push(att.content);
+        } else if (typeof att.content === 'string' && att.content.trim()) {
+          docTexts.push(`[Attached Document: ${att.name || 'Doc'}]\n${att.content.slice(0, 3000)}`);
+        }
+      }
+    }
+
     const userInstructions = [
       prompt || '',
-      scenario ? `Scenario: ${scenario}` : '',
-      description ? `Description: ${description}` : '',
-      screenFields && screenFields.length > 0 ? `Screen Fields: ${screenFields.join(', ')}` : '',
+      scenario ? `Specific Scenario / Acceptance Details: ${scenario}` : '',
+      description ? `Ticket Description / Requirements: ${description}` : '',
+      screenFields && screenFields.length > 0 ? `Detected Screen Fields: ${screenFields.join(', ')}` : '',
+      docTexts.length > 0 ? docTexts.join('\n\n') : '',
     ]
       .filter(Boolean)
-      .join('\n');
+      .join('\n\n');
 
     const ai = getGeminiClient();
 
     if (ai) {
       try {
-        const systemInstruction = `You are an Elite QA Architect matching ChatGPT top-tier QA standard.
-The user provides a feature description, acceptance requirements, or test notes. They may write in ANY language (English, Hindi, Hinglish, shorthand notes).
+        const systemInstruction = `You are a Principal Banking & Treasury QA Architect and Test Engineering Lead.
+The user provides ticket requirements, feature descriptions, and testing notes for:
+Module: ${moduleName}
+Ticket: #${finalTicketNo}
+Client: ${clientName}
 
-Your objectives:
-1. Understand the user's intent deeply from the Description / Scenario. Translate any Hindi, Hinglish, or casual phrasing into crisp, clear, natural English.
-2. Generate AT LEAST ${Math.max(count, 15)} distinct, natural, production-grade test cases modeled after top ChatGPT QA output.
-3. Keep test cases NORMAL, CONCISE, and DIRECT:
-   - NO giant bloated paragraphs.
-   - NO robotic "1. Login with QA credentials... 2. Navigate..." filler.
-   - NEVER invent random fake deal numbers or arbitrary IDs (e.g., do NOT invent 'TL-24-001', 'DEAL-8841', 'CAGL-9999'). Stick strictly to the concepts and entities mentioned by the user.
-4. Format for each test case:
-   - testCaseId: string (e.g. 'TC01', 'TC02', ...)
-   - testModule: string (e.g. '${moduleName}')
-   - featureTab: string ('General' or sub-feature name)
-   - testScenario: string (A short, crisp, understandable scenario title, e.g. 'Validate Undo functionality for Split In action', 'Split ratio entry validation', 'NAV recalculation check')
-   - testCases: string (A clean, single-sentence verification statement starting with 'Verify that ...', e.g. 'Verify that when the Split In action is undone from the transaction history of the Split In deal, the corresponding Split Out action is also automatically undone in the related existing deal, and vice versa.')
-   - testInputs: string (Inputs/parameters explicitly mentioned in description, or 'Standard parameters')
-   - expectedResult: string (Bulleted expectations using '• ', e.g.:
-• System processes the split action accurately.
-• NAV and unit balances update proportionally according to the specified ratio.
-• Overall investment value remains unchanged.)
-   - actualResult: string (Positive passed result matching the expected outcome, e.g. 'Verified successfully: Split action applied accurately; NAV and units updated proportionally while total investment value remained unchanged.')
+The user's input may be written in ANY language (English, Hindi, Hinglish, casual notes, or shorthand, e.g. "mujhe check krna hai every field in term loan", "agar blank chhod de to alert aana chahiye", "GL code reflect nahi ho raha h").
+
+YOUR OBJECTIVES:
+1. Deeply understand the user's intent. If written in Hindi, Hinglish, or casual phrasing, accurately interpret their functional requirements into crystal-clear English test cases.
+2. If the user mentions specific fields, bugs, or workflows (e.g. GL codes, undo actions, fee structures, blank validations), ensure MULTIPLE dedicated test cases rigorously validate those exact requirements.
+3. If the user asks to check all fields or test the module thoroughly, generate comprehensive coverage across all standard ${moduleName} workflows:
+   - Deal / Facility Creation & Booking (Deal ID, counterparty, sanctioned limit vs disbursed amount, currency)
+   - Interest Parameters (Fixed vs Floating, Benchmark/MCLR, Spread %, Day count convention 30/360 or Actual/365, Reset frequency)
+   - Tenor, Value Date, First Repayment Date, Maturity Date validations
+   - Repayment & Amortization Schedules (Principal & Interest split, Bullet, Equal installments, Moratorium period)
+   - Mandatory field validation & Empty/Blank field prevention
+   - Boundary & Negative Testing (Negative numbers, zero amounts, exceeding sanctioned limit, backdated restrictions)
+   - Accounting & GL voucher postings, Maker-Checker authorization workflow, and Audit Trail logs
+4. Generate AT LEAST ${Math.max(count, 20)} distinct, natural, production-grade test cases.
+5. Format for each test case:
+   - testCaseId: string ('TC01', 'TC02', etc.)
+   - testModule: string ('${moduleName}')
+   - featureTab: string ('General' or relevant sub-feature)
+   - testScenario: string (A concise, understandable scenario title in simple English, e.g. 'Validate mandatory field validation for Loan Amount', 'Verify interest recalculation upon benchmark rate reset', 'Validate deal authorization by Senior Checker')
+   - testCases: string (A single, direct verification statement starting with 'Verify that ...', written in clear, simple English)
+   - testInputs: string (Specific input values or parameters, or 'Valid parameters')
+   - expectedResult: string (Clear bullet points using '• ', e.g.:
+• System displays appropriate validation error message.
+• Prevents transaction save without mandatory field.
+• Form field is highlighted with warning alert.)
+   - actualResult: string (A clear positive verification statement, e.g. 'Verified successfully: Mandatory field validation triggered and prevented submission without valid input.')
    - validationScenario: string ('Positive Workflow' | 'Negative Validation' | 'Boundary & Integrity')
    - status: string ('pass')
 
-Return strictly valid JSON in this exact structure without markdown fences:
+Return strictly valid JSON in this exact structure without markdown code blocks:
 {
-  "summary": "Clear summary in English of the test cases generated",
+  "summary": "Clear summary in English of the test suite generated",
   "testCases": [
     {
       "testCaseId": "TC01",
@@ -949,7 +979,7 @@ Return strictly valid JSON in this exact structure without markdown fences:
       "testScenario": "...",
       "testCases": "Verify that ...",
       "testInputs": "...",
-      "expectedResult": "• Outcome 1\\n• Outcome 2",
+      "expectedResult": "• Point 1\\n• Point 2",
       "actualResult": "Verified successfully: ...",
       "validationScenario": "Positive Workflow",
       "status": "pass"
@@ -957,12 +987,11 @@ Return strictly valid JSON in this exact structure without markdown fences:
   ]
 }`;
 
-        // Prepare contents array with optional image parts
         const contentsParts: any[] = [];
 
-        // If base64 screenshot images were provided
-        if (Array.isArray(attachedImages) && attachedImages.length > 0) {
-          for (const img of attachedImages.slice(0, 3)) {
+        // Attach image parts if present
+        if (Array.isArray(imagePayloads) && imagePayloads.length > 0) {
+          for (const img of imagePayloads.slice(0, 3)) {
             if (typeof img === 'string' && img.startsWith('data:image/')) {
               const commaIdx = img.indexOf(',');
               if (commaIdx !== -1) {
@@ -981,7 +1010,7 @@ Return strictly valid JSON in this exact structure without markdown fences:
         }
 
         contentsParts.push({
-          text: `Module: ${moduleName}\nTicket: #${ticketNo}\nClient: ${clientName}\nTarget Count: ${count}\n\nUser Input & Requirements:\n${userInstructions || 'Generate full test case suite for financial module'}`,
+          text: `Module: ${moduleName}\nTicket: #${finalTicketNo}\nClient: ${clientName}\nTarget Test Case Count: ${count}\n\nUser Input & Requirements:\n${userInstructions || `Generate full comprehensive test cases suite for ${moduleName} module`}`,
         });
 
         const responseText = await callGemini({
@@ -995,7 +1024,6 @@ Return strictly valid JSON in this exact structure without markdown fences:
         try {
           parsedResult = JSON.parse(responseText);
         } catch (parseErr) {
-          // If response had markdown codeblocks or trailing text
           const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
           parsedResult = JSON.parse(cleaned);
         }
@@ -1004,19 +1032,19 @@ Return strictly valid JSON in this exact structure without markdown fences:
           const finalCases = parsedResult.testCases.map((tc: any, i: number) => {
             const num = i + 1;
             const tcId = tc.testCaseId || `TC${num < 10 ? '0' + num : num}`;
-            const scenario = tc.testScenario || `Test scenario ${num}`;
-            const verification = tc.testCases || `Verify that ${scenario}`;
+            const scenarioText = tc.testScenario || `Test scenario ${num}`;
+            const verification = tc.testCases || `Verify that ${scenarioText}`;
             return {
               id: `tc-${Date.now()}-${num}`,
               testCaseId: tcId,
               testModule: tc.testModule || moduleName,
               featureTab: tc.featureTab || 'General',
-              testScenario: scenario,
+              testScenario: scenarioText,
               preconditions: tc.preconditions || 'Standard environment and permissions configured.',
               testCases: verification.startsWith('Verify') ? verification : `Verify that ${verification}`,
               testInputs: tc.testInputs || 'Standard parameters',
               expectedResult: tc.expectedResult || '• System performs the operation successfully.\n• Relevant balances and audit logs remain synchronized.',
-              actualResult: tc.actualResult || `Verified successfully: ${scenario} executed as expected in accordance with specification.`,
+              actualResult: tc.actualResult || `Verified successfully: ${scenarioText} executed as expected in accordance with specification.`,
               validationScenario: tc.validationScenario || (i % 2 === 0 ? 'Positive Workflow' : 'Negative Validation'),
               status: (tc.status || 'pass').toLowerCase(),
               attachments: [],
@@ -1026,14 +1054,14 @@ Return strictly valid JSON in this exact structure without markdown fences:
 
           return res.json({
             success: true,
-            source: 'gemini-3.8-flash',
+            source: 'gemini-3.1-flash-lite',
             count: finalCases.length,
             summary: parsedResult.summary || `Successfully generated ${finalCases.length} comprehensive test cases via Gemini AI.`,
             testCases: finalCases,
           });
         }
       } catch (geminiError: any) {
-        console.warn('Gemini API call failed or quota reached, falling back to rich domain generator:', geminiError?.message || geminiError);
+        console.warn('Gemini API call failed, falling back to domain generator:', geminiError?.message || geminiError);
       }
     }
 
@@ -1042,24 +1070,111 @@ Return strictly valid JSON in this exact structure without markdown fences:
       scenario,
       description,
       moduleName,
-      ticketNo,
+      ticketNo: finalTicketNo,
       screenFields,
       count,
     });
 
     return res.json({
       success: true,
-      source: 'domain-fallback-engine',
+      source: 'local-domain-engine',
       count: fallbackCases.length,
-      summary: `Generated ${fallbackCases.length} production-grade test cases (Positive, Negative, Boundary, Security & Reporting) tailored to Ticket #${ticketNo}.`,
       testCases: fallbackCases,
     });
   } catch (err: any) {
+    console.error('Error generating test cases:', err);
     return res.status(500).json({
       success: false,
       message: 'Failed to generate test cases',
       errorDetail: err?.message || String(err),
     });
+  }
+});
+
+// POST: /ai/batch-translate-testcases and /api/ai/batch-translate-testcases
+// Translates all test cases in the table in a single high-speed Gemini call
+apiRouter.post(['/ai/batch-translate-testcases', '/api/ai/batch-translate-testcases'], async (req: Request, res: Response) => {
+  try {
+    const { testCases = [] } = req.body;
+    if (!Array.isArray(testCases) || testCases.length === 0) {
+      return res.json({ success: true, testCases: [] });
+    }
+
+    const ai = getGeminiClient();
+    if (ai) {
+      try {
+        const compactList = testCases.map((tc: any, idx: number) => ({
+          idx,
+          id: tc.id,
+          testScenario: tc.testScenario || '',
+          testCases: tc.testCases || '',
+          expectedResult: tc.expectedResult || '',
+          actualResult: tc.actualResult || '',
+        }));
+
+        const prompt = `You are a Senior QA Architect and Technical Writer.
+The following test cases may contain Hindi, Hinglish, casual notes, broken English, or shorthand.
+Translate and polish every single test case into clean, simple, natural, crystal-clear QA English.
+
+Input Test Cases JSON:
+${JSON.stringify(compactList, null, 2)}
+
+Rules:
+1. Translate all Hindi/Hinglish terms accurately into simple English (e.g. "blank chhodne par" -> "when left blank", "alert aana chahiye" -> "an alert message must be displayed").
+2. Keep the phrasing simple, direct, and completely understandable.
+3. Keep testCases starting with 'Verify that ...'.
+4. Format expectedResult cleanly with '• ' bullets.
+5. Return strictly valid JSON array with the exact same indices and format:
+[
+  {
+    "idx": 0,
+    "testScenario": "Simple English Scenario",
+    "testCases": "Verify that ...",
+    "expectedResult": "• Expected result 1\\n• Expected result 2",
+    "actualResult": "Verified successfully: ..."
+  }
+]`;
+
+        const responseText = await callGemini({
+          contents: [{ text: prompt }],
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        });
+
+        let parsed: any[] = [];
+        try {
+          parsed = JSON.parse(responseText);
+        } catch {
+          const cleaned = responseText.replace(/```json/gi, '').replace(/```/g, '').trim();
+          parsed = JSON.parse(cleaned);
+        }
+
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const updated = testCases.map((tc: any, i: number) => {
+            const match = parsed.find((p: any) => p.idx === i || p.id === tc.id);
+            if (match) {
+              return {
+                ...tc,
+                testScenario: match.testScenario || tc.testScenario,
+                testCases: match.testCases || tc.testCases,
+                expectedResult: match.expectedResult || tc.expectedResult,
+                actualResult: match.actualResult || tc.actualResult,
+              };
+            }
+            return tc;
+          });
+
+          return res.json({ success: true, testCases: updated });
+        }
+      } catch (gemErr) {
+        console.warn('Batch translation Gemini call failed:', gemErr);
+      }
+    }
+
+    return res.json({ success: true, testCases });
+  } catch (err: any) {
+    console.error('Error in batch translate:', err);
+    return res.status(500).json({ success: false, message: err?.message || String(err) });
   }
 });
 
@@ -1072,6 +1187,7 @@ apiRouter.post(['/ai/polish-text', '/api/ai/polish-text'], async (req: Request, 
     }
 
     const isObs = context === 'observation' || context === 'rfe';
+    const isTaskName = context === 'taskName' || context === 'task-name' || context === 'title';
     const isDesc = context === 'description';
     const ai = getGeminiClient();
     if (ai) {
@@ -1100,6 +1216,15 @@ Rules:
 2. Return ONLY the polished observation statement. Do NOT include markdown code blocks, conversational pleasantries, or quotes.
 
 Input Text:
+"""
+${text}
+"""`;
+        } else if (isTaskName) {
+          prompt = `You are a Senior QA Architect.
+Translate the following feature/task title from Hindi, Hinglish, casual notes, or shorthand into a concise, single-line, simple and easily understandable English task title (e.g. "Term Loan - Field Validations and Interest Calculation").
+Return ONLY the one-line title without quotes or pleasantries.
+
+Input:
 """
 ${text}
 """`;

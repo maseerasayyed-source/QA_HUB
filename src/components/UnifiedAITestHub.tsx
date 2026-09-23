@@ -32,6 +32,7 @@ import {
   Lock,
   Eye,
   FileSpreadsheet,
+  CloudDownload,
 } from 'lucide-react';
 import {
   TestCaseHeaderMeta,
@@ -72,6 +73,7 @@ import {
   checkIsDuplicate,
 } from '../utils/aiGenerator';
 import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
+import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
 
 interface UnifiedAITestHubProps {
   initialHeader: TestCaseHeaderMeta;
@@ -89,6 +91,7 @@ interface UnifiedAITestHubProps {
   onAddTicket?: (ticket: TicketSummary) => void;
   onSaveAndSubmitTicket?: (ticketNo: string) => void;
   onReopenEditTicket?: (ticketNo: string) => void;
+  onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
 }
 
 export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
@@ -107,6 +110,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   onAddTicket,
   onSaveAndSubmitTicket,
   onReopenEditTicket,
+  onDeleteTicket,
 }) => {
   // Hub Navigation Mode: Tickets Table vs Test Cases Screen
   const [hubMode, setHubMode] = useState<'tickets-table' | 'test-case-screen'>('tickets-table');
@@ -231,6 +235,49 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [commandNotice, setCommandNotice] = useState<string | null>(null);
   const [isTranslatingAll, setIsTranslatingAll] = useState<boolean>(false);
   const [isTranslatingModalScenario, setIsTranslatingModalScenario] = useState<boolean>(false);
+
+  // Delete Ticket Modal State (Azure / Across Modules)
+  const [ticketToDelete, setTicketToDelete] = useState<{ ticketNumber: string; taskName?: string } | null>(null);
+  const [deleteMode, setDeleteMode] = useState<'all_modules' | 'tickets_tab_only'>('all_modules');
+
+  // Single Test Case Row Delete Modal State
+  const [tcRowToDelete, setTcRowToDelete] = useState<TestCaseItem | null>(null);
+
+  // Delete All Test Cases Modal State
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState<boolean>(false);
+
+  // Azure Direct Fetching in Modal State
+  const [isFetchingAzureModal, setIsFetchingAzureModal] = useState<boolean>(false);
+
+  const handleDirectAzureFetchInModal = async () => {
+    if (!newTicketNumber.trim()) {
+      setFetchedHeaderNotice('⚠️ Please enter a Work Item ID first (e.g. 21655).');
+      setTimeout(() => setFetchedHeaderNotice(null), 4000);
+      return;
+    }
+    setIsFetchingAzureModal(true);
+    setFetchedHeaderNotice('☁️ Fetching live Azure DevOps Work Item details...');
+    try {
+      const res = await fetchWorkItemFromAzure({ workItemId: newTicketNumber });
+      if (res.success && res.workItem) {
+        setNewFeatureName(res.workItem.title || newFeatureName);
+        if (res.workItem.priority) setNewPriority(res.workItem.priority as any);
+        if (res.workItem.assignedTo) setNewDeveloper(res.workItem.assignedTo);
+        const desc = [res.workItem.description, res.workItem.acceptanceCriteria].filter(Boolean).join('\n\n');
+        if (desc) setNewScenarioDetails(desc);
+        setFetchedHeaderNotice(`✅ Azure Work Item #${res.workItem.id} fetched: "${res.workItem.title}"`);
+      } else {
+        setFetchedHeaderNotice(`ℹ️ Azure: ${res.message || 'Item not found'}. Generating details via AI...`);
+        await handleAiGenerateTicketModal();
+      }
+    } catch (err: any) {
+      setFetchedHeaderNotice(`ℹ️ Azure offline. Generated details via AI instead.`);
+      await handleAiGenerateTicketModal();
+    } finally {
+      setIsFetchingAzureModal(false);
+      setTimeout(() => setFetchedHeaderNotice(null), 5000);
+    }
+  };
 
   const handleSelectExistingTicket = (selectedId: string) => {
     if (!selectedId) return;
@@ -761,24 +808,33 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     updateTestCases([...testCases, newCase]);
   };
 
-  // Delete Row with ownership protection
+  // Delete Row with in-app confirmation modal
   const handleDeleteRow = (id: string) => {
     const target = testCases.find((c) => c.id === id);
     if (!target) return;
+    setTcRowToDelete(target);
+  };
 
-    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
-    const authorName = (target.createdBy || '').toLowerCase().trim();
-    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
-    const isAuthor = !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
+  const confirmDeleteTcRow = () => {
+    if (!tcRowToDelete) return;
+    updateTestCases(testCases.filter((c) => c.id !== tcRowToDelete.id));
+    setNotification(`🗑️ Deleted test case #${tcRowToDelete.testCaseId}`);
+    setTimeout(() => setNotification(null), 3500);
+    setTcRowToDelete(null);
+  };
 
-    if (!isSuperAdmin && !isAuthor) {
-      alert(`⚠️ Permission Denied: This test case was created by "${target.createdBy || 'another user'}". User "${currentUser?.name}" is not authorized to delete it. Only the original author or Super Admin can delete this row.`);
-      return;
+  const confirmDeleteTicket = () => {
+    if (!ticketToDelete) return;
+    if (onDeleteTicket) {
+      onDeleteTicket(ticketToDelete.ticketNumber, deleteMode);
+      setNotification(
+        deleteMode === 'all_modules'
+          ? `🗑️ Successfully deleted Ticket #${ticketToDelete.ticketNumber} from all modules.`
+          : `🗑️ Deleted Ticket #${ticketToDelete.ticketNumber} from Tickets tab.`
+      );
+      setTimeout(() => setNotification(null), 4500);
     }
-
-    if (confirm('Delete this test case row?')) {
-      updateTestCases(testCases.filter((c) => c.id !== id));
-    }
+    setTicketToDelete(null);
   };
 
   // Duplicate Row
@@ -971,53 +1027,21 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     }
   };
 
-  // Delete All Test Cases for current ticket (with author protection)
+  // Delete All Test Cases for current ticket with in-app confirmation modal
   const handleDeleteAllTestCases = () => {
     if (testCases.length === 0) {
       setNotification('ℹ️ Table is already empty. No test cases to delete.');
       setTimeout(() => setNotification(null), 3000);
       return;
     }
+    setIsDeleteAllModalOpen(true);
+  };
 
-    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
-    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
-
-    // Check if there are cases authored by other users
-    const othersCases = testCases.filter((tc) => {
-      const author = (tc.createdBy || '').toLowerCase().trim();
-      return author && author !== currentUserName && !currentUserName.includes(author) && !author.includes(currentUserName);
-    });
-
-    if (othersCases.length > 0 && !isSuperAdmin) {
-      const myCases = testCases.filter((tc) => {
-        const author = (tc.createdBy || '').toLowerCase().trim();
-        return !author || author === currentUserName || currentUserName.includes(author) || author.includes(currentUserName);
-      });
-
-      if (myCases.length === 0) {
-        alert(`⚠️ Permission Denied: All test cases in this ticket were created by other users (${othersCases[0].createdBy || 'another user'}). You cannot delete them. Only the original author or Super Admin can delete these test cases.`);
-        return;
-      }
-
-      const confirmed = window.confirm(
-        `Notice: ${othersCases.length} test cases were created by other team members and are protected from deletion.\n\nWould you like to delete your own ${myCases.length} test cases?`
-      );
-      if (confirmed) {
-        updateTestCases(othersCases);
-        setNotification(`🗑️ Deleted your ${myCases.length} test cases. (${othersCases.length} cases created by other users were preserved).`);
-        setTimeout(() => setNotification(null), 5000);
-      }
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Are you sure you want to delete ALL ${testCases.length} test cases for Ticket #${header.ticketNo}?\n\nThis will completely clear the test cases table so you can generate a fresh AI test suite or add custom rows.`
-    );
-    if (confirmed) {
-      updateTestCases([]);
-      setNotification(`🗑️ Successfully deleted all test cases for Ticket #${header.ticketNo}.`);
-      setTimeout(() => setNotification(null), 4500);
-    }
+  const confirmDeleteAllTestCases = () => {
+    updateTestCases([]);
+    setNotification(`🗑️ Successfully deleted all test cases for Ticket #${header.ticketNo}.`);
+    setTimeout(() => setNotification(null), 4500);
+    setIsDeleteAllModalOpen(false);
   };
 
   // Translate Language Command input to simple English
@@ -1489,6 +1513,17 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                           >
                             <Sparkles className="w-3.5 h-3.5" />
                           </button>
+
+                          {onDeleteTicket && (
+                            <button
+                              type="button"
+                              onClick={() => setTicketToDelete({ ticketNumber: t.ticketNumber, taskName: t.featureName })}
+                              title={`Delete Ticket #${t.ticketNumber}`}
+                              className="p-1 text-rose-600 hover:text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1524,8 +1559,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         {/* Add Ticket Modal with Other Option */}
         {isAddTicketModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
-            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-5 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden animate-fadeIn">
+              <div className="flex items-center justify-between p-4 px-5 border-b border-slate-100 bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
                     <Plus className="w-4 h-4" />
@@ -1533,14 +1568,15 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   <h2 className="text-base font-bold text-slate-900">Add New Azure DevOps Ticket</h2>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setIsAddTicketModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-md"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateTicketSubmit} className="space-y-3.5 text-xs">
+              <form id="unified-add-ticket-form" onSubmit={handleCreateTicketSubmit} className="flex-1 overflow-y-auto p-5 space-y-3.5 text-xs">
                 {/* Dropdown to select Ticket ID created on this system to reuse in another module */}
                 {systemTicketsList.length > 0 && (
                   <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
@@ -1580,9 +1616,21 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                 )}
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Ticket ID / Work Item Number *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold">
+                      Ticket ID / Work Item Number *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleDirectAzureFetchInModal}
+                      disabled={isFetchingAzureModal}
+                      className="text-[11px] text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+                      title="Directly fetch Work Item details from Azure DevOps by ID"
+                    >
+                      <CloudDownload className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isFetchingAzureModal ? 'Fetching Azure...' : '☁️ Direct Fetch Azure ID'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     required
@@ -1734,23 +1782,24 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
-
-                <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddTicketModalOpen(false)}
-                    className="px-3.5 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-lg cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer shadow-xs"
-                  >
-                    Create Ticket
-                  </button>
-                </div>
               </form>
+
+              <div className="p-3.5 px-5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAddTicketModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer transition-colors text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="unified-add-ticket-form"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer shadow-xs transition-colors text-xs"
+                >
+                  Create Ticket
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1898,6 +1947,18 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             <UploadCloud className="w-3.5 h-3.5" />
             <span>Azure DevOps</span>
           </button>
+
+          {onDeleteTicket && (
+            <button
+              type="button"
+              onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.taskName })}
+              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              title={`Delete Ticket #${header.ticketNo}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Ticket</span>
+            </button>
+          )}
 
           {isApprovedAndReadOnly ? (
             <button
@@ -2600,29 +2661,14 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                         >
                           <Copy className="w-3 h-3" />
                         </button>
-                        {(() => {
-                          const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
-                          const authorName = (tc.createdBy || '').toLowerCase().trim();
-                          const currentUserName = (currentUser?.name || '').toLowerCase().trim();
-                          const canDelete = isSuperAdmin || !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
-
-                          return canDelete ? (
-                            <button
-                              onClick={() => handleDeleteRow(tc.id)}
-                              title={`Delete row (Created by ${tc.createdBy || 'QA'})`}
-                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          ) : (
-                            <span
-                              title={`Protected: Created by "${tc.createdBy || 'another user'}". Only the author or Super Admin can delete.`}
-                              className="p-1 text-slate-300 cursor-not-allowed inline-flex items-center"
-                            >
-                              <Lock className="w-3 h-3 text-slate-400" />
-                            </span>
-                          );
-                        })()}
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRow(tc.id)}
+                          title={`Delete row #${tc.testCaseId}`}
+                          className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer transition-colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     )}
                   </td>
@@ -2976,6 +3022,190 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         createdBy={lockedModal?.createdBy}
         reason={lockedModal?.reason}
       />
+
+      {/* Delete Ticket Confirmation Modal (All modules vs Tickets tab only) */}
+      {ticketToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <Trash2 className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Delete Ticket #{ticketToDelete.ticketNumber}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTicketToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2 text-xs">
+              <p className="font-bold text-rose-950">
+                Are you sure you want to delete Ticket <span className="font-mono">#{ticketToDelete.ticketNumber}</span> {ticketToDelete.taskName ? `("${ticketToDelete.taskName}")` : ''}?
+              </p>
+              <p className="text-slate-600">Please choose how you want to delete this ticket:</p>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${deleteMode === 'all_modules' ? 'border-rose-500 bg-rose-50/40' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <input
+                  type="radio"
+                  name="hubDeleteMode"
+                  value="all_modules"
+                  checked={deleteMode === 'all_modules'}
+                  onChange={() => setDeleteMode('all_modules')}
+                  className="mt-0.5 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">Delete from EVERY module</div>
+                  <div className="text-[11px] text-slate-500">
+                    Permanently purges this ticket, its QA test cases, observations, and developer testing points across all modules and the dashboard.
+                  </div>
+                </div>
+              </label>
+
+              <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${deleteMode === 'tickets_tab_only' ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <input
+                  type="radio"
+                  name="hubDeleteMode"
+                  value="tickets_tab_only"
+                  checked={deleteMode === 'tickets_tab_only'}
+                  onChange={() => setDeleteMode('tickets_tab_only')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">Delete from Tickets tab only</div>
+                  <div className="text-[11px] text-slate-500">
+                    Removes from the tickets list, but keeps working drafts in other modules until saved and submitted again.
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTicketToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTicket}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Single Test Case Row Confirmation Modal */}
+      {tcRowToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <Trash2 className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Delete Test Case #{tcRowToDelete.testCaseId}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTcRowToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-1.5 text-xs">
+              <p className="font-semibold text-rose-950">
+                Are you sure you want to delete this test case row?
+              </p>
+              <p className="text-slate-600 italic">
+                &quot;{tcRowToDelete.testScenario || tcRowToDelete.testCaseDescription || 'No description'}&quot;
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTcRowToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTcRow}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete Row</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Test Cases Confirmation Modal */}
+      {isDeleteAllModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <Trash2 className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Delete All Test Cases</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeleteAllModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-1.5 text-xs">
+              <p className="font-semibold text-rose-950">
+                Are you sure you want to delete ALL {testCases.length} test cases for Ticket #{header.ticketNo}?
+              </p>
+              <p className="text-slate-600">
+                This will completely clear the test cases table for this ticket so you can generate a fresh AI test suite or add custom rows.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsDeleteAllModalOpen(false)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteAllTestCases}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete All</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

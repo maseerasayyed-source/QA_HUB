@@ -11,9 +11,13 @@ import {
   Edit3,
   ExternalLink,
   Code2,
+  Languages,
+  Unlock,
+  Lock,
 } from 'lucide-react';
 import { TicketSummary } from '../../types';
 import { getAllCreatedTicketsOnSystem } from '../../data/dbStore';
+import { translateToSimpleEnglish } from '../../utils/languageAi';
 
 export interface CorporateTicketHeaderProps {
   selectedTicketNumber: string;
@@ -64,6 +68,16 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
   const [copiedSha, setCopiedSha] = useState(false);
   const [editableTicketInput, setEditableTicketInput] = useState(selectedTicketNumber);
   const [isTypingTicket, setIsTypingTicket] = useState(false);
+  const [isTranslatingTask, setIsTranslatingTask] = useState(false);
+  // Allow user to toggle edit mode at any time, even if readOnly was set
+  const [userEditMode, setUserEditMode] = useState(!readOnly);
+
+  // Sync edit mode when readOnly prop changes
+  useEffect(() => {
+    setUserEditMode(!readOnly);
+  }, [readOnly]);
+
+  const isFieldsEditable = userEditMode;
 
   // Synchronize internal editable ticket string when selectedTicketNumber changes,
   // BUT only when the user is not actively typing in the input!
@@ -163,6 +177,19 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
     }
   };
 
+  const handleTranslateTaskName = async () => {
+    if (!effectiveTaskName.trim() || isTranslatingTask) return;
+    setIsTranslatingTask(true);
+    try {
+      const translated = await translateToSimpleEnglish(effectiveTaskName, 'scenario');
+      onChangeTaskName?.(translated);
+    } catch {
+      // fallback unchanged
+    } finally {
+      setIsTranslatingTask(false);
+    }
+  };
+
   return (
     <div
       id="corporate-ticket-header"
@@ -181,11 +208,33 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
           </span>
         </div>
 
-        {extraActions && (
-          <div className="flex items-center gap-2">
-            {extraActions}
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          {/* Header Editable Toggle */}
+          <button
+            type="button"
+            onClick={() => setUserEditMode(!userEditMode)}
+            className={`px-2.5 py-1 rounded-md text-[11px] font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ${
+              userEditMode
+                ? 'bg-amber-400 hover:bg-amber-300 text-amber-950 ring-2 ring-white/40'
+                : 'bg-sky-500/80 hover:bg-sky-400 text-white'
+            }`}
+            title="Toggle edit mode for all corporate header fields"
+          >
+            {userEditMode ? (
+              <>
+                <Unlock className="w-3.5 h-3.5 text-amber-950" />
+                <span>Editing Headers Enabled</span>
+              </>
+            ) : (
+              <>
+                <Lock className="w-3.5 h-3.5 text-sky-200" />
+                <span>✏️ Click to Edit Headers</span>
+              </>
+            )}
+          </button>
+
+          {extraActions}
+        </div>
       </div>
 
       {/* Main Corporate Metadata Rows (matching Picture 4) */}
@@ -193,12 +242,12 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
         {/* Row 1 & 2: Client Name & Module + Ticket Selection / Editable combo */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {/* Client Name */}
-          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
             <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
               <Building2 className="w-3.5 h-3.5 text-sky-600" />
               Client Name:
             </span>
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-bold text-slate-800 truncate">{effectiveClient}</span>
             ) : (
               <input
@@ -212,12 +261,12 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
           </div>
 
           {/* Module Name */}
-          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
             <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
               <Building2 className="w-3.5 h-3.5 text-indigo-600" />
               Module Name:
             </span>
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-bold text-slate-800 truncate">{effectiveModule}</span>
             ) : (
               <input
@@ -286,36 +335,52 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
         </div>
 
         {/* Row 3: Task Name (Single line feature or ticket one line, matching Picture 4 Row 4) */}
-        <div className="flex items-center bg-white/95 border-2 border-sky-300 rounded-xl px-3 py-2 shadow-2xs">
+        <div className="flex items-center justify-between gap-2 bg-white/95 border-2 border-sky-300 rounded-xl px-3 py-2 shadow-2xs">
           <span className="text-xs font-black text-slate-700 w-28 shrink-0 flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-blue-500 inline-block"></span>
             Task Name:
           </span>
-          {readOnly ? (
-            <span className="text-xs font-black text-blue-950 truncate tracking-wide">
-              {effectiveTaskName}
-            </span>
-          ) : (
-            <input
-              type="text"
-              value={effectiveTaskName}
-              onChange={(e) => onChangeTaskName?.(e.target.value)}
-              placeholder="One-line task / feature name"
-              title="One-line task / feature summary (editable)"
-              className="w-full text-xs font-black text-blue-950 bg-transparent outline-none focus:text-blue-700 placeholder:text-slate-400 font-sans"
-            />
+          <div className="flex-1 min-w-0">
+            {!isFieldsEditable ? (
+              <span className="text-xs font-black text-blue-950 truncate tracking-wide block">
+                {effectiveTaskName}
+              </span>
+            ) : (
+              <input
+                type="text"
+                value={effectiveTaskName}
+                onChange={(e) => onChangeTaskName?.(e.target.value)}
+                placeholder="One-line task / feature name"
+                title="One-line task / feature summary (editable)"
+                className="w-full text-xs font-black text-blue-950 bg-transparent outline-none focus:text-blue-700 placeholder:text-slate-400 font-sans"
+              />
+            )}
+          </div>
+
+          {/* Quick Translate Task Name to Simple English */}
+          {isFieldsEditable && (
+            <button
+              type="button"
+              onClick={handleTranslateTaskName}
+              disabled={isTranslatingTask || !effectiveTaskName.trim()}
+              title="Translate Task Name into simple, clear English"
+              className="px-2 py-0.5 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 text-[10px] font-bold rounded flex items-center gap-1 shrink-0 transition-colors cursor-pointer disabled:opacity-50"
+            >
+              <Languages className="w-3 h-3 text-purple-600" />
+              <span>{isTranslatingTask ? 'Translating...' : '🌐 Simple English'}</span>
+            </button>
           )}
         </div>
 
         {/* Row 4: SHA Commit Hash (Picture 4 Row 3) */}
-        <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+        <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
           <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
             <GitCommit className="w-3.5 h-3.5 text-slate-500" />
             SHA Commit:
           </span>
 
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-mono font-bold text-slate-800 truncate">
                 {effectiveSha}
               </span>
@@ -347,12 +412,12 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
         {/* Row 5: Task Done By (QA Assignee), Developer, and Sign Off By (Picture 4 Rows 5 & 6) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
           {/* Task Done By - QA Assignee */}
-          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
             <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-emerald-600" />
               Task done by:
             </span>
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-bold text-slate-800 truncate">{effectiveQa}</span>
             ) : (
               <input
@@ -366,12 +431,12 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
           </div>
 
           {/* Developer */}
-          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
             <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
               <Code2 className="w-3.5 h-3.5 text-purple-600" />
               Developer:
             </span>
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-bold text-slate-800 truncate">{effectiveDev}</span>
             ) : (
               <input
@@ -385,12 +450,12 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
           </div>
 
           {/* Sign off By */}
-          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs">
+          <div className="flex items-center bg-white/90 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
             <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
               <FileCheck2 className="w-3.5 h-3.5 text-indigo-600" />
               Sign off By:
             </span>
-            {readOnly ? (
+            {!isFieldsEditable ? (
               <span className="text-xs font-bold text-slate-800 truncate">{effectiveSignOff}</span>
             ) : (
               <input

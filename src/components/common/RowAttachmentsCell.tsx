@@ -22,8 +22,19 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
   readOnly = false,
 }) => {
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [isPasteModalOpen, setIsPasteModalOpen] = useState<boolean>(false);
   const [previewItem, setPreviewItem] = useState<FileAttachment | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteCaptureRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus capture input when paste modal opens
+  React.useEffect(() => {
+    if (isPasteModalOpen) {
+      setTimeout(() => {
+        pasteCaptureRef.current?.focus();
+      }, 80);
+    }
+  }, [isPasteModalOpen]);
 
   // Normalize list with fallback if attachments is empty but legacy name exists
   const effectiveAttachments: FileAttachment[] =
@@ -60,29 +71,68 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const blob = items[i].getAsFile();
-        if (blob) {
+    // 1. Check for files in clipboardData (e.g. copied from Windows Explorer / Mac Finder)
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      for (let i = 0; i < e.clipboardData.files.length; i++) {
+        const file = e.clipboardData.files[i];
+        if (file.type.startsWith('image/')) {
+          e.preventDefault();
           const reader = new FileReader();
           reader.onload = (event) => {
             const url = (event.target?.result as string) || '';
             const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
             onAddAttachment({
-              name: `screenshot_${timestamp}.png`,
+              name: file.name || `screenshot_${timestamp}.png`,
               url,
-              size: `${Math.round(blob.size / 1024)} KB`,
+              size: `${Math.round(file.size / 1024)} KB`,
             });
           };
-          reader.readAsDataURL(blob);
+          reader.readAsDataURL(file);
+          return;
         }
       }
     }
+
+    // 2. Check items for image blobs (Snipping Tool, PrtScn, Ctrl+C image)
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          e.preventDefault();
+          const blob = items[i].getAsFile();
+          if (blob) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              const url = (event.target?.result as string) || '';
+              const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+              onAddAttachment({
+                name: `screenshot_${timestamp}.png`,
+                url,
+                size: `${Math.round(blob.size / 1024)} KB`,
+              });
+            };
+            reader.readAsDataURL(blob);
+            return;
+          }
+        }
+      }
+    }
+
+    // 3. Check for text that might be base64 data URL or image link
+    const text = e.clipboardData?.getData('text');
+    if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)(\?.*)?$/i.test(text))) {
+      e.preventDefault();
+      const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+      onAddAttachment({
+        name: `pasted_image_${timestamp}.png`,
+        url: text,
+        size: 'Pasted Link/Data',
+      });
+    }
   };
 
-  const handleClipboardPasteButton = async () => {
+  const handleClipboardPasteButton = async (e: React.MouseEvent) => {
+    e.stopPropagation();
     try {
       if (navigator.clipboard && navigator.clipboard.read) {
         const clipboardItems = await navigator.clipboard.read();
@@ -96,25 +146,46 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
               reader.onload = (event) => {
                 const url = (event.target?.result as string) || '';
                 const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
-                onAddAttachment({
+                const newAtt: FileAttachment = {
+                  id: `att-${Date.now()}`,
                   name: `screenshot_${timestamp}.png`,
                   url,
                   size: `${Math.round(blob.size / 1024)} KB`,
-                });
+                };
+                onAddAttachment(newAtt);
+                setPreviewItem(newAtt);
+                setIsModalOpen(true);
               };
               reader.readAsDataURL(blob);
+              break;
             }
           }
+          if (foundImage) break;
         }
-        if (!foundImage) {
-          fileInputRef.current?.click();
+        if (foundImage) return;
+
+        if (navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)/i.test(text))) {
+            const timestamp = new Date().toISOString().slice(11, 19).replace(/:/g, '');
+            const newAtt: FileAttachment = {
+              id: `att-${Date.now()}`,
+              name: `pasted_image_${timestamp}.png`,
+              url: text,
+              size: 'Pasted Link',
+            };
+            onAddAttachment(newAtt);
+            setPreviewItem(newAtt);
+            setIsModalOpen(true);
+            return;
+          }
         }
-      } else {
-        fileInputRef.current?.click();
       }
     } catch {
-      fileInputRef.current?.click();
+      // Browser permission blocked clipboard.read() in iframe.
     }
+    // If not handled by navigator.clipboard.read, open the dedicated paste capture modal
+    setIsPasteModalOpen(true);
   };
 
   return (
@@ -207,30 +278,121 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
           );
         })}
 
-        {/* Action Buttons: Paste SS (Ctrl+V) & Browse */}
-        {!readOnly && (
-          <div className="flex items-center gap-1">
+        {/* Action Buttons: Preview, Paste SS (Ctrl+V) & Browse */}
+        <div className="flex items-center gap-1">
+          {effectiveAttachments.length > 0 && (
             <button
               type="button"
-              onClick={handleClipboardPasteButton}
-              title="Paste screenshot from clipboard (or press Ctrl+V)"
-              className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded border border-purple-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewItem(effectiveAttachments[effectiveAttachments.length - 1]);
+                setIsModalOpen(true);
+              }}
+              title="Preview attached screenshot"
+              className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded border border-blue-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
             >
-              <ClipboardPaste className="w-3 h-3 text-purple-600" />
-              <span>Paste SS</span>
+              <Eye className="w-3 h-3 text-blue-600" />
+              <span>Preview{effectiveAttachments.length > 1 ? ` (${effectiveAttachments.length})` : ''}</span>
             </button>
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              title="Browse file or screenshot"
-              className="inline-flex items-center gap-0.5 px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 text-[10px] font-medium cursor-pointer transition-colors"
-            >
-              <Plus className="w-3 h-3" />
-              <span>Attach</span>
-            </button>
-          </div>
-        )}
+          )}
+
+          {!readOnly && (
+            <>
+              <button
+                type="button"
+                onClick={handleClipboardPasteButton}
+                title="Paste screenshot from clipboard (or press Ctrl+V)"
+                className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded border border-purple-200 text-[10px] font-bold cursor-pointer transition-colors shadow-2xs"
+              >
+                <ClipboardPaste className="w-3 h-3 text-purple-600" />
+                <span>Paste SS</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                title="Browse file or screenshot"
+                className="inline-flex items-center gap-0.5 px-1.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded border border-slate-300 text-[10px] font-medium cursor-pointer transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                <span>Attach</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
+
+      {/* Direct Paste Capture Modal for iframe safety */}
+      {isPasteModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-purple-100 text-purple-700 rounded-lg">
+                  <ClipboardPaste className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Paste Evidence Screenshot</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPasteModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-md"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div
+              className="p-6 border-2 border-dashed border-purple-300 bg-purple-50/50 hover:bg-purple-50/80 rounded-xl text-center cursor-pointer transition-colors"
+              onClick={() => pasteCaptureRef.current?.focus()}
+            >
+              <ClipboardPaste className="w-10 h-10 text-purple-600 mx-auto mb-2" />
+              <div className="text-xs font-bold text-purple-950 mb-1">
+                Press Ctrl+V anywhere now
+              </div>
+              <div className="text-[11px] text-purple-700 mb-3">
+                Or Right Click → Paste below (Win+Shift+S / PrtScn / Copied file)
+              </div>
+              <textarea
+                ref={pasteCaptureRef}
+                rows={2}
+                onPaste={(e) => {
+                  handlePaste(e);
+                  setIsPasteModalOpen(false);
+                  setTimeout(() => {
+                    if (effectiveAttachments.length > 0) {
+                      setPreviewItem(effectiveAttachments[effectiveAttachments.length - 1]);
+                      setIsModalOpen(true);
+                    }
+                  }, 200);
+                }}
+                placeholder="Click here and press Ctrl+V to paste your screenshot..."
+                className="w-full text-xs p-2.5 bg-white border border-purple-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-center text-slate-700 resize-none shadow-2xs"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-xs pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPasteModalOpen(false);
+                  fileInputRef.current?.click();
+                }}
+                className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer underline flex items-center gap-1"
+              >
+                <Upload className="w-3 h-3" />
+                <span>Browse from disk instead</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPasteModalOpen(false)}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Enhanced Attachment Preview Lightbox Modal */}
       {isModalOpen && previewItem && (

@@ -124,6 +124,7 @@ export interface AttachedDocOrImage {
   name: string;
   type: 'image' | 'excel' | 'word' | 'pdf' | 'text' | 'other';
   url?: string;
+  dataUrl?: string;
   size?: string;
   uploadedAt?: string;
   detectedFields?: string[];

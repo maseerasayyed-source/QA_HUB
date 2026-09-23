@@ -21,6 +21,7 @@ import {
   ChevronRight,
   Filter,
   Edit3,
+  CloudDownload,
 } from 'lucide-react';
 import {
   DeveloperTestHeaderMeta,
@@ -68,6 +69,7 @@ interface DeveloperTestingViewProps {
   onAddTicket?: (ticket: TicketSummary) => void;
   onSaveAndSubmitTicket?: (ticketNo: string) => void;
   onReopenEditTicket?: (ticketNo: string) => void;
+  onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
 }
 
 export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
@@ -89,6 +91,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   onAddTicket,
   onSaveAndSubmitTicket,
   onReopenEditTicket,
+  onDeleteTicket,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'dev-testing-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'dev-testing-screen'>('tickets-table');
@@ -246,6 +249,72 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   const [isAdoModalOpen, setIsAdoModalOpen] = useState<boolean>(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [isFetchingFromAdo, setIsFetchingFromAdo] = useState<boolean>(false);
+
+  // Delete Ticket Modal State
+  const [ticketToDelete, setTicketToDelete] = useState<{ ticketNumber: string; taskName?: string } | null>(null);
+  const [deleteMode, setDeleteMode] = useState<'all_modules' | 'tickets_tab_only'>('all_modules');
+
+  // Single Item Delete Modal State
+  const [itemToDelete, setItemToDelete] = useState<DeveloperTestItem | null>(null);
+
+  // Azure Direct Fetching in Modal State
+  const [isFetchingAzureModal, setIsFetchingAzureModal] = useState<boolean>(false);
+
+  const handleDirectAzureFetchInModal = async () => {
+    const rawInput = newTicketNumber.trim();
+    if (!rawInput) {
+      alert('Please enter an Azure DevOps Work Item / Ticket ID first.');
+      return;
+    }
+    const cleanId = rawInput.replace('#', '').trim();
+    setIsFetchingAzureModal(true);
+    try {
+      const { fetchWorkItemFromAzure } = await import('../services/azureDevopsService');
+      const azureData = await fetchWorkItemFromAzure(cleanId);
+      if (azureData) {
+        if (azureData.title) setNewFeatureName(azureData.title);
+        if (azureData.assignedTo) {
+          setNewDeveloper(azureData.assignedTo);
+          setNewQaAssignee(azureData.assignedTo);
+        }
+        if (azureData.priority) setNewPriority(azureData.priority as any);
+        if (azureData.description || azureData.acceptanceCriteria) {
+          const combined = [azureData.description, azureData.acceptanceCriteria].filter(Boolean).join('\n\n');
+          setNewScenarioDetails(combined);
+        }
+        setFetchedHeaderNotice(
+          `☁️ Successfully fetched Work Item #${cleanId} directly from Azure DevOps!`
+        );
+      } else {
+        alert(`No work item details returned for Azure ID #${cleanId}. Check connection settings.`);
+      }
+    } catch (err: any) {
+      alert(`Could not fetch from Azure DevOps: ${err?.message || 'Server error'}`);
+    } finally {
+      setIsFetchingAzureModal(false);
+    }
+  };
+
+  const confirmDeleteItem = () => {
+    if (!itemToDelete) return;
+    saveStateToStore(
+      items.filter((i) => i.id !== itemToDelete.id),
+      header
+    );
+    setItemToDelete(null);
+    setNotification('🗑️ Developer testing point deleted successfully.');
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const confirmDeleteTicket = () => {
+    if (!ticketToDelete) return;
+    if (onDeleteTicket) {
+      onDeleteTicket(ticketToDelete.ticketNumber, deleteMode);
+    }
+    setNotification(`🗑️ Ticket #${ticketToDelete.ticketNumber} deleted (${deleteMode === 'all_modules' ? 'Every Module' : 'Tickets Tab Only'}).`);
+    setTimeout(() => setNotification(null), 4000);
+    setTicketToDelete(null);
+  };
 
   // Sorting & Filtering in table
   const [sortKey, setSortKey] = useState<string | null>(null);
@@ -580,27 +649,11 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     saveStateToStore([...items, duplicated], header);
   };
 
-  // Delete Row with ownership protection
+  // Delete Row with custom confirmation modal
   const handleDeleteRow = (id: string) => {
     const target = items.find((i) => i.id === id);
     if (!target) return;
-
-    const isSuperAdmin = currentUser?.role === 'Super Admin' || currentUser?.email?.toLowerCase().includes('maseera');
-    const authorName = (target.createdBy || '').toLowerCase().trim();
-    const currentUserName = (currentUser?.name || '').toLowerCase().trim();
-    const isAuthor = !authorName || authorName === currentUserName || (authorName && currentUserName && (currentUserName.includes(authorName) || authorName.includes(currentUserName)));
-
-    if (!isSuperAdmin && !isAuthor) {
-      alert(`⚠️ Permission Denied: This developer testing point was created by "${target.createdBy || 'another user'}". User "${currentUser?.name}" is not authorized to delete it. Only the original author or Super Admin can delete this item.`);
-      return;
-    }
-
-    if (confirm('Delete this developer testing point?')) {
-      saveStateToStore(
-        items.filter((i) => i.id !== id),
-        header
-      );
-    }
+    setItemToDelete(target);
   };
 
   // Attachments Handlers
@@ -1095,6 +1148,17 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                               </button>
                             </>
                           )}
+
+                          {onDeleteTicket && (
+                            <button
+                              type="button"
+                              onClick={() => setTicketToDelete({ ticketNumber: t.ticketNumber, taskName: t.featureName })}
+                              title={`Delete Ticket #${t.ticketNumber}`}
+                              className="p-1 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded cursor-pointer transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1130,8 +1194,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
         {/* Add Ticket Modal with Other Option */}
         {isAddTicketModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 animate-fadeIn">
-            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden p-5 space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full max-h-[88vh] flex flex-col overflow-hidden animate-fadeIn">
+              <div className="flex items-center justify-between p-4 px-5 border-b border-slate-100 bg-slate-50/80 shrink-0">
                 <div className="flex items-center gap-2">
                   <span className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
                     <Plus className="w-4 h-4" />
@@ -1139,14 +1203,15 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   <h2 className="text-base font-bold text-slate-900">Add New Azure DevOps Ticket</h2>
                 </div>
                 <button
+                  type="button"
                   onClick={() => setIsAddTicketModalOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-600 cursor-pointer p-1 rounded-md"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleCreateTicketSubmit} className="space-y-3.5 text-xs">
+              <form id="dev-add-ticket-form" onSubmit={handleCreateTicketSubmit} className="flex-1 overflow-y-auto p-5 space-y-3.5 text-xs">
                 {/* Dropdown to select Ticket ID created on this system to reuse in another module */}
                 {systemTicketsList.length > 0 && (
                   <div className="p-3 bg-blue-50/80 border border-blue-200 rounded-xl space-y-1.5">
@@ -1186,9 +1251,21 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                 )}
 
                 <div>
-                  <label className="block text-slate-700 font-bold mb-1">
-                    Ticket ID / Work Item Number *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-slate-700 font-bold">
+                      Ticket ID / Work Item Number *
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleDirectAzureFetchInModal}
+                      disabled={isFetchingAzureModal}
+                      className="text-[11px] text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-md font-bold flex items-center gap-1.5 cursor-pointer transition-all shadow-2xs"
+                      title="Directly fetch Work Item details from Azure DevOps by ID"
+                    >
+                      <CloudDownload className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isFetchingAzureModal ? 'Fetching Azure...' : '☁️ Direct Fetch Azure ID'}</span>
+                    </button>
+                  </div>
                   <input
                     type="text"
                     required
@@ -1319,23 +1396,24 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddTicketModalOpen(false)}
-                    className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer"
-                  >
-                    Create &amp; Open Ticket
-                  </button>
-                </div>
               </form>
+
+              <div className="p-3.5 px-5 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsAddTicketModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer transition-colors text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  form="dev-add-ticket-form"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-lg cursor-pointer shadow-xs transition-colors text-xs"
+                >
+                  Create &amp; Open Ticket
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1461,6 +1539,18 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
             <UploadCloud className="w-3.5 h-3.5 text-blue-200" />
             <span>🚀 Azure DevOps</span>
           </button>
+
+          {onDeleteTicket && (
+            <button
+              type="button"
+              onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.featureName })}
+              title={`Delete Ticket #${header.ticketNo}`}
+              className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Delete Ticket</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1834,6 +1924,140 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           createdBy={lockedModalTicket.createdBy}
           customMessage={lockedModalTicket.reason}
         />
+      )}
+
+      {/* Delete Ticket Confirmation Modal (All modules vs Tickets tab only) */}
+      {ticketToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <Trash2 className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Delete Ticket #{ticketToDelete.ticketNumber}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTicketToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-2 text-xs">
+              <p className="font-bold text-rose-950">
+                Are you sure you want to delete Ticket <span className="font-mono">#{ticketToDelete.ticketNumber}</span> {ticketToDelete.taskName ? `("${ticketToDelete.taskName}")` : ''}?
+              </p>
+              <p className="text-slate-600">Please choose how you want to delete this ticket:</p>
+            </div>
+
+            <div className="space-y-2 text-xs">
+              <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${deleteMode === 'all_modules' ? 'border-rose-500 bg-rose-50/40' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <input
+                  type="radio"
+                  name="devDeleteMode"
+                  value="all_modules"
+                  checked={deleteMode === 'all_modules'}
+                  onChange={() => setDeleteMode('all_modules')}
+                  className="mt-0.5 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">Delete from EVERY module</div>
+                  <div className="text-[11px] text-slate-500">
+                    Permanently purges this ticket, its developer testing points, QA test cases, and observations across all modules and the dashboard.
+                  </div>
+                </div>
+              </label>
+
+              <label className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all ${deleteMode === 'tickets_tab_only' ? 'border-blue-500 bg-blue-50/40' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <input
+                  type="radio"
+                  name="devDeleteMode"
+                  value="tickets_tab_only"
+                  checked={deleteMode === 'tickets_tab_only'}
+                  onChange={() => setDeleteMode('tickets_tab_only')}
+                  className="mt-0.5 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <div>
+                  <div className="font-bold text-slate-900">Delete from Tickets tab only</div>
+                  <div className="text-[11px] text-slate-500">
+                    Removes from the tickets list, but keeps working drafts in other modules until saved and submitted again.
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setTicketToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTicket}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Confirm Delete</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Single Developer Testing Point Confirmation Modal */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 backdrop-blur-xs p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                  <Trash2 className="w-4 h-4" />
+                </span>
+                <h3 className="text-sm font-bold text-slate-900">Delete Developer Testing Point</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 border border-rose-200 rounded-xl space-y-1.5 text-xs">
+              <p className="font-semibold text-rose-950">
+                Are you sure you want to delete this developer testing point?
+              </p>
+              <p className="text-slate-600 italic">
+                &quot;{itemToDelete.testingPoint || itemToDelete.expectedResult || 'Empty point'}&quot;
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs cursor-pointer transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteItem}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg text-xs cursor-pointer shadow-xs transition-colors flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Yes, Delete Point</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
