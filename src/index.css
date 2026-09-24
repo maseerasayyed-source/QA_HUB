@@ -23,7 +23,7 @@ body[data-theme="Dark"] .bg-white {
   color: #f8fafc;
   border-color: #334155;
 }
-body[data-theme="Dark"] .bg-[#F8FAFC] {
+body[data-theme="Dark"] .bg-\[\#F8FAFC\] {
   background-color: #0f172a;
 }
 body[data-theme="Dark"] .text-slate-900,

@@ -269,7 +269,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     const cleanId = rawInput.replace('#', '').trim();
     setIsFetchingAzureModal(true);
     try {
-      const { fetchWorkItemFromAzure } = await import('../services/azureDevopsService');
+      const { fetchWorkItemFromAzure } = await import('../utils/azureDevopsService');
       const azureData = await fetchWorkItemFromAzure(cleanId);
       if (azureData) {
         if (azureData.title) setNewFeatureName(azureData.title);

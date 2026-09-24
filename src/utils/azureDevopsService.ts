@@ -21,18 +21,30 @@ export interface FetchWorkItemResult {
   success: boolean;
   message: string;
   ticketNumber?: string;
+  id?: string;
   title?: string;
   description?: string;
   areaPath?: string;
   assignee?: string;
+  assignedTo?: string;
   developer?: string;
   priority?: 'Critical' | 'High' | 'Medium' | 'Low';
   state?: string;
   workType?: string;
   testingScenarios?: string;
+  acceptanceCriteria?: string;
   requiresPat?: boolean;
   rawFields?: Record<string, any>;
   errorDetail?: string;
+  workItem?: {
+    id?: string;
+    title?: string;
+    description?: string;
+    acceptanceCriteria?: string;
+    priority?: string;
+    assignedTo?: string;
+    state?: string;
+  };
 }
 
 const STORAGE_KEY_CONFIG = 'beacon_azure_devops_config';
@@ -94,12 +106,13 @@ export async function fetchWorkItemFromAzure(params: {
   project?: string;
   workItemId: string;
   pat?: string;
-}): Promise<FetchWorkItemResult> {
+} | string): Promise<FetchWorkItemResult> {
+  const paramObj = typeof params === 'string' ? { workItemId: params } : params;
   const saved = loadSavedAdoConfig();
-  const cleanOrg = (params.organization || saved.organization || 'quantumphinance').trim();
-  const cleanProject = (params.project || saved.project || 'Beacon Web').trim();
-  const pat = (params.pat || saved.personalAccessToken || '').trim();
-  const cleanId = extractWorkItemId(params.workItemId);
+  const cleanOrg = (paramObj.organization || saved.organization || 'quantumphinance').trim();
+  const cleanProject = (paramObj.project || saved.project || 'Beacon Web').trim();
+  const pat = (paramObj.pat || saved.personalAccessToken || '').trim();
+  const cleanId = extractWorkItemId(paramObj.workItemId);
 
   if (!cleanOrg || !cleanProject || !cleanId) {
     return {
@@ -126,8 +139,22 @@ export async function fetchWorkItemFromAzure(params: {
 
     const contentType = proxyResponse.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
-      const data: FetchWorkItemResult = await proxyResponse.json();
-      return data;
+      const data: any = await proxyResponse.json();
+      if (data) {
+        data.id = data.id || data.ticketNumber || cleanId;
+        data.assignedTo = data.assignedTo || data.assignee;
+        data.acceptanceCriteria = data.acceptanceCriteria || data.testingScenarios;
+        data.workItem = data.workItem || {
+          id: data.id,
+          title: data.title,
+          description: data.description,
+          acceptanceCriteria: data.acceptanceCriteria,
+          priority: data.priority,
+          assignedTo: data.assignedTo,
+          state: data.state,
+        };
+      }
+      return data as FetchWorkItemResult;
     }
   } catch (proxyErr) {
     console.warn('Server proxy /api/azure/workitem did not respond, attempting direct fetch', proxyErr);
@@ -218,15 +245,27 @@ export async function fetchWorkItemFromAzure(params: {
       success: true,
       message: `Successfully fetched Ticket #${cleanId} from Azure DevOps!`,
       ticketNumber: cleanId,
+      id: cleanId,
       title,
       description,
       areaPath,
       assignee,
+      assignedTo: assignee,
       developer,
       priority,
       state,
       testingScenarios,
+      acceptanceCriteria: testingScenarios,
       rawFields: fields,
+      workItem: {
+        id: cleanId,
+        title,
+        description,
+        acceptanceCriteria: testingScenarios,
+        priority,
+        assignedTo: assignee,
+        state,
+      },
     };
   } catch (err: any) {
     return {
