@@ -105,6 +105,13 @@ export default function App() {
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
+  const [isChatbotLauncherVisible, setIsChatbotLauncherVisible] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('qa_chatbot_visible') !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   // Authority Check:
   // Maseera Sayyed -> Super Admin (sees all tickets across organization)
@@ -326,30 +333,46 @@ export default function App() {
   // Update Test Cases for active ticket
   const handleUpdateTestCases = (newCases: TestCaseItem[], ticketNum?: string) => {
     const targetTicket = ticketNum || activeTicketNumber;
-    const nextMap = { ...testCasesMap, [targetTicket]: newCases };
+    const cleanNo = targetTicket.trim().replace(/^#+/, '');
+    const nextMap = { ...testCasesMap, [targetTicket]: newCases, [cleanNo]: newCases };
     setTestCasesMap(nextMap);
+    saveTestCasesMapToStorage(nextMap);
     setTickets((prev) => {
       const synced = syncTicketCounts(prev, nextMap, observationsMap);
+      saveTicketsToStorage(synced);
       pushSyncToServer({ tickets: synced, testCasesMap: nextMap });
       return synced;
     });
   };
 
   const handleUpdateTestCaseHeader = (newHeader: TestCaseHeaderMeta) => {
+    const cleanNo = (newHeader.ticketNo || '').trim().replace(/^#+/, '');
     setTestCaseHeadersMap((prev) => {
-      const next = { ...prev, [newHeader.ticketNo]: newHeader };
+      const next = { ...prev, [newHeader.ticketNo]: newHeader, [cleanNo]: newHeader };
+      saveTestCaseHeadersMapToStorage(next);
       pushSyncToServer({ testCaseHeadersMap: next });
       return next;
     });
-    if (newHeader.developer) {
-      setTickets((prev) => {
-        const next = prev.map((t) =>
-          t.ticketNumber === newHeader.ticketNo ? { ...t, developer: newHeader.developer! } : t
-        );
-        pushSyncToServer({ tickets: next });
-        return next;
+
+    setTickets((prev) => {
+      const cleanLower = cleanNo.toLowerCase();
+      const next = prev.map((t) => {
+        if ((t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanLower) {
+          return {
+            ...t,
+            developer: newHeader.developer || t.developer,
+            reviewStatus: newHeader.reviewStatus || t.reviewStatus,
+            submissionState: newHeader.reviewStatus && newHeader.reviewStatus !== 'Draft' ? 'Submitted' : t.submissionState,
+            signOffBy: newHeader.signOffBy || t.signOffBy,
+          };
+        }
+        return t;
       });
-    }
+      saveTicketsToStorage(next);
+      pushSyncToServer({ tickets: next });
+      return next;
+    });
+
     setActiveTicketNumber(newHeader.ticketNo);
   };
 
@@ -460,44 +483,49 @@ export default function App() {
     mode: 'all_modules' | 'tickets_tab_only'
   ) => {
     const cleanNo = ticketNo.trim().replace(/^#+/, '');
+    const cleanNoLower = cleanNo.toLowerCase();
 
-    // 1. Remove from tickets list
+    // 1. Remove from tickets list (matching with or without #)
     const updatedTickets = tickets.filter(
-      (t) => t.ticketNumber.trim().toLowerCase() !== cleanNo.toLowerCase()
+      (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() !== cleanNoLower
     );
     setTickets(updatedTickets);
     saveTicketsToStorage(updatedTickets);
 
     // If active ticket is the one being deleted, switch active ticket to the first available or empty
-    if (activeTicketNumber.trim().replace(/^#+/, '').toLowerCase() === cleanNo.toLowerCase()) {
+    if ((activeTicketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanNoLower) {
       const nextTicket = updatedTickets.length > 0 ? updatedTickets[0].ticketNumber : '';
       setActiveTicketNumber(nextTicket);
     }
 
     if (mode === 'all_modules') {
-      // Purge from all modules
-      const updatedTcMap = { ...testCasesMap };
-      delete updatedTcMap[cleanNo];
+      function purgeMap<T>(map: Record<string, T>): Record<string, T> {
+        const next: Record<string, T> = {};
+        for (const [k, v] of Object.entries(map || {})) {
+          if (k.trim().replace(/^#+/, '').toLowerCase() !== cleanNoLower) {
+            next[k] = v;
+          }
+        }
+        return next;
+      }
+
+      const updatedTcMap = purgeMap<TestCaseItem[]>(testCasesMap);
       setTestCasesMap(updatedTcMap);
       saveTestCasesMapToStorage(updatedTcMap);
 
-      const updatedTcHeaders = { ...testCaseHeadersMap };
-      delete updatedTcHeaders[cleanNo];
+      const updatedTcHeaders = purgeMap<TestCaseHeaderMeta>(testCaseHeadersMap);
       setTestCaseHeadersMap(updatedTcHeaders);
       saveTestCaseHeadersMapToStorage(updatedTcHeaders);
 
-      const updatedObsMap = { ...observationsMap };
-      delete updatedObsMap[cleanNo];
+      const updatedObsMap = purgeMap<ObservationItem[]>(observationsMap);
       setObservationsMap(updatedObsMap);
       saveObservationsMapToStorage(updatedObsMap);
 
-      const updatedDevMap = { ...devTestingMap };
-      delete updatedDevMap[cleanNo];
+      const updatedDevMap = purgeMap<DeveloperTestItem[]>(devTestingMap);
       setDevTestingMap(updatedDevMap);
       saveDevTestingMapToStorage(updatedDevMap);
 
-      const updatedDevHeaders = { ...devTestingHeadersMap };
-      delete updatedDevHeaders[cleanNo];
+      const updatedDevHeaders = purgeMap<DeveloperTestHeaderMeta>(devTestingHeadersMap);
       setDevTestingHeadersMap(updatedDevHeaders);
       saveDevTestingHeadersMapToStorage(updatedDevHeaders);
 
@@ -693,10 +721,41 @@ export default function App() {
             testCaseHeadersMap={testCaseHeadersMap}
             currentUser={currentUser}
             onUpdateHeader={(tNo, h) => {
-              setTestCaseHeadersMap((prev) => ({ ...prev, [tNo]: h }));
+              const cleanNo = tNo.trim().replace(/^#+/, '');
+              setTestCaseHeadersMap((prev) => {
+                const next = { ...prev, [tNo]: h, [cleanNo]: h };
+                saveTestCaseHeadersMapToStorage(next);
+                pushSyncToServer({ testCaseHeadersMap: next });
+                return next;
+              });
+              if (h.reviewStatus) {
+                setTickets((prev) => {
+                  const cleanLower = cleanNo.toLowerCase();
+                  const updated = prev.map((t) => {
+                    if ((t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === cleanLower) {
+                      return {
+                        ...t,
+                        reviewStatus: h.reviewStatus,
+                        submissionState: h.reviewStatus === 'Draft' ? 'Draft' : 'Submitted',
+                        signOffBy: h.signOffBy || t.signOffBy,
+                      };
+                    }
+                    return t;
+                  });
+                  saveTicketsToStorage(updated);
+                  pushSyncToServer({ tickets: updated });
+                  return updated;
+                });
+              }
             }}
             onUpdateTestCases={(tNo, c) => {
-              setTestCasesMap((prev) => ({ ...prev, [tNo]: c }));
+              const cleanNo = tNo.trim().replace(/^#+/, '');
+              setTestCasesMap((prev) => {
+                const next = { ...prev, [tNo]: c, [cleanNo]: c };
+                saveTestCasesMapToStorage(next);
+                pushSyncToServer({ testCasesMap: next });
+                return next;
+              });
             }}
             onOpenTestCasesForTicket={(tNo) => {
               setActiveTicketNumber(tNo);
@@ -996,16 +1055,44 @@ export default function App() {
         </div>
       )}
 
-      {/* Floating AI QA Chatbot Launcher Button */}
-      {!isChatOpen && (
+      {/* Floating AI QA Chatbot Launcher with Hide / Visible Toggle Option */}
+      {!isChatOpen && isChatbotLauncherVisible && (
+        <div className="fixed bottom-5 right-5 z-40 flex items-center bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 rounded-full shadow-2xl p-1 border border-white/20 animate-fadeIn">
+          <button
+            onClick={() => setIsChatOpen(true)}
+            className="px-4 py-2 text-white font-bold flex items-center gap-2.5 cursor-pointer hover:opacity-95 transition-opacity"
+            title="Open Beacon AI QA Chatbot (ChatGPT Style)"
+          >
+            <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
+            <span className="text-xs tracking-wide">AI QA Chatbot</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsChatbotLauncherVisible(false);
+              localStorage.setItem('qa_chatbot_visible', 'false');
+            }}
+            title="Hide QA Chatbot launcher button"
+            className="p-1.5 text-white/70 hover:text-white hover:bg-white/20 rounded-full transition-colors cursor-pointer mr-0.5"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Discreet button when user chose to hide the floating launcher */}
+      {!isChatOpen && !isChatbotLauncherVisible && (
         <button
-          onClick={() => setIsChatOpen(true)}
-          className="fixed bottom-5 right-5 z-40 px-4 py-3 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold rounded-full shadow-2xl flex items-center gap-2.5 cursor-pointer transition-all hover:scale-105 active:scale-95 border border-white/20"
-          title="Open Beacon AI QA Chatbot (ChatGPT Style)"
+          onClick={() => {
+            setIsChatbotLauncherVisible(true);
+            localStorage.setItem('qa_chatbot_visible', 'true');
+          }}
+          className="fixed bottom-4 right-4 z-40 px-3 py-1.5 bg-slate-900/80 hover:bg-slate-900 text-white rounded-full text-[11px] font-bold shadow-lg flex items-center gap-1.5 cursor-pointer backdrop-blur-sm transition-all hover:scale-105 border border-slate-700/50"
+          title="Show AI QA Chatbot"
         >
-          <Sparkles className="w-4 h-4 text-yellow-300 animate-pulse" />
-          <span className="text-xs tracking-wide">AI QA Chatbot</span>
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+          <Sparkles className="w-3 h-3 text-yellow-300" />
+          <span>Show Chatbot</span>
         </button>
       )}
 

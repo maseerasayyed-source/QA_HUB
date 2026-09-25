@@ -20,12 +20,31 @@ import {
   Maximize2,
   ExternalLink,
   Download,
+  ChevronLeft,
+  ChevronRight,
+  Trash2,
 } from 'lucide-react';
 import { TicketSummary, AttachedDocOrImage } from '../../types';
 import { polishObservationText } from '../../utils/textPolisher';
 import { parseUploadedFile } from '../../utils/fileParser';
 import { translateToSimpleEnglish } from '../../utils/languageAi';
 import { CorporateTicketHeader } from './CorporateTicketHeader';
+
+function dataURLtoBlob(dataUrl: string): Blob {
+  try {
+    const parts = dataUrl.split(',');
+    const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+    const bstr = atob(parts[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) {
+      u8arr[n] = bstr.charCodeAt(n);
+    }
+    return new Blob([u8arr], { type: mime });
+  } catch {
+    return new Blob([], { type: 'image/png' });
+  }
+}
 
 interface CommonHeaderProps {
   mode?: 'developer' | 'qa' | 'observations';
@@ -118,65 +137,142 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
     }
   }, [isPasteModalOpen]);
 
-  // Global window paste listener: automatically catches any screenshot or file pasted anywhere
+  // Helper to process and attach any files or screenshots
+  const attachFilesList = async (filesToAttach: (File | Blob)[], sourceHint = 'files') => {
+    if (!filesToAttach || filesToAttach.length === 0) return;
+    const newDocs: AttachedDocOrImage[] = [];
+    const detectedFieldsToAdd = new Set<string>(screenFields);
+
+    for (let i = 0; i < filesToAttach.length; i++) {
+      const item = filesToAttach[i];
+      try {
+        const fileObj =
+          item instanceof File
+            ? item
+            : new File([item], `screenshot_${Date.now()}_${i + 1}.png`, {
+                type: item.type || 'image/png',
+              });
+        const parsed = await parseUploadedFile(fileObj);
+        newDocs.push(parsed);
+
+        if (parsed.detectedFields && parsed.detectedFields.length > 0) {
+          parsed.detectedFields.forEach((f) => detectedFieldsToAdd.add(f));
+        }
+      } catch (err) {
+        console.error('Failed to parse uploaded item:', err);
+      }
+    }
+
+    if (newDocs.length === 0) return;
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+
+    const updated = [...attachedDocs, ...newDocs];
+    onUpdateAttachedDocs?.(updated);
+    onUpdateScreenFields?.(Array.from(detectedFieldsToAdd));
+    setPreviewDoc(newDocs[newDocs.length - 1]);
+    setPasteNotice(`✅ ${newDocs.length} ${sourceHint} attached successfully! Click "Preview" to inspect.`);
+    setTimeout(() => setPasteNotice(null), 4000);
+  };
+
+  // Extract all images/files from clipboard DataTransfer
+  const handleClipboardPasteData = async (
+    clipboardData: DataTransfer | null
+  ): Promise<boolean> => {
+    if (!clipboardData) return false;
+    const filesToAttach: File[] = [];
+
+    // 1. Files array (e.g. copied files from disk or clipboard)
+    if (clipboardData.files && clipboardData.files.length > 0) {
+      for (let i = 0; i < clipboardData.files.length; i++) {
+        const f = clipboardData.files[i];
+        if (
+          f.type.startsWith('image/') ||
+          /\.(png|jpe?g|webp|gif|bmp|xlsx?|csv|docx?|pdf|txt)$/i.test(f.name) ||
+          f.size > 0
+        ) {
+          filesToAttach.push(f);
+        }
+      }
+    }
+
+    // 2. Clipboard items (e.g. Snipping tool Win+Shift+S / PrtScn / browser copy image)
+    if (clipboardData.items && clipboardData.items.length > 0) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item.type.indexOf('image') !== -1 || item.kind === 'file') {
+          const file = item.getAsFile();
+          if (
+            file &&
+            !filesToAttach.some(
+              (existing) => existing.size === file.size && existing.name === file.name
+            )
+          ) {
+            filesToAttach.push(file);
+          }
+        }
+      }
+    }
+
+    // 3. Copied HTML with img tags (e.g. copied image element from webpage or word)
+    if (filesToAttach.length === 0) {
+      const html = clipboardData.getData('text/html');
+      if (html) {
+        const match = html.match(/<img[^>]+src=["'](data:image\/[^"']+|https?:\/\/[^"']+)["']/i);
+        if (match && match[1]) {
+          const src = match[1];
+          if (src.startsWith('data:image/')) {
+            const blob = dataURLtoBlob(src);
+            filesToAttach.push(
+              new File([blob], `pasted_screenshot_${Date.now()}.png`, { type: blob.type || 'image/png' })
+            );
+          }
+        }
+      }
+    }
+
+    // 4. Text data URL (e.g. data:image/png;base64,... or image URL)
+    if (filesToAttach.length === 0) {
+      const text = clipboardData.getData('text');
+      if (text && text.trim().startsWith('data:image/')) {
+        const blob = dataURLtoBlob(text.trim());
+        filesToAttach.push(
+          new File([blob], `pasted_screenshot_${Date.now()}.png`, { type: blob.type || 'image/png' })
+        );
+      }
+    }
+
+    if (filesToAttach.length > 0) {
+      await attachFilesList(
+        filesToAttach,
+        filesToAttach.length === 1 ? 'screenshot' : 'screenshots'
+      );
+      return true;
+    }
+    return false;
+  };
+
+  // Global window paste listener: catches any screenshot or file pasted anywhere on page
   useEffect(() => {
     const handleGlobalPaste = async (e: ClipboardEvent) => {
-      // 1. First check files in clipboard (e.g. copied image file from desktop or explorer)
-      if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
-        for (let i = 0; i < e.clipboardData.files.length; i++) {
-          const file = e.clipboardData.files[i];
-          if (file.type.startsWith('image/')) {
-            e.preventDefault();
-            const parsed = await parseUploadedFile(file);
-            const updated = [...attachedDocs, parsed];
-            onUpdateAttachedDocs?.(updated);
-            if (parsed.detectedFields && parsed.detectedFields.length > 0) {
-              const currentSet = new Set(screenFields);
-              parsed.detectedFields.forEach((f) => currentSet.add(f));
-              onUpdateScreenFields?.(Array.from(currentSet));
-            }
-            setPasteNotice(`✅ Pasted screenshot "${parsed.name}" attached successfully!`);
-            setTimeout(() => setPasteNotice(null), 4000);
-            return;
-          }
-        }
-      }
+      const target = e.target as HTMLElement | null;
+      const isInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
 
-      // 2. Check clipboard items for image blob (e.g. Win+Shift+S snipping tool, PrtScn)
-      const items = e.clipboardData?.items;
-      if (items) {
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].type.indexOf('image') !== -1) {
-            const file = items[i].getAsFile();
-            if (file) {
-              e.preventDefault();
-              const parsed = await parseUploadedFile(file);
-              const updated = [...attachedDocs, parsed];
-              onUpdateAttachedDocs?.(updated);
-              if (parsed.detectedFields && parsed.detectedFields.length > 0) {
-                const currentSet = new Set(screenFields);
-                parsed.detectedFields.forEach((f) => currentSet.add(f));
-                onUpdateScreenFields?.(Array.from(currentSet));
-              }
-              setPasteNotice(`✅ Pasted screenshot "${parsed.name}" attached successfully!`);
-              setTimeout(() => setPasteNotice(null), 4000);
-              return;
-            }
-          }
-        }
-      }
+      const hasFiles =
+        (e.clipboardData?.files && e.clipboardData.files.length > 0) ||
+        Array.from(e.clipboardData?.items || []).some((it) =>
+          it.kind === 'file' || it.type.startsWith('image/')
+        );
 
-      // 3. Check for text data URL
-      const text = e.clipboardData?.getData('text');
-      if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)/i.test(text))) {
+      if (hasFiles) {
+        // If an image or file is in clipboard, prevent default text paste and attach it cleanly!
         e.preventDefault();
-        const parsed = await parseUploadedFile(new File([new Blob([text])], `pasted_img_${Date.now()}.png`, { type: 'image/png' }));
-        parsed.url = text;
-        parsed.dataUrl = text;
-        const updated = [...attachedDocs, parsed];
-        onUpdateAttachedDocs?.(updated);
-        setPasteNotice(`✅ Pasted image link attached successfully!`);
-        setTimeout(() => setPasteNotice(null), 4000);
+        await handleClipboardPasteData(e.clipboardData);
+      } else if (!isInput) {
+        // If user is not focused on an input/textarea, handle paste
+        await handleClipboardPasteData(e.clipboardData);
       }
     };
 
@@ -189,47 +285,27 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
     try {
       if (navigator.clipboard && navigator.clipboard.read) {
         const clipboardItems = await navigator.clipboard.read();
-        let attached = false;
+        const files: File[] = [];
         for (const item of clipboardItems) {
           for (const type of item.types) {
             if (type.startsWith('image/')) {
               const blob = await item.getType(type);
-              const file = new File([blob], `pasted_screenshot_${Date.now()}.png`, { type });
-              const parsed = await parseUploadedFile(file);
-              const updated = [...attachedDocs, parsed];
-              onUpdateAttachedDocs?.(updated);
-              if (parsed.detectedFields && parsed.detectedFields.length > 0) {
-                const currentSet = new Set(screenFields);
-                parsed.detectedFields.forEach((f) => currentSet.add(f));
-                onUpdateScreenFields?.(Array.from(currentSet));
-              }
-              attached = true;
-              setPreviewDoc(parsed);
-              setPasteNotice(`✅ Screenshot pasted from clipboard! Preview opened.`);
-              setTimeout(() => setPasteNotice(null), 4000);
-              break;
+              files.push(
+                new File([blob], `pasted_screenshot_${Date.now()}.png`, { type })
+              );
             }
           }
-          if (attached) break;
         }
-        if (attached) return;
-
-        if (navigator.clipboard.readText) {
-          const text = await navigator.clipboard.readText();
-          if (text && (text.startsWith('data:image/') || /^https?:\/\/.*\.(png|jpg|jpeg|gif|webp)/i.test(text))) {
-            const parsed = await parseUploadedFile(new File([new Blob([text])], `pasted_img_${Date.now()}.png`, { type: 'image/png' }));
-            parsed.url = text;
-            parsed.dataUrl = text;
-            onUpdateAttachedDocs?.([...attachedDocs, parsed]);
-            setPreviewDoc(parsed);
-            setPasteNotice(`✅ Pasted image link attached! Preview opened.`);
-            setTimeout(() => setPasteNotice(null), 4000);
-            return;
-          }
+        if (files.length > 0) {
+          await attachFilesList(
+            files,
+            files.length === 1 ? 'screenshot' : 'screenshots'
+          );
+          return;
         }
       }
     } catch {
-      // Browser permission blocked clipboard.read() in iframe.
+      // Browser permission blocked clipboard.read() in iframe
     }
     // Fallback: open dedicated interactive paste capture dialog
     setIsPasteModalOpen(true);
@@ -307,30 +383,8 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   // Handle File Upload (Image / Excel / Word / Text)
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const newDocs: AttachedDocOrImage[] = [];
-    const detectedFieldsToAdd = new Set<string>(screenFields);
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const parsed = await parseUploadedFile(file);
-        newDocs.push(parsed);
-
-        if (parsed.detectedFields && parsed.detectedFields.length > 0) {
-          parsed.detectedFields.forEach((f) => detectedFieldsToAdd.add(f));
-        }
-      } catch (err) {
-        console.error('Failed to parse uploaded file:', err);
-      }
-    }
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-
-    const updated = [...attachedDocs, ...newDocs];
-    onUpdateAttachedDocs?.(updated);
-    onUpdateScreenFields?.(Array.from(detectedFieldsToAdd));
+    const filesArray = Array.from(files);
+    await attachFilesList(filesArray, filesArray.length === 1 ? 'file' : 'files');
   };
 
   const handleRemoveDoc = (id: string) => {
@@ -372,16 +426,9 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
   // Clipboard Paste listener for screenshots
   const handleContainerPaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        const file = items[i].getAsFile();
-        if (file) {
-          const parsed = await parseUploadedFile(file);
-          const updated = [...attachedDocs, parsed];
-          onUpdateAttachedDocs?.(updated);
-        }
-      }
+    const handled = await handleClipboardPasteData(e.clipboardData);
+    if (handled) {
+      e.preventDefault();
     }
   };
 
@@ -409,6 +456,7 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
       {/* 1. Enhanced Corporate Header Bar: Client Name, Module, Ticket ID (dropdown + editable), Task Name (1-line), QA Assignee, Developer, SHA, Sign Off By */}
       <CorporateTicketHeader
+        mode={mode}
         selectedTicketNumber={selectedTicketNumber}
         tickets={tickets}
         onSelectTicket={onSelectTicket}
@@ -449,9 +497,9 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
         </div>
         <textarea
           rows={3}
-          value={description}
+          value={description ?? ''}
           readOnly={readOnly}
-          onChange={(e) => !readOnly && onChangeDescription(e.target.value)}
+          onChange={(e) => !readOnly && onChangeDescription?.(e.target.value)}
           placeholder="Enter ticket description or requirements..."
           className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
             readOnly
@@ -467,11 +515,11 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
           <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
             <Paperclip className="w-3.5 h-3.5 text-blue-600" />
             <span>Attached UI Screenshots / Files {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}</span>
-            {attachedDocs.length > 0 && (
-              <span className="text-[11px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                {attachedDocs.length} {attachedDocs.length === 1 ? 'file' : 'files'}
-              </span>
-            )}
+            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+              attachedDocs.length > 0 ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {attachedDocs.length} {attachedDocs.length === 1 ? 'file attached' : 'files attached'}
+            </span>
           </label>
           {!readOnly && (
             <div className="flex items-center gap-2">
@@ -483,7 +531,7 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                   title="Preview latest attached screenshot or document"
                 >
                   <Eye className="w-3.5 h-3.5 text-blue-600" />
-                  <span>👁️ Preview Screenshot ({attachedDocs.length})</span>
+                  <span>👁️ Preview ({attachedDocs.length})</span>
                 </button>
               )}
               <button
@@ -500,10 +548,44 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
           )}
         </div>
 
+        {/* Prominent Attachment Summary Banner */}
+        <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+          attachedDocs.length > 0
+            ? 'bg-blue-50/80 border-blue-200 text-blue-900'
+            : 'bg-slate-50 border-slate-200 text-slate-500'
+        }`}>
+          <div className="flex items-center gap-2">
+            <span className="font-bold">
+              {attachedDocs.length > 0
+                ? `📎 ${attachedDocs.length} ${attachedDocs.length === 1 ? 'File' : 'Files'} Attached (${attachedDocs.filter((d) => d.type === 'image').length} Screenshots, ${attachedDocs.filter((d) => d.type !== 'image').length} Documents)`
+                : '📎 No screenshots or files attached yet.'}
+            </span>
+            {attachedDocs.length > 0 && (
+              <span className="text-[11px] text-blue-700">
+                • {attachedDocs.map((d) => d.name).slice(0, 3).join(', ')}{attachedDocs.length > 3 ? ` +${attachedDocs.length - 3} more` : ''}
+              </span>
+            )}
+          </div>
+          {attachedDocs.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setPreviewDoc(attachedDocs[0])}
+              className="text-[11px] font-bold text-blue-700 underline hover:text-blue-900 cursor-pointer shrink-0"
+            >
+              View All
+            </button>
+          )}
+        </div>
+
         {/* Drag & Drop / Paste / Upload Area */}
         {!readOnly && (
           <div
             tabIndex={0}
+            onPaste={async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              await handleClipboardPasteData(e.clipboardData);
+            }}
             onDragOver={(e) => {
               e.preventDefault();
               setIsDragging(true);
@@ -514,10 +596,10 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
               setIsDragging(false);
               handleFileUpload(e.dataTransfer.files);
             }}
-            className={`border-2 border-dashed rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 transition-colors outline-none focus:ring-2 focus:ring-purple-400 focus:border-purple-400 ${
+            className={`border-2 border-dashed rounded-xl p-3.5 flex flex-wrap items-center justify-between gap-3 transition-all outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
               isDragging
-                ? 'border-blue-500 bg-blue-50/70'
-                : 'border-slate-300 bg-slate-50/70 hover:border-purple-300'
+                ? 'border-blue-500 bg-blue-50/80 shadow-md'
+                : 'border-slate-300 bg-slate-50/80 hover:border-purple-400 hover:bg-purple-50/30'
             }`}
           >
             <input
@@ -533,11 +615,11 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
               }}
             />
             <div className="flex items-center gap-2.5 text-xs text-slate-600">
-              <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+              <div className="p-2.5 bg-purple-100 text-purple-700 rounded-lg shrink-0 shadow-2xs">
                 <ClipboardPaste className="w-4 h-4" />
               </div>
               <div>
-                <span className="font-bold text-slate-800">
+                <span className="font-bold text-slate-800 text-sm block">
                   Paste Screenshot (Ctrl+V), or Drag &amp; Drop documents here
                 </span>
                 <p className="text-[11px] text-slate-500">
@@ -684,97 +766,210 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
 
       {/* Attachment Preview Modal (For screenshots, excel, docs) */}
       {previewDoc && (
-        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 bg-slate-900/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[92vh] shadow-2xl flex flex-col overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
             {/* Modal Header */}
-            <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-              <div className="flex items-center gap-2">
-                {previewDoc.type === 'image' && <ImageIcon className="w-4 h-4 text-purple-600" />}
-                {previewDoc.type === 'excel' && <FileSpreadsheet className="w-4 h-4 text-emerald-600" />}
-                {(previewDoc.type === 'word' || previewDoc.type === 'text') && <FileText className="w-4 h-4 text-blue-600" />}
-                <div>
-                  <h4 className="font-bold text-sm text-slate-900">{previewDoc.name}</h4>
-                  <p className="text-[11px] text-slate-500">
-                    Type: <span className="font-medium text-slate-700 uppercase">{previewDoc.type}</span> {previewDoc.size && `• Size: ${previewDoc.size}`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {previewDoc.url && (
-                  <a
-                    href={previewDoc.url}
-                    download={previewDoc.name}
-                    className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-slate-100 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
-                    title="Download"
-                  >
-                    <Download className="w-4 h-4" />
-                    <span className="hidden sm:inline">Download</span>
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setPreviewDoc(null)}
-                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
+            {(() => {
+              const currentDocIndex = attachedDocs.findIndex((d) => d.id === previewDoc.id);
+              const hasPrev = attachedDocs.length > 1;
+              const hasNext = attachedDocs.length > 1;
 
-            {/* Modal Content */}
-            <div className="p-4 overflow-y-auto max-h-[70vh] flex flex-col items-center justify-center bg-slate-900/5">
-              {previewDoc.type === 'image' && previewDoc.url ? (
-                <div className="w-full flex flex-col items-center gap-3">
-                  <img
-                    src={previewDoc.url}
-                    alt={previewDoc.name}
-                    className="max-h-[60vh] max-w-full object-contain rounded-lg border border-slate-200 shadow-md bg-white"
-                  />
-                  <p className="text-xs text-slate-500">Pasted / uploaded screenshot preview (100% full quality)</p>
-                </div>
-              ) : (
-                <div className="w-full bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
-                  <div>
-                    <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                      Detected Screen / Form Fields:
-                    </h5>
-                    {previewDoc.detectedFields && previewDoc.detectedFields.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {previewDoc.detectedFields.map((f, idx) => (
-                          <span key={idx} className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200 text-xs font-semibold">
-                            {f}
+              const handlePrev = () => {
+                const prevIdx = (currentDocIndex - 1 + attachedDocs.length) % attachedDocs.length;
+                setPreviewDoc(attachedDocs[prevIdx]);
+              };
+
+              const handleNext = () => {
+                const nextIdx = (currentDocIndex + 1) % attachedDocs.length;
+                setPreviewDoc(attachedDocs[nextIdx]);
+              };
+
+              return (
+                <>
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {previewDoc.type === 'image' && <ImageIcon className="w-5 h-5 text-purple-600 shrink-0" />}
+                      {previewDoc.type === 'excel' && <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />}
+                      {(previewDoc.type === 'word' || previewDoc.type === 'text') && <FileText className="w-5 h-5 text-blue-600 shrink-0" />}
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-bold text-sm text-slate-900 truncate" title={previewDoc.name}>
+                            {previewDoc.name}
+                          </h4>
+                          {attachedDocs.length > 1 && (
+                            <span className="text-[11px] font-semibold text-purple-700 bg-purple-100 px-2 py-0.5 rounded-full shrink-0">
+                              {currentDocIndex + 1} of {attachedDocs.length}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Type: <span className="font-medium text-slate-700 uppercase">{previewDoc.type}</span> {previewDoc.size && `• Size: ${previewDoc.size}`}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {hasPrev && (
+                        <div className="flex items-center gap-1 mr-2 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+                          <button
+                            type="button"
+                            onClick={handlePrev}
+                            title="Previous attachment"
+                            className="p-1 text-slate-600 hover:text-purple-700 hover:bg-white rounded cursor-pointer transition-colors"
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </button>
+                          <span className="text-[11px] font-mono px-1 font-bold text-slate-600">
+                            {currentDocIndex + 1}/{attachedDocs.length}
                           </span>
-                        ))}
+                          <button
+                            type="button"
+                            onClick={handleNext}
+                            title="Next attachment"
+                            className="p-1 text-slate-600 hover:text-purple-700 hover:bg-white rounded cursor-pointer transition-colors"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+
+                      {(previewDoc.url || previewDoc.dataUrl) && (
+                        <a
+                          href={previewDoc.url || previewDoc.dataUrl}
+                          download={previewDoc.name}
+                          className="p-1.5 text-slate-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors border border-transparent hover:border-blue-200"
+                          title="Download attachment"
+                        >
+                          <Download className="w-4 h-4" />
+                          <span className="hidden sm:inline">Download</span>
+                        </a>
+                      )}
+
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleRemoveDoc(previewDoc.id);
+                            if (attachedDocs.length <= 1) {
+                              setPreviewDoc(null);
+                            } else {
+                              const remaining = attachedDocs.filter((d) => d.id !== previewDoc.id);
+                              setPreviewDoc(remaining[0]);
+                            }
+                          }}
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg cursor-pointer transition-colors"
+                          title="Remove this attachment"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={() => setPreviewDoc(null)}
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg cursor-pointer transition-colors"
+                        title="Close preview"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Modal Content */}
+                  <div className="p-4 overflow-y-auto max-h-[65vh] flex flex-col items-center justify-center bg-slate-900/5">
+                    {previewDoc.type === 'image' && (previewDoc.url || previewDoc.dataUrl) ? (
+                      <div className="w-full flex flex-col items-center gap-3">
+                        <img
+                          src={previewDoc.url || previewDoc.dataUrl}
+                          alt={previewDoc.name}
+                          className="max-h-[58vh] max-w-full object-contain rounded-lg border border-slate-200 shadow-md bg-white"
+                        />
+                        <p className="text-xs text-slate-500 font-medium">
+                          Pasted / uploaded screenshot preview (100% full resolution)
+                        </p>
                       </div>
                     ) : (
-                      <p className="text-xs text-slate-400 italic">No structured fields detected in this file.</p>
+                      <div className="w-full bg-white p-5 rounded-xl border border-slate-200 shadow-2xs space-y-4">
+                        <div>
+                          <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                            Detected Screen / Form Fields:
+                          </h5>
+                          {previewDoc.detectedFields && previewDoc.detectedFields.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                              {previewDoc.detectedFields.map((f, idx) => (
+                                <span key={idx} className="px-2 py-0.5 bg-blue-50 text-blue-800 rounded border border-blue-200 text-xs font-semibold">
+                                  {f}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 italic">No structured fields detected in this file.</p>
+                          )}
+                        </div>
+
+                        {previewDoc.extractedContent && (
+                          <div>
+                            <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
+                              Extracted Specification Content:
+                            </h5>
+                            <pre className="p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-800 whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-200">
+                              {previewDoc.extractedContent}
+                            </pre>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 
-                  {previewDoc.extractedContent && (
-                    <div>
-                      <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Extracted Specification Content:
-                      </h5>
-                      <pre className="p-3 bg-slate-50 rounded-lg text-xs font-mono text-slate-800 whitespace-pre-wrap max-h-60 overflow-y-auto border border-slate-200">
-                        {previewDoc.extractedContent}
-                      </pre>
+                  {/* Multi-Screenshot Thumbnail Carousel (Quick switch between multiple attached screenshots) */}
+                  {attachedDocs.length > 1 && (
+                    <div className="p-2.5 bg-slate-100 border-t border-slate-200 flex items-center gap-2 overflow-x-auto">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase shrink-0 pl-1">
+                        All ({attachedDocs.length}):
+                      </span>
+                      {attachedDocs.map((doc, idx) => {
+                        const isCurrent = doc.id === previewDoc.id;
+                        return (
+                          <button
+                            key={doc.id}
+                            type="button"
+                            onClick={() => setPreviewDoc(doc)}
+                            className={`flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-medium shrink-0 cursor-pointer transition-all border ${
+                              isCurrent
+                                ? 'bg-purple-600 text-white border-purple-700 shadow-xs ring-2 ring-purple-300'
+                                : 'bg-white text-slate-700 hover:bg-slate-200 border-slate-300'
+                            }`}
+                          >
+                            {doc.type === 'image' && (doc.url || doc.dataUrl) ? (
+                              <img src={doc.url || doc.dataUrl} alt={doc.name} className="w-5 h-5 rounded object-cover" />
+                            ) : (
+                              <FileText className="w-4 h-4" />
+                            )}
+                            <span className="truncate max-w-[120px]">{doc.name}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
-                </div>
-              )}
-            </div>
 
-            {/* Modal Footer */}
-            <div className="p-3 border-t border-slate-100 bg-white flex justify-end">
-              <button
-                type="button"
-                onClick={() => setPreviewDoc(null)}
-                className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer transition-colors"
-              >
-                Close Preview
-              </button>
-            </div>
+                  {/* Modal Footer */}
+                  <div className="p-3 border-t border-slate-100 bg-white flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      {attachedDocs.length > 1
+                        ? `Viewing attachment ${currentDocIndex + 1} of ${attachedDocs.length}. Use arrow buttons or click thumbnails to switch.`
+                        : 'Screenshot preview loaded.'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDoc(null)}
+                      className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Close Preview
+                    </button>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -886,36 +1081,10 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
                 ref={pasteCaptureRef}
                 rows={2}
                 onPaste={async (e) => {
-                  const files = e.clipboardData?.files;
-                  if (files && files.length > 0) {
-                    for (let i = 0; i < files.length; i++) {
-                      if (files[i].type.startsWith('image/')) {
-                        e.preventDefault();
-                        const parsed = await parseUploadedFile(files[i]);
-                        const updated = [...attachedDocs, parsed];
-                        onUpdateAttachedDocs?.(updated);
-                        setIsPasteModalOpen(false);
-                        setPreviewDoc(parsed);
-                        return;
-                      }
-                    }
-                  }
-                  const items = e.clipboardData?.items;
-                  if (items) {
-                    for (let i = 0; i < items.length; i++) {
-                      if (items[i].type.indexOf('image') !== -1) {
-                        const file = items[i].getAsFile();
-                        if (file) {
-                          e.preventDefault();
-                          const parsed = await parseUploadedFile(file);
-                          const updated = [...attachedDocs, parsed];
-                          onUpdateAttachedDocs?.(updated);
-                          setIsPasteModalOpen(false);
-                          setPreviewDoc(parsed);
-                          return;
-                        }
-                      }
-                    }
+                  e.preventDefault();
+                  const handled = await handleClipboardPasteData(e.clipboardData);
+                  if (handled) {
+                    setIsPasteModalOpen(false);
                   }
                 }}
                 placeholder="Click here and press Ctrl+V to paste your screenshot..."

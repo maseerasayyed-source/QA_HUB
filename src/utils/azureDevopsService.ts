@@ -24,15 +24,30 @@ export interface FetchWorkItemResult {
   id?: string;
   title?: string;
   description?: string;
+  solution?: string;
   areaPath?: string;
+  iterationPath?: string;
   assignee?: string;
   assignedTo?: string;
+  qaAssignee?: string;
   developer?: string;
+  ba?: string;
+  assignedBa?: string;
+  clientName?: string;
+  moduleName?: string;
+  suggestedModuleId?: string;
   priority?: 'Critical' | 'High' | 'Medium' | 'Low';
+  deliveryPriority?: string;
+  customPriority?: string;
   state?: string;
   workType?: string;
   testingScenarios?: string;
   acceptanceCriteria?: string;
+  scopingEffort?: any;
+  designEffort?: any;
+  devEffortPlanned?: any;
+  testingEffortPlanned?: any;
+  projectMilestone?: any;
   requiresPat?: boolean;
   rawFields?: Record<string, any>;
   errorDetail?: string;
@@ -164,10 +179,10 @@ export async function fetchWorkItemFromAzure(params: {
   try {
     const isInvalidProject = !cleanProject || cleanProject === 'QA HUB';
     const url = isInvalidProject
-      ? `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/_apis/wit/workitems/${cleanId}?api-version=7.0`
+      ? `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/_apis/wit/workitems/${cleanId}?$expand=all&api-version=7.0`
       : `https://dev.azure.com/${encodeURIComponent(cleanOrg)}/${encodeURIComponent(
           cleanProject
-        )}/_apis/wit/workitems/${cleanId}?api-version=7.0&$expand=all`;
+        )}/_apis/wit/workitems/${cleanId}?$expand=all&api-version=7.0`;
 
     const headers: Record<string, string> = {
       Accept: 'application/json',
@@ -210,30 +225,195 @@ export async function fetchWorkItemFromAzure(params: {
     const data = await response.json();
     const fields = data?.fields || {};
 
+    const extractPerson = (val: any): string => {
+      if (!val) return '';
+      if (typeof val === 'string') {
+        const cleaned = val.replace(/<[^>]+>/g, '').trim();
+        const match = cleaned.match(/^([^<]+)/);
+        return (match ? match[1] : cleaned).trim();
+      }
+      if (typeof val === 'object') {
+        if (val.displayName) return String(val.displayName).trim();
+        if (val.name) return String(val.name).trim();
+        if (val.uniqueName) return String(val.uniqueName).replace(/<[^>]+>/g, '').trim();
+      }
+      return String(val).trim();
+    };
+
+    const findFld = (patterns: (string | RegExp)[]): any => {
+      const keys = Object.keys(fields);
+      for (const pat of patterns) {
+        if (typeof pat === 'string') {
+          const lower = pat.toLowerCase();
+          const matchKey = keys.find((k) => k.toLowerCase() === lower);
+          if (matchKey && fields[matchKey] !== undefined && fields[matchKey] !== null && fields[matchKey] !== '') {
+            return fields[matchKey];
+          }
+        } else {
+          const matchKey = keys.find((k) => pat.test(k));
+          if (matchKey && fields[matchKey] !== undefined && fields[matchKey] !== null && fields[matchKey] !== '') {
+            return fields[matchKey];
+          }
+        }
+      }
+      return undefined;
+    };
+
     const title = fields['System.Title'] || `Ticket #${cleanId}`;
     const rawDesc = fields['System.Description'] || fields['System.History'] || '';
     const description = rawDesc.replace(/<[^>]*>?/gm, '').trim();
+    const solutionRaw = findFld(['Custom.Solution', 'Microsoft.VSTS.Common.Solution', /solution/i]) || '';
+    const solution = String(solutionRaw).replace(/<[^>]*>?/gm, '').trim();
 
     const areaPath = fields['System.AreaPath'] || fields['System.NodeName'] || '';
-    const assigneeObj = fields['System.AssignedTo'];
-    const assignee = typeof assigneeObj === 'object' ? assigneeObj?.displayName : String(assigneeObj || '');
+    const iterationPath = fields['System.IterationPath'] || '';
 
+    // QA Assignee
+    const rawQaField = findFld([
+      'Custom.AssignedQA',
+      'Custom.QA',
+      'Custom.QAAssignee',
+      'Custom.AssignedTester',
+      'Custom.Tester',
+      /(assigned.*qa|qa.*assignee|assigned.*tester|\.qa$)/i,
+    ]);
+    const assignedQaName = extractPerson(rawQaField);
+
+    // BA
+    const rawBaField = findFld([
+      'Custom.AssignedBA',
+      'Custom.BA',
+      'Custom.BusinessAnalyst',
+      /(assigned.*ba|business.*analyst|\.ba$)/i,
+    ]);
+    const assignedBaName = extractPerson(rawBaField);
+
+    // Developer
+    const rawDevField = findFld([
+      'Custom.AssignedDeveloper',
+      'Custom.Developer',
+      'Custom.AssignedDev',
+      'Custom.Dev',
+      /(assigned.*developer|assigned.*dev|\.developer$|\.dev$)/i,
+    ]);
+    let assignedDevName = extractPerson(rawDevField);
+
+    const systemAssignedTo = extractPerson(fields['System.AssignedTo']);
+    const systemCreatedBy = extractPerson(fields['System.CreatedBy']);
+
+    if (!assignedDevName) {
+      if (systemAssignedTo && systemAssignedTo !== assignedQaName && systemAssignedTo !== assignedBaName) {
+        assignedDevName = systemAssignedTo;
+      }
+    }
+
+    const finalQa = assignedQaName || (systemAssignedTo !== assignedDevName && systemAssignedTo !== assignedBaName ? systemAssignedTo : 'Maseera Sayyed');
+    let finalDev = assignedDevName;
+    if (!finalDev) {
+      if (systemAssignedTo && systemAssignedTo !== finalQa && systemAssignedTo !== assignedBaName) {
+        finalDev = systemAssignedTo;
+      } else if (systemCreatedBy && systemCreatedBy !== finalQa && systemCreatedBy !== assignedBaName) {
+        finalDev = systemCreatedBy;
+      }
+    }
+
+    // Priority
+    const rawDeliveryPriority = findFld(['Custom.DeliveryPriority', /delivery.*priority/i]);
+    const rawCustomPriority = findFld(['Custom.CustomPriority', /custom.*priority/i]);
     const rawPriority = fields['Microsoft.VSTS.Common.Priority'];
+
+    const delivStr = String(rawDeliveryPriority || '').toLowerCase().trim();
+    const custStr = String(rawCustomPriority || '').toLowerCase().trim();
+    const vstsNum = Number(rawPriority);
+
     let priority: 'Critical' | 'High' | 'Medium' | 'Low' = 'High';
-    if (rawPriority === 1 || String(rawPriority) === '1' || String(rawPriority).toLowerCase().includes('critical')) {
+    if (delivStr === 'immediate' || delivStr.includes('critical') || custStr === 'p1' || vstsNum === 1) {
       priority = 'Critical';
-    } else if (rawPriority === 2 || String(rawPriority) === '2') {
+    } else if (custStr === 'p2' || delivStr === 'high' || vstsNum === 2) {
       priority = 'High';
-    } else if (rawPriority === 3 || String(rawPriority) === '3') {
+    } else if (custStr === 'p3' || delivStr === 'medium' || delivStr === 'normal' || vstsNum === 3) {
       priority = 'Medium';
-    } else if (rawPriority === 4 || String(rawPriority) === '4') {
+    } else if (custStr === 'p4' || delivStr === 'low' || vstsNum === 4) {
       priority = 'Low';
     }
 
-    const createdByObj = fields['System.CreatedBy'];
-    const developer =
-      fields['Custom.Developer'] ||
-      (typeof createdByObj === 'object' ? createdByObj?.displayName : String(createdByObj || ''));
+    // Client Name
+    let clientName = '';
+    const rawClient = findFld(['Custom.ClientName', 'Custom.Client', /client/i]);
+    if (rawClient) {
+      clientName = String(rawClient).trim();
+    }
+    if (!clientName && areaPath) {
+      const parts = areaPath.split(/[\\/]/).map((p: string) => p.trim()).filter(Boolean);
+      if (parts.length >= 3) {
+        clientName = parts[parts.length - 1];
+      } else if (parts.length === 2 && parts[0] === 'InsightCorp') {
+        clientName = parts[1];
+      }
+    }
+    if (!clientName) {
+      const caglMatch = (description + ' ' + title).match(/\b(CAGL|CreditAccess|Treasury Master|Tata Capital|Bajaj Finance)\b/i);
+      if (caglMatch) {
+        clientName = caglMatch[1].toUpperCase();
+      }
+    }
+
+    // Module matching
+    const combinedSearch = `${title} ${description} ${areaPath}`.toLowerCase();
+    let suggestedModuleId = 'mod-1';
+    let suggestedModuleName = 'Term Loan';
+
+    if (
+      combinedSearch.includes('mutual fund') ||
+      combinedSearch.includes('mutual funds') ||
+      combinedSearch.includes('nav') ||
+      combinedSearch.includes('unit split') ||
+      combinedSearch.includes('uti liquid') ||
+      /\bmf\b/.test(combinedSearch)
+    ) {
+      suggestedModuleId = 'mod-12';
+      suggestedModuleName = 'Mutual Funds (MF)';
+    } else if (combinedSearch.includes('term loan') || combinedSearch.includes('amortization') || /\btl\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-1';
+      suggestedModuleName = 'Term Loan';
+    } else if (combinedSearch.includes('fixed deposit') || combinedSearch.includes('term deposit') || /\bfd\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-11';
+      suggestedModuleName = 'Fixed Deposit (FD)';
+    } else if (combinedSearch.includes('cash credit') || /\bcc\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-5';
+      suggestedModuleName = 'Cash Credit (CC)';
+    } else if (combinedSearch.includes('overdraft') || /\bod\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-6';
+      suggestedModuleName = 'Overdraft (OD)';
+    } else if (combinedSearch.includes('short term loan') || /\bstl\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-2';
+      suggestedModuleName = 'Short Term Loan (STL)';
+    } else if (combinedSearch.includes('working capital') || /\bwcdl\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-3';
+      suggestedModuleName = 'Working Capital Demand Loan';
+    } else if (combinedSearch.includes('letter of credit') || /\bloc\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-4';
+      suggestedModuleName = 'Letter of Credit (LOC)';
+    } else if (combinedSearch.includes('debenture') || combinedSearch.includes('ncd')) {
+      suggestedModuleId = 'mod-8';
+      suggestedModuleName = 'Non-Convertible Debentures';
+    } else if (combinedSearch.includes('gsec') || combinedSearch.includes('government securit')) {
+      suggestedModuleId = 'mod-9';
+      suggestedModuleName = 'Government Securities (GSec)';
+    } else if (combinedSearch.includes('commercial paper') || /\bcp\b/.test(combinedSearch)) {
+      suggestedModuleId = 'mod-10';
+      suggestedModuleName = 'Commercial Paper (CP)';
+    } else if (combinedSearch.includes('investment') || combinedSearch.includes('portfolio')) {
+      suggestedModuleId = 'mod-7';
+      suggestedModuleName = 'Investments';
+    } else if (combinedSearch.includes('treasury') || combinedSearch.includes('alm')) {
+      suggestedModuleId = 'mod-13';
+      suggestedModuleName = 'Treasury & ALM';
+    } else if (combinedSearch.includes('accounting') || combinedSearch.includes('ledger') || combinedSearch.includes('voucher')) {
+      suggestedModuleId = 'mod-16';
+      suggestedModuleName = 'Accounting & Ledger';
+    }
+
     const state = fields['System.State'] || 'Ready for QA';
     const rawScenarios =
       fields['Microsoft.VSTS.TCM.ReproSteps'] ||
@@ -248,14 +428,23 @@ export async function fetchWorkItemFromAzure(params: {
       id: cleanId,
       title,
       description,
+      solution,
       areaPath,
-      assignee,
-      assignedTo: assignee,
-      developer,
+      iterationPath,
+      clientName: clientName || 'CAGL',
+      moduleName: suggestedModuleName,
+      suggestedModuleId,
+      assignee: finalQa,
+      assignedTo: finalQa,
+      qaAssignee: finalQa,
+      developer: finalDev || '',
+      ba: assignedBaName || '',
+      assignedBa: assignedBaName || '',
       priority,
+      deliveryPriority: rawDeliveryPriority ? String(rawDeliveryPriority) : undefined,
+      customPriority: rawCustomPriority ? String(rawCustomPriority) : undefined,
       state,
       testingScenarios,
-      acceptanceCriteria: testingScenarios,
       rawFields: fields,
       workItem: {
         id: cleanId,
@@ -263,7 +452,7 @@ export async function fetchWorkItemFromAzure(params: {
         description,
         acceptanceCriteria: testingScenarios,
         priority,
-        assignedTo: assignee,
+        assignedTo: finalQa,
         state,
       },
     };

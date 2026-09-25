@@ -47,7 +47,11 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [newModuleId, setNewModuleId] = useState(modules[0]?.id || 'mod-1');
   const [customModuleName, setCustomModuleName] = useState('');
   const [newDeveloper, setNewDeveloper] = useState('');
-  const [newQaAssignee, setNewQaAssignee] = useState(currentUser?.name || '');
+  const [newQaAssignee, setNewQaAssignee] = useState(currentUser?.name || 'Maseera Sayyed');
+  const [newBaName, setNewBaName] = useState('');
+  const [newClientName, setNewClientName] = useState('CAGL');
+  const [newDescription, setNewDescription] = useState('');
+  const [newTestingScenarios, setNewTestingScenarios] = useState('');
   const [newPriority, setNewPriority] = useState<'Critical' | 'High' | 'Medium' | 'Low'>('High');
   const [isAiGeneratingTicket, setIsAiGeneratingTicket] = useState(false);
 
@@ -111,8 +115,10 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
         if (matched.priority) setNewPriority(matched.priority);
         if (matched.developer) setNewDeveloper(matched.developer);
         if (matched.qaAssignee) setNewQaAssignee(matched.qaAssignee);
+        if (matched.moduleId) setNewModuleId(matched.moduleId);
+        if (matched.clientName) setNewClientName(matched.clientName);
         setFetchedHeaderNotice(
-          `✅ Headers auto-fetched from existing Ticket #${matched.ticketNumber} (${matched.moduleName || 'General'}).`
+          `✅ Headers auto-fetched from existing Ticket #${matched.ticketNumber} (${matched.moduleName || 'General'}). Click "Fetch from Azure" to refresh live from Azure DevOps.`
         );
         return;
       }
@@ -133,6 +139,10 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     if (saved.personalAccessToken) setAdoPat(saved.personalAccessToken);
     setNewDeveloper('');
     setNewQaAssignee(currentUser?.name || 'Maseera Sayyed');
+    setNewBaName('');
+    setNewClientName('CAGL');
+    setNewDescription('');
+    setNewTestingScenarios('');
     setAdoFetchMessage(null);
     setFetchedHeaderNotice(null);
     setIsNewTicketOpen(true);
@@ -148,7 +158,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     if (adoPat.trim() || adoOrg.trim() || adoProject.trim()) {
       saveAdoConfig({
         organization: adoOrg.trim() || 'quantumphinance',
-        project: adoProject.trim() || 'Beacon',
+        project: adoProject.trim() || 'InsightCorp',
         personalAccessToken: adoPat.trim(),
       });
     }
@@ -167,23 +177,43 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     if (res.success) {
       if (res.title) setNewFeatureName(res.title);
       if (res.priority) setNewPriority(res.priority);
-      if (res.assignee) setNewQaAssignee(res.assignee);
+      if (res.qaAssignee || res.assignee) setNewQaAssignee(res.qaAssignee || res.assignee);
       if (res.developer) setNewDeveloper(res.developer);
+      if (res.assignedBa || res.ba) setNewBaName(res.assignedBa || res.ba);
+      if (res.clientName) setNewClientName(res.clientName);
+      if (res.description) setNewDescription(res.description);
+      if (res.testingScenarios) setNewTestingScenarios(res.testingScenarios);
 
-      // Attempt matching module from Area Path or Title
-      if (res.areaPath || res.title) {
-        const searchText = `${res.areaPath || ''} ${res.title || ''}`.toLowerCase();
-        const matchedModule = modules.find(
-          (m) => searchText.includes(m.name.toLowerCase()) || searchText.includes(m.code.toLowerCase())
-        );
-        if (matchedModule) {
-          setNewModuleId(matchedModule.id);
+      // Match module from response or searchText
+      if (res.suggestedModuleId) {
+        setNewModuleId(res.suggestedModuleId);
+      } else {
+        const fullSearch = `${res.title || ''} ${res.areaPath || ''} ${res.description || ''}`.toLowerCase();
+        if (
+          fullSearch.includes('mutual fund') ||
+          fullSearch.includes('mutual funds') ||
+          fullSearch.includes('nav') ||
+          fullSearch.includes('unit split') ||
+          fullSearch.includes('uti liquid') ||
+          /\bmf\b/.test(fullSearch)
+        ) {
+          const mf = modules.find((m) => m.code === 'MF' || m.name.toLowerCase().includes('mutual'));
+          if (mf) setNewModuleId(mf.id);
+        } else {
+          for (const m of modules) {
+            const cleanName = m.name.replace(/\([^)]*\)/g, '').trim().toLowerCase();
+            if (cleanName.length > 3 && fullSearch.includes(cleanName)) {
+              setNewModuleId(m.id);
+              break;
+            }
+          }
         }
       }
 
+      setFetchedHeaderNotice(null);
       setAdoFetchMessage({
         type: 'success',
-        text: `Fetched directly from Azure DevOps: "${res.title}"`,
+        text: `Fetched directly from Azure DevOps: Dev: "${res.developer}", QA: "${res.qaAssignee || res.assignee}", Priority: "${res.priority}"${res.clientName ? `, Client: "${res.clientName}"` : ''}`,
       });
     } else {
       setAdoFetchMessage({
@@ -319,7 +349,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       createdBy: currentUser?.name || '',
       creatorEmail: currentUser?.email || '',
       signOffBy: '',
-      clientName: matchedExisting?.clientName || 'Treasury Master',
+      clientName: newClientName.trim() || matchedExisting?.clientName || 'CAGL',
       shaCommit: matchedExisting?.shaCommit || `SHA-1: ${Math.random().toString(36).substring(2, 10)}`,
       priority: newPriority,
       status: 'Ready for QA',
@@ -329,10 +359,10 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       blockedCount: 0,
       observationsCount: 0,
       receivedDate: new Date().toISOString().split('T')[0],
-      description: matchedExisting?.description || `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${finalModuleName} module.`,
-      scenarioDetails: matchedExisting?.scenarioDetails || `Scenario 1: Verify core functionality of ${newFeatureName.trim()}.\nScenario 2: Boundary validation and invalid state checks.`,
+      description: newDescription.trim() || matchedExisting?.description || `Feature ticket #${newTicketId.trim()} created for ${newFeatureName.trim()} in ${finalModuleName} module.`,
+      scenarioDetails: newTestingScenarios.trim() || matchedExisting?.scenarioDetails || `Scenario 1: Verify core functionality of ${newFeatureName.trim()}.\nScenario 2: Boundary validation and invalid state checks.`,
       impactPoints: matchedExisting?.impactPoints || [`${finalModuleName} Core Engine`, 'Financial Ledger & Reports'],
-      testingScenarios: matchedExisting?.testingScenarios || `Verify end-to-end user workflows for ${newFeatureName.trim()}.\nVerify input edge-cases and error validations.`,
+      testingScenarios: newTestingScenarios.trim() || matchedExisting?.testingScenarios || `Verify end-to-end user workflows for ${newFeatureName.trim()}.\nVerify input edge-cases and error validations.`,
     };
 
     onAddTicket?.(ticketToAdd);
@@ -341,6 +371,10 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
     setNewTicketId('');
     setNewFeatureName('');
     setCustomModuleName('');
+    setNewBaName('');
+    setNewClientName('CAGL');
+    setNewDescription('');
+    setNewTestingScenarios('');
   };
 
   return (
@@ -912,6 +946,31 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
                     type="text"
                     value={newQaAssignee}
                     onChange={(e) => setNewQaAssignee(e.target.value)}
+                    placeholder="e.g. Maseera Sayyed"
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Assigned BA</label>
+                  <input
+                    type="text"
+                    value={newBaName}
+                    onChange={(e) => setNewBaName(e.target.value)}
+                    placeholder="e.g. Bhavik Bhanushali"
+                    className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-700 font-bold mb-1">Client Name</label>
+                  <input
+                    type="text"
+                    value={newClientName}
+                    onChange={(e) => setNewClientName(e.target.value)}
+                    placeholder="e.g. CAGL"
                     className="w-full px-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                   />
                 </div>

@@ -12,41 +12,64 @@ export interface CorporateExcelParseResult {
  * Compresses an image data URL to a max dimension and quality
  * to guarantee it fits in browser localStorage without QuotaExceededError.
  */
-export function compressImage(dataUrl: string, maxWidth = 1024, maxHeight = 1024, quality = 0.72): Promise<string> {
+export function compressImage(dataUrl: string, maxWidth = 1200, maxHeight = 1200, quality = 0.75): Promise<string> {
   return new Promise((resolve) => {
-    if (typeof window === 'undefined' || !dataUrl.startsWith('data:image')) {
-      resolve(dataUrl);
+    if (typeof window === 'undefined' || !dataUrl || !dataUrl.startsWith('data:image')) {
+      resolve(dataUrl || '');
       return;
     }
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      let width = img.width;
-      let height = img.height;
 
-      if (width > maxWidth || height > maxHeight) {
-        if (width > height) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
-        } else {
-          width = Math.round((width * maxHeight) / height);
-          height = maxHeight;
+    // Safety timeout: if image loading hangs for more than 400ms, immediately return raw dataUrl
+    const timeoutTimer = setTimeout(() => {
+      resolve(dataUrl);
+    }, 450);
+
+    try {
+      const img = new Image();
+      // NOTE: DO NOT set crossOrigin on data: URIs! In sandboxed iframes it taints the canvas and throws SecurityError
+      img.onload = () => {
+        clearTimeout(timeoutTimer);
+        try {
+          let width = img.width || 1;
+          let height = img.height || 1;
+
+          if (width > maxWidth || height > maxHeight) {
+            if (width > height) {
+              height = Math.round((height * maxWidth) / width);
+              width = maxWidth;
+            } else {
+              width = Math.round((width * maxHeight) / height);
+              height = maxHeight;
+            }
+          }
+
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            resolve(dataUrl);
+            return;
+          }
+          ctx.drawImage(img, 0, 0, width, height);
+          const result = canvas.toDataURL('image/jpeg', quality);
+          resolve(result || dataUrl);
+        } catch (err) {
+          console.warn('Canvas toDataURL failed, using original dataUrl:', err);
+          resolve(dataUrl);
         }
-      }
+      };
 
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
+      img.onerror = () => {
+        clearTimeout(timeoutTimer);
         resolve(dataUrl);
-        return;
-      }
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', quality));
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
+      };
+
+      img.src = dataUrl;
+    } catch {
+      clearTimeout(timeoutTimer);
+      resolve(dataUrl);
+    }
   });
 }
 
@@ -54,29 +77,52 @@ export function compressImage(dataUrl: string, maxWidth = 1024, maxHeight = 1024
  * Extract fields and text from an uploaded file (Excel, Word, Image, Text)
  */
 export async function parseUploadedFile(file: File): Promise<AttachedDocOrImage> {
-  const fileExt = file.name.split('.').pop()?.toLowerCase() || '';
-  const sizeStr = `${(file.size / 1024).toFixed(1)} KB`;
+  const fileName = file.name || `screenshot_${Date.now()}.png`;
+  const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+  const sizeStr = `${Math.max(1, Math.round(file.size / 1024))} KB`;
 
   // 1. Image file
-  if (file.type.startsWith('image/')) {
+  if (file.type.startsWith('image/') || /\.(png|jpe?g|webp|gif|bmp)$/i.test(fileName)) {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = async (e) => {
-        const rawUrl = e.target?.result as string;
-        const compressedUrl = await compressImage(rawUrl);
+        const rawUrl = (e.target?.result as string) || '';
+        let finalUrl = rawUrl;
+        try {
+          finalUrl = await compressImage(rawUrl);
+        } catch {
+          finalUrl = rawUrl;
+        }
+
         // Detect likely financial screen fields from file name or standard financial domain
-        const defaultFields = detectFieldsFromFileName(file.name);
+        const defaultFields = detectFieldsFromFileName(fileName);
         resolve({
-          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-          name: file.name,
+          id: `file-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          name: fileName,
           type: 'image',
-          url: compressedUrl,
+          url: finalUrl,
+          dataUrl: finalUrl,
           size: sizeStr,
           uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           detectedFields: defaultFields,
-          extractedContent: `Screenshot attached: ${file.name}. Contains UI fields for screen validation.`,
+          extractedContent: `UI Screenshot attached: ${fileName}. Contains user interface fields and controls for verification.`,
         });
       };
+
+      reader.onerror = () => {
+        resolve({
+          id: `file-${Date.now()}`,
+          name: fileName,
+          type: 'image',
+          url: '',
+          dataUrl: '',
+          size: sizeStr,
+          uploadedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          detectedFields: [],
+          extractedContent: `Screenshot attached: ${fileName}`,
+        });
+      };
+
       reader.readAsDataURL(file);
     });
   }

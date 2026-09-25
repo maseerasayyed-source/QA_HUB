@@ -206,8 +206,14 @@ export const RowAttachmentsCell: React.FC<RowAttachmentsCellProps> = ({
         onChange={handleFileUpload}
       />
 
-      {/* Attachments List with Visible Thumbnails */}
+      {/* Attachments List with Visible Thumbnails & Clear Count */}
       <div className="flex flex-wrap items-center gap-1.5 min-h-[36px]">
+        {effectiveAttachments.length > 0 && (
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-blue-600 text-white text-[10px] font-bold rounded-md shadow-2xs">
+            <ImageIcon className="w-3 h-3" />
+            <span>{effectiveAttachments.length} {effectiveAttachments.length === 1 ? 'file' : 'files'}</span>
+          </span>
+        )}
         {effectiveAttachments.map((att) => {
           const isImg = Boolean(att.url && att.url.startsWith('data:image'));
           return (

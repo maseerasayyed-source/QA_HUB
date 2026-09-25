@@ -83,6 +83,7 @@ export interface GenerateMultiScenariosResult<T> {
 
 /**
  * 1. Generate Developer Testing Expected Result & details from a single testing point line
+ * Interprets Hindi, Hinglish, informal shorthand, and banking terminology into professional testing statements.
  */
 export function generateDevTestingFromPoint(
   testingPoint: string,
@@ -97,43 +98,105 @@ export function generateDevTestingFromPoint(
       expectedResult: '',
       scenario: '',
       testData: '',
+      actualResult: '',
+      status: 'Passed',
     };
   }
 
   const lower = norm.toLowerCase();
-  let expectedResult = '';
-  let testData = '';
-  let scenario = norm;
+  const cleanDealId = dealId || `DEAL-${ticketNo || '8841'}`;
 
-  if (lower.includes('rate') || lower.includes('index')) {
-    expectedResult = 'Effective Rate is dynamically recalculated using the new Index Rate and updated on deal schedule without rounding discrepancies.';
-    testData = 'Index Rate: 8.5%, Spread: 1.5%, Effective Rate: 10.0%';
-  } else if (lower.includes('gstin') || lower.includes('fee') || lower.includes('tax')) {
-    expectedResult = 'System restricts invalid GSTIN format during upload and displays clear validation error toast.';
-    testData = 'Invalid GSTIN: 27AAAAA0000A1Z5, Fee Code: FEE_001';
-  } else if (lower.includes('disbursement') || lower.includes('loan')) {
-    expectedResult = 'Disbursement entry posts accurately to ledger; repayment schedule updates automatically.';
-    testData = 'Principal Amount: 50,00,000, Disbursement Date: T-0';
-  } else if (lower.includes('penalty') || lower.includes('overdue')) {
-    expectedResult = 'Penalty interest is accrued daily after grace period expiry and reflected in cashflow schedule.';
-    testData = 'Grace Period: 5 Days, Penalty Rate: 2.0% p.a.';
-  } else if (lower.includes('export') || lower.includes('excel')) {
-    expectedResult = 'Exported Excel file preserves column headers, numeric precision, and cell formatting.';
-    testData = 'Format: .xlsx, Row Count: 500+ records';
+  let professionalPoint = norm;
+  let scenario = `Scenario: Verify ${norm.replace(/^verify\s+(that\s+)?/i, '')}`;
+  let testCase = `Execute developer local verification for: ${norm}`;
+  let expectedResult = '';
+  let testData = `Deal ID: ${cleanDealId}, Ticket: #${ticketNo}`;
+  let actualResult = `Verified successfully in local build: functioning as per specification (Pass).`;
+
+  // Pattern matching for Hindi/Hinglish & financial banking terms
+  if (lower.includes('rate') || lower.includes('index') || lower.includes('benchmark') || lower.includes('byaj')) {
+    professionalPoint = 'Verify automatic effective rate recalculation upon benchmark index revision';
+    scenario = 'Benchmark Rate Reset & Cashflow Recalculation';
+    testCase = 'Apply revised benchmark rate (+50 bps); trigger recalculation batch for deal schedule.';
+    expectedResult = 'Effective Rate updates dynamically (Base Rate + Spread); all future installment cashflows re-computed without rounding variance.';
+    testData = 'Base Index: 6.75%, Spread: +1.25%, Effective Rate: 8.00%, Tenor: 36 Months';
+    actualResult = 'Verified successfully in local build: Effective rate recalculated accurately and schedule updated (Pass).';
+  } else if (lower.includes('penalty') || lower.includes('overdue') || lower.includes('dand') || lower.includes('late')) {
+    professionalPoint = 'Verify overdue penalty interest calculation and grace period enforcement';
+    scenario = 'Overdue Penalty Accrual & Grace Period Validation';
+    testCase = 'Simulate installment overdue past 5-day grace period; run daily penalty interest accrual.';
+    expectedResult = 'Penalty interest calculates accurately strictly on overdue principal from day 6; balances reflect cleanly on deal cashflow.';
+    testData = 'Grace Period: 5 Days, Penalty Rate: 2.0% p.a., Overdue Principal: 1,50,000';
+    actualResult = 'Verified successfully in local build: Penalty interest computed accurately after grace period expiry (Pass).';
+  } else if (lower.includes('repayment') || lower.includes('schedule') || lower.includes('emi') || lower.includes('kist')) {
+    professionalPoint = 'Verify repayment schedule installment breakdown and balance reconciliation';
+    scenario = 'Repayment Matrix & Principal/Interest Split';
+    testCase = 'Generate repayment schedule matrix; verify total principal allocated matches deal sanction amount.';
+    expectedResult = 'Amortization schedule accurately splits principal and interest per period; closing principal balance zeroes out at maturity.';
+    testData = `Deal ID: ${cleanDealId}, Sanction Amount: 25,00,000, Installments: 24`;
+    actualResult = 'Verified successfully in local build: Amortization schedule balances reconcile with zero discrepancy (Pass).';
+  } else if (lower.includes('voucher') || lower.includes('gl') || lower.includes('accounting') || lower.includes('ledger') || lower.includes('debit') || lower.includes('credit')) {
+    professionalPoint = 'Validate GL accounting voucher generation and balanced debit/credit postings';
+    scenario = 'GL Ledger Entries & Balanced Voucher Verification';
+    testCase = 'Commit transaction for deal; inspect generated voucher journal entries.';
+    expectedResult = 'System generates balanced double-entry accounting vouchers with exact debit and credit totals posted to correct chart of accounts.';
+    testData = 'GL Accounts: Loan Asset Account (Debit), Bank Disbursement (Credit), Voucher: VCH-2026';
+    actualResult = 'Verified successfully in local build: Balanced debit/credit vouchers generated without discrepancy (Pass).';
+  } else if (lower.includes('disburse') || lower.includes('loan') || lower.includes('tranche')) {
+    professionalPoint = 'Verify tranche disbursement processing and sanctioned limit validation';
+    scenario = 'Loan Tranche Disbursement & Sanction Ceiling Check';
+    testCase = 'Submit disbursement request against active sanction facility; verify ledger posting.';
+    expectedResult = 'Tranche disburses within sanctioned limit; ledger entries commit immediately and draw-down balance is updated.';
+    testData = 'Sanction Limit: 1,00,00,000, Tranche Amount: 30,00,000, Value Date: T+0';
+    actualResult = 'Verified successfully in local build: Tranche disbursed and sanction utilization updated (Pass).';
+  } else if (lower.includes('gst') || lower.includes('tax') || lower.includes('fee')) {
+    professionalPoint = 'Verify GSTIN tax structure validation and mandatory fee restriction';
+    scenario = 'Tax Structure & Statutory Compliance Check';
+    testCase = 'Submit fee schedule with valid and invalid GSTIN formats; verify system response.';
+    expectedResult = 'System restricts invalid GSTIN formats with clear error toast; valid 15-digit GSTIN is accepted and statutory taxes computed.';
+    testData = 'Invalid: 27AAAAA0000A1Z5 | Valid: 27AAACG1234A1Z5, CGST: 9%, SGST: 9%';
+    actualResult = 'Verified successfully in local build: GSTIN format and tax split validated correctly (Pass).';
+  } else if (lower.includes('export') || lower.includes('excel') || lower.includes('report') || lower.includes('download')) {
+    professionalPoint = 'Verify formatted Excel export (.xlsx) preserves all column headers and numeric precision';
+    scenario = 'Data Export & Precision Integrity';
+    testCase = 'Click Export to Excel button; inspect generated .xlsx file data and cell types.';
+    expectedResult = 'Exported spreadsheet accurately contains all deal fields, formatted currency numbers, and timestamps with zero truncations.';
+    testData = 'Format: .xlsx, Records: 100+, Deal Reference Included';
+    actualResult = 'Verified successfully in local build: Excel export generated cleanly with complete column fidelity (Pass).';
+  } else if (lower.includes('prepay') || lower.includes('foreclose') || lower.includes('pre-payment')) {
+    professionalPoint = 'Verify prepayment penalty calculation and principal reduction schedule update';
+    scenario = 'Prepayment / Early Settlement Validation';
+    testCase = 'Apply partial prepayment of 5,00,000; verify revised tenure and prepayment fee charges.';
+    expectedResult = 'Prepayment charges calculate strictly as per terms; remaining principal and EMI schedules adjust without manual intervention.';
+    testData = 'Prepayment Amount: 5,00,000, Prepayment Charge: 1.5%, Deal: ' + cleanDealId;
+    actualResult = 'Verified successfully in local build: Prepayment processed and schedule adjusted cleanly (Pass).';
+  } else if (lower.includes('mandatory') || lower.includes('empty') || lower.includes('null') || lower.includes('blank') || lower.includes('block')) {
+    professionalPoint = 'Verify mandatory field constraints and validation error alerts on empty inputs';
+    scenario = 'Mandatory Field Restriction & Error Toast Handling';
+    testCase = 'Attempt form submission leaving mandatory inputs blank; verify error handling.';
+    expectedResult = 'System displays clear validation warning, highlights required fields in red, and prevents database transaction commit.';
+    testData = 'Omitted Fields: [Deal ID, Value Date, Principal Amount]';
+    actualResult = 'Verified successfully in local build: Submission blocked and validation alert triggered as expected (Pass).';
   } else {
-    expectedResult = `Verified successfully: ${norm.replace(/^verify\s+that\s+/i, '')} completes as expected without errors.`;
-    testData = `Ticket: #${ticketNo}, Deal: ${dealId}`;
+    // General high quality professional banking statement
+    const statement = norm.replace(/^verify\s+(that\s+)?/i, '').replace(/hona chahiye/i, '').replace(/check karo/i, '').trim();
+    professionalPoint = `Verify that ${statement}`;
+    scenario = `Functional Verification: ${statement.slice(0, 50)}`;
+    testCase = `Execute transaction flow for "${statement}"; inspect form controls and database state.`;
+    expectedResult = `System executes ${statement} smoothly, adhering strictly to business rules and maintaining audit logs.`;
+    testData = `Deal ID: ${cleanDealId}, Mode: Active verification`;
+    actualResult = `Verified successfully in local build: ${statement} verified and functioning as expected (Pass).`;
   }
 
   return {
-    dealId: dealId || 'DEAL-8841',
+    dealId: cleanDealId,
     developerName: devName || 'Developer',
-    testingPoint: norm,
+    testingPoint: professionalPoint,
     scenario: scenario,
-    testDescription: `Developer pre-QA verification: ${norm}`,
+    testDescription: testCase,
     testData: testData,
     expectedResult: expectedResult,
-    actualResult: 'Verified & passed in dev local workspace',
+    actualResult: actualResult,
     status: 'Passed',
     submissionState: 'Draft',
     isAiGenerated: true,
@@ -436,39 +499,84 @@ export function generateTestCaseFieldsWithAi(
   status: string;
 } {
   const norm = (promptOrScenario || ticket?.featureName || 'Feature Verification').trim();
-  const clean = norm.replace(/^[-*•\d.]+\s*/, '').replace(/\.$/, '').trim();
-  const isNeg = /error|alert|invalid|blank|reject|prevent|cannot|should not|not allow/i.test(clean);
-  const isUndo = /undo|revert|rollback|split/i.test(clean);
+  // Thoroughly clean leading enumerations like "1) ", "1. ", "(a) ", "- ", "• ", ") "
+  let clean = norm
+    .replace(/^(\d+[\.\)]|\([0-9a-zA-Z]+\)|[-*•#]+)\s*/, '')
+    .replace(/^[\)\:\.\-]+\s*/, '')
+    .replace(/\.+$/, '')
+    .trim();
 
-  // Formulate concise ChatGPT-style scenario
-  let scenario = clean;
-  if (!/^verify/i.test(scenario) && !/^check/i.test(scenario) && !/^validate/i.test(scenario)) {
-    scenario = `Verify that ${scenario.charAt(0).toLowerCase() + scenario.slice(1)}`;
-  } else {
-    scenario = scenario.charAt(0).toUpperCase() + scenario.slice(1);
-  }
+  const lower = clean.toLowerCase();
+  const isNeg = /error|alert|invalid|blank|reject|prevent|cannot|should not|not allow|warning|nahi/i.test(lower);
+  const isGlCode = /gl|code|account|ledger|chart of account/i.test(lower);
+  const isEditable = /edit|editable|change|update|badal|modification/i.test(lower);
+  const isField = /field|fiel|fiels|column|input/i.test(lower);
+  const isUndo = /undo|revert|rollback|split/i.test(lower);
+  const isVoucher = /voucher|posting|accounting entry/i.test(lower);
+  const isBulk = /bulk|import|upload|excel|csv/i.test(lower);
+  const isRate = /rate|interest|benchmark|spread|reset/i.test(lower);
+  const isLimit = /sanction|limit|exposure|threshold/i.test(lower);
 
-  // Formulate normal clean test case verification
-  let verification = clean;
-  if (!verification.toLowerCase().startsWith('verify')) {
-    verification = `Verify that ${verification.charAt(0).toLowerCase() + verification.slice(1)}.`;
-  } else if (!verification.endsWith('.')) {
-    verification += '.';
-  }
-
-  // Formulate ChatGPT-style expected result bullet points
+  let scenario = '';
+  let verification = '';
   let expectedResult = '';
   let actualResult = '';
 
-  if (isUndo) {
-    expectedResult = `• Undoing the Split In action should automatically undo the corresponding Split Out action in the related deal.\n• Similarly, undoing the Split Out action should automatically undo the corresponding Split In action in the related deal.\n• Both deals remain synchronized without orphaned split records or calculation discrepancies.`;
-    actualResult = `Verified successfully: Undoing the Split In action automatically reversed the Split Out action in the related deal, and vice versa. Both deals remained synchronized.`;
+  if (isGlCode && (isEditable || isField)) {
+    scenario = 'Verify that newly added GL Code configuration fields are editable and allow updates';
+    verification = 'Verify that all newly added fields in the GL Code section are editable, accept user modifications, and save updated values without validation errors.';
+    expectedResult = `• All newly added GL Code configuration fields are enabled and allow user input.\n• System accepts valid modifications to GL Code values without constraint errors.\n• Upon saving, updated GL Code values are accurately stored and reflected in the system.`;
+    actualResult = 'Verified successfully. All newly added GL Code fields are fully editable, user inputs are accepted without error, and updated configurations are saved accurately.';
+  } else if (isUndo) {
+    scenario = 'Validate Undo functionality for transaction operations';
+    verification = 'Verify that when an action is undone from the transaction history, the system automatically reverses the corresponding related deal actions, and vice versa.';
+    expectedResult = `• Undoing the transaction action automatically rolls back related entries.\n• Corresponding transaction history and linked deal statuses update synchronously.\n• Deal records remain consistent without orphaned entries.`;
+    actualResult = 'Verified successfully: Action was reversed cleanly and related deal records remained fully synchronized.';
+  } else if (isVoucher) {
+    scenario = 'Verify GL voucher entries and accounting postings upon deal save';
+    verification = 'Verify that balanced debit and credit vouchers are generated and posted to the general ledger upon deal confirmation.';
+    expectedResult = `• System generates balanced accounting vouchers corresponding to the deal transaction.\n• Debit and credit totals match without rounding discrepancy.\n• Vouchers are queryable in the Accounting & Ledger audit logs.`;
+    actualResult = 'Verified successfully: Balanced vouchers were generated and posted accurately without discrepancy.';
+  } else if (isBulk) {
+    scenario = 'Verify Bulk Import data validation and processing from uploaded file';
+    verification = 'Verify that the system validates file structure, displays preview records, and commits valid rows during bulk import.';
+    expectedResult = `• File upload accepts valid templates (.xlsx, .csv) and displays parsed preview grid.\n• Invalid rows or formatting mismatches are highlighted with descriptive error tooltips.\n• Authorized records are imported and committed to the database.`;
+    actualResult = 'Verified successfully: File was parsed, preview grid displayed records, and bulk data was processed successfully.';
+  } else if (isRate) {
+    scenario = 'Verify interest rate calculation and effective rate schedule updates';
+    verification = 'Verify that interest calculations and schedule revisions accurately apply benchmark rate and spread adjustments.';
+    expectedResult = `• System accurately recalculates interest amounts based on updated rate and day-count convention.\n• Repayment schedule reflects modified cashflow figures without rounding errors.\n• Past settled transactions remain locked and unimpacted.`;
+    actualResult = 'Verified successfully: Interest rates and cashflow schedules were computed accurately in accordance with financial rules.';
+  } else if (isLimit) {
+    scenario = 'Validate Sanction Limit breach controls and alert notifications';
+    verification = 'Verify that the system checks available limits and displays an alert or warning prompt when transaction amount breaches sanction limits.';
+    expectedResult = `• System computes total utilization against sanction limit.\n• Appropriate warning alert or blocking dialog appears when limit is exceeded.\n• Over-limit transactions require supervisory override or authorization.`;
+    actualResult = 'Verified successfully: Limit check triggered correctly, display warning dialog, and prevented unauthorized breach.';
   } else if (isNeg) {
-    expectedResult = `• System enforces validation constraints accurately.\n• Appropriate error or alert notification is displayed on screen.\n• Invalid persistence and improper submission are prevented.`;
-    actualResult = `Verified successfully: System displayed validation alert and prevented invalid operation as expected.`;
+    scenario = 'Validate boundary input restrictions and validation error alerts';
+    verification = `Verify that when invalid or empty values are provided (${clean}), the system displays clear validation messages and prevents improper submission.`;
+    expectedResult = `• System enforces validation constraints accurately.\n• Clear validation alert or error tooltip is displayed on screen.\n• Invalid persistence is prevented and data remains uncorrupted.`;
+    actualResult = 'Verified successfully: System displayed validation alert and prevented invalid operation as expected.';
   } else {
-    expectedResult = `• Operation completes successfully without errors.\n• Corresponding transaction history and balances update accurately.\n• System reflects the updated status on screen.`;
-    actualResult = `Verified successfully in accordance with expected specifications.`;
+    // Formulate concise clean scenario
+    let formatted = clean;
+    if (!/^verify/i.test(formatted) && !/^validate/i.test(formatted) && !/^check/i.test(formatted)) {
+      formatted = `Verify that ${formatted.charAt(0).toLowerCase() + formatted.slice(1)}`;
+    } else {
+      formatted = formatted.charAt(0).toUpperCase() + formatted.slice(1);
+    }
+    scenario = formatted;
+
+    let v = clean;
+    if (!v.toLowerCase().startsWith('verify')) {
+      v = `Verify that ${v.charAt(0).toLowerCase() + v.slice(1)}.`;
+    } else if (!v.endsWith('.')) {
+      v += '.';
+    }
+    verification = v;
+
+    expectedResult = `• Operation completes successfully in accordance with specified requirements.\n• System validates input data and updates status without unexpected errors.\n• Updated configurations or records are saved and retained accurately.`;
+    actualResult = `Verified successfully in accordance with expected specifications. All verified fields and operations completed with Pass status.`;
   }
 
   return {
@@ -835,11 +943,11 @@ export function generateScenariosFromInputsAndFiles(params: {
         dealId: dealId,
         developerName: dev,
         testingPoint: pointClean.startsWith('Verify') ? pointClean : `Verify that ${pointClean}`,
-        scenario: pointClean,
+        scenario: pointClean.startsWith('Scenario:') ? pointClean : `Scenario: ${pointClean.replace(/^verify\s+(that\s+)?/i, '')}`,
         testDescription: `Pre-QA Developer Unit/Integration Check: ${pointClean}`,
         testData: `Fields: ${fieldsList.slice(0, 3).join(', ')} | Payload: Valid mock test data | Ticket: #${tNo}`,
         expectedResult: expResult,
-        actualResult: 'Verified & passed in developer test environment',
+        actualResult: 'Verified successfully in local build: functioning as per specification (Pass).',
         status: 'Passed',
         submissionState: 'Draft',
         remarks: 'AI generated from ticket description, scenarios & attached fields',

@@ -54,6 +54,7 @@ import {
   translateToSimpleEnglish,
   processLanguageCommand,
   autoTranslateTestCaseItem,
+  batchTranslateTestCases,
   isNonEnglishOrHinglish,
 } from '../utils/languageAi';
 import { ColumnHeader, SortDirection } from './common/ColumnHeader';
@@ -1071,29 +1072,38 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         matchedTicket?.moduleName || 'Term Loan',
         selectedTicketNumber
       );
-      if (result.structuredTestCase) {
-        const newId = `tc-${Date.now()}`;
-        const newCaseNumber = `TC0${testCases.length + 1}`;
-        const newRow: TestCaseItem = {
-          id: newId,
-          testCaseId: newCaseNumber,
-          testModule: matchedTicket?.moduleName.toLowerCase() || 'term loan',
-          featureTab: 'general',
-          testScenario: result.structuredTestCase.testScenario,
-          testCases: result.structuredTestCase.testCases,
-          testInputs: '',
-          expectedResult: result.structuredTestCase.expectedResult,
-          actualResult: result.structuredTestCase.actualResult || 'Verified successfully in accordance with expected specifications.',
-          validationScenario: result.structuredTestCase.validationScenario,
-          status: 'pass',
-          reviewStatus: 'Draft',
-          version: header.version || '1.0',
-          attachments: [],
-        };
-        const updated = [...testCases, newRow];
+
+      const casesToAdd = (result.structuredTestCases && result.structuredTestCases.length > 0)
+        ? result.structuredTestCases
+        : (result.structuredTestCase ? [result.structuredTestCase] : []);
+
+      if (casesToAdd.length > 0) {
+        const newRows: TestCaseItem[] = casesToAdd.map((stc, idx) => {
+          const num = testCases.length + idx + 1;
+          const caseId = (stc as any).testCaseId || `TC${num < 10 ? '0' + num : num}`;
+          return {
+            id: `tc-${Date.now()}-${idx}`,
+            testCaseId: caseId,
+            testModule: (matchedTicket?.moduleName || 'Term Loan').toLowerCase(),
+            featureTab: 'general',
+            testScenario: stc.testScenario,
+            testCases: stc.testCases,
+            testInputs: (stc as any).testInputs || 'Standard parameters',
+            expectedResult: stc.expectedResult,
+            actualResult: stc.actualResult || 'Verified successfully in accordance with expected specifications (Pass).',
+            validationScenario: (stc.validationScenario as any) || (idx % 2 === 0 ? 'Positive Workflow' : 'Negative Validation'),
+            status: 'pass',
+            reviewStatus: 'Draft',
+            version: header.version || '1.0',
+            attachments: [],
+            isAiGenerated: true,
+          };
+        });
+
+        const updated = [...testCases, ...newRows];
         updateTestCases(updated);
         setLanguageCommand('');
-        setNotification(`✨ Added AI Test Case in Simple English: "${result.structuredTestCase.testScenario}"`);
+        setNotification(`✨ Added ${newRows.length} AI Test Case(s) in Simple English!`);
         setTimeout(() => setNotification(null), 5000);
       }
     } catch (err) {
@@ -1105,32 +1115,21 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
     }
   };
 
-  // Auto-Translate All Rows in Table
+  // Auto-Translate All Rows in Table using High-Speed Batch Engine
   const handleAutoTranslateAllRows = async () => {
     if (testCases.length === 0 || isTranslatingAll) return;
     setIsTranslatingAll(true);
     try {
-      const updatedRows: TestCaseItem[] = [];
-      let translatedCount = 0;
-      for (const tc of testCases) {
-        if (
-          isNonEnglishOrHinglish(tc.testScenario) ||
-          isNonEnglishOrHinglish(tc.testCases) ||
-          isNonEnglishOrHinglish(tc.expectedResult) ||
-          (tc.actualResult && isNonEnglishOrHinglish(tc.actualResult))
-        ) {
-          const translated = await autoTranslateTestCaseItem(tc);
-          updatedRows.push(translated);
-          translatedCount++;
-        } else {
-          updatedRows.push(tc);
-        }
+      const translatedRows = await batchTranslateTestCases(testCases);
+      if (translatedRows && translatedRows.length > 0) {
+        updateTestCases(translatedRows);
+        setNotification(`🌐 Translated ${translatedRows.length} test cases into simple, crystal-clear English!`);
+        setTimeout(() => setNotification(null), 5000);
       }
-      updateTestCases(updatedRows);
-      setNotification(`🌐 Translated ${translatedCount} test cases into simple, crystal-clear English!`);
-      setTimeout(() => setNotification(null), 5000);
     } catch (err) {
       console.error('Error translating table rows:', err);
+      setNotification('⚠️ Batch translation encountered an issue; offline engine preserved.');
+      setTimeout(() => setNotification(null), 4000);
     } finally {
       setIsTranslatingAll(false);
     }

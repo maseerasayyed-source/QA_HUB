@@ -22,6 +22,7 @@ import {
   Filter,
   Edit3,
   CloudDownload,
+  Languages,
 } from 'lucide-react';
 import {
   DeveloperTestHeaderMeta,
@@ -51,6 +52,7 @@ import {
   checkIsDuplicate,
 } from '../utils/aiGenerator';
 import { fetchWorkItemFromAzure } from '../utils/azureDevopsService';
+import { translateToSimpleEnglish } from '../utils/languageAi';
 import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
 interface DeveloperTestingViewProps {
@@ -295,12 +297,34 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }
   };
 
+  const [translatingPointId, setTranslatingPointId] = useState<string | null>(null);
+
+  const handleTranslateTestingPoint = async (id: string, text: string) => {
+    if (!text || !text.trim()) return;
+    setTranslatingPointId(id);
+    try {
+      setNotification('Translating testing point to understandable English...');
+      const converted = await translateToSimpleEnglish(text, 'test-point');
+      if (converted) {
+        handleCellChange(id, 'testingPoint', converted);
+        handleCellChange(id, 'scenario', converted);
+        setNotification('✨ Testing point converted to simple, understandable English!');
+        setTimeout(() => setNotification(null), 3000);
+      }
+    } catch (e) {
+      console.error(e);
+      setNotification('Could not translate text.');
+      setTimeout(() => setNotification(null), 3000);
+    } finally {
+      setTranslatingPointId(null);
+    }
+  };
+
   const confirmDeleteItem = () => {
     if (!itemToDelete) return;
-    saveStateToStore(
-      items.filter((i) => i.id !== itemToDelete.id),
-      header
-    );
+    const remaining = items.filter((i) => i.id !== itemToDelete.id);
+    setItems(remaining);
+    saveStateToStore(remaining, header);
     setItemToDelete(null);
     setNotification('🗑️ Developer testing point deleted successfully.');
     setTimeout(() => setNotification(null), 3000);
@@ -308,10 +332,27 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   const confirmDeleteTicket = () => {
     if (!ticketToDelete) return;
+    const deletedNo = ticketToDelete.ticketNumber;
     if (onDeleteTicket) {
-      onDeleteTicket(ticketToDelete.ticketNumber, deleteMode);
+      onDeleteTicket(deletedNo, deleteMode);
     }
-    setNotification(`🗑️ Ticket #${ticketToDelete.ticketNumber} deleted (${deleteMode === 'all_modules' ? 'Every Module' : 'Tickets Tab Only'}).`);
+    const cleanDeleted = deletedNo.trim().replace(/^#+/, '').toLowerCase();
+    const cleanSel = selectedTicketNo.trim().replace(/^#+/, '').toLowerCase();
+    if (cleanSel === cleanDeleted) {
+      const remaining = tickets.filter(
+        (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() !== cleanDeleted
+      );
+      if (remaining.length > 0) {
+        const nextNo = remaining[0].ticketNumber.replace(/^#+/, '');
+        setSelectedTicketNo(nextNo);
+        const nextItems = devTestingMap[nextNo] || [];
+        setItems(nextItems);
+      } else {
+        setSelectedTicketNo('');
+        setItems([]);
+      }
+    }
+    setNotification(`🗑️ Ticket #${deletedNo} deleted (${deleteMode === 'all_modules' ? 'Every Module' : 'Tickets Tab Only'}).`);
     setTimeout(() => setNotification(null), 4000);
     setTicketToDelete(null);
   };
@@ -406,15 +447,17 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   };
 
   // 1. One-Line Input AI Generation Action with duplicate check
-  const handleAiGenerateSinglePoint = () => {
+  const handleAiGenerateSinglePoint = async () => {
     if (!singlePointInput.trim()) {
       setNotification('Please enter a testing point first.');
       setTimeout(() => setNotification(null), 3000);
       return;
     }
 
+    const inputClean = singlePointInput.trim();
+
     // Duplicate Check
-    const dupCheck = checkIsDuplicate(singlePointInput, items);
+    const dupCheck = checkIsDuplicate(inputClean, items);
     if (dupCheck.isDup) {
       setNotification(`⚠️ Duplicate detected: This scenario is already covered in ${dupCheck.matchedWith}! Duplicate row was prevented.`);
       setTimeout(() => setNotification(null), 5000);
@@ -422,88 +465,193 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     }
 
     setIsGeneratingAiPoint(true);
-    setTimeout(() => {
-      const generated = generateDevTestingFromPoint(
-        singlePointInput,
+    let resolvedPoint: any = null;
+
+    try {
+      const resp = await fetch('/api/ai/generate-dev-scenarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketNo: header.ticketNo || selectedTicketNo,
+          clientName: header.clientName || 'Treasury Master',
+          moduleName: currentTicket?.moduleName || 'Term Loan',
+          developerName: header.developer || currentUser?.name || 'Developer',
+          dealId: header.dealId || `DEAL-${header.ticketNo}`,
+          description: inputClean,
+          testingScenarios: inputClean,
+          screenFields: header.screenFields || [],
+          attachedDocs: (header.attachedDocs || []).map((doc) => ({
+            id: doc.id,
+            name: doc.name,
+            type: doc.type,
+            url: doc.url || doc.dataUrl,
+            dataUrl: doc.dataUrl || doc.url,
+            detectedFields: doc.detectedFields || [],
+            extractedContent: doc.extractedContent || '',
+          })),
+          count: 1,
+        }),
+      });
+
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.success && Array.isArray(data.points) && data.points.length > 0) {
+          resolvedPoint = data.points[0];
+        }
+      }
+    } catch (err) {
+      console.warn('API single point generator failed, using local domain generator:', err);
+    }
+
+    // Fallback to enhanced local banking domain generator
+    if (!resolvedPoint) {
+      resolvedPoint = generateDevTestingFromPoint(
+        inputClean,
         header.ticketNo,
         header.dealId || `DEAL-${header.ticketNo}`,
-        header.developer || currentUser?.name || ''
+        header.developer || currentUser?.name || 'Developer'
       );
+    }
 
-      const nextNum = items.length + 1;
-      const newItem: DeveloperTestItem = {
-        id: `dt-${Date.now()}`,
-        scenarioId: `DEV-0${nextNum}`,
-        dealId: generated.dealId || header.dealId || `DEAL-${header.ticketNo}`,
-        developerName: generated.developerName || header.developer || currentUser?.name || 'Developer',
-        testingPoint: generated.testingPoint || singlePointInput,
-        scenario: generated.scenario || singlePointInput,
-        testDescription: generated.testDescription || singlePointInput,
-        testData: generated.testData || '',
-        expectedResult: generated.expectedResult || '',
-        actualResult: generated.actualResult || 'Verified in local build',
-        status: 'Passed',
-        submissionState: 'Draft',
-        remarks: 'AI-generated testing point',
-        isAiGenerated: true,
-        attachments: [],
-        createdBy: currentUser?.name || 'Developer',
-        authorRole: currentUser?.role || 'Developer',
-        createdAt: new Date().toLocaleDateString(),
-      };
+    const nextNum = items.length + 1;
+    const newItem: DeveloperTestItem = {
+      id: `dt-${Date.now()}`,
+      scenarioId: `DEV-0${nextNum}`,
+      dealId: resolvedPoint.dealId || header.dealId || `DEAL-${header.ticketNo}`,
+      developerName: resolvedPoint.developerName || header.developer || currentUser?.name || 'Developer',
+      testingPoint: resolvedPoint.testingPoint || inputClean,
+      scenario: resolvedPoint.scenario || `Scenario: ${resolvedPoint.testingPoint || inputClean}`,
+      testDescription: resolvedPoint.testCase || resolvedPoint.testDescription || `Developer verification: ${resolvedPoint.testingPoint || inputClean}`,
+      testData: resolvedPoint.testData || `Deal ID: ${header.dealId || `DEAL-${header.ticketNo}`}, Mode: Active verification`,
+      expectedResult: resolvedPoint.expectedResult || `System executes ${inputClean} smoothly, maintaining audit logs and formula precision.`,
+      actualResult: resolvedPoint.actualResult || 'Verified successfully in local build: functioning as per specification (Pass).',
+      status: 'Passed',
+      submissionState: 'Draft',
+      remarks: 'AI-generated test scenario & expected result',
+      isAiGenerated: true,
+      attachments: [],
+      createdBy: currentUser?.name || 'Developer',
+      authorRole: currentUser?.role || 'Developer',
+      createdAt: new Date().toLocaleDateString(),
+    };
 
-      const updated = [...items, newItem];
-      saveStateToStore(updated, header);
-      setSinglePointInput('');
-      setIsGeneratingAiPoint(false);
-      setNotification('✨ AI Generated Expected Result and test details from testing point!');
-      setTimeout(() => setNotification(null), 4000);
-    }, 400);
+    const updated = [...items, newItem];
+    saveStateToStore(updated, header);
+    setSinglePointInput('');
+    setIsGeneratingAiPoint(false);
+    setNotification('✨ AI Generated complete Test Scenario, Test Case, Expected Result & (Pass) Actual Result!');
+    setTimeout(() => setNotification(null), 5000);
   };
 
   // 1b. Multi-Scenario AI Generation using Description, Testing Scenarios & Attached Files / Screen Fields
-  const handleAiGenerateMultiScenarios = () => {
+  const handleAiGenerateMultiScenarios = async () => {
     setIsGeneratingAiScenarios(true);
-    setTimeout(() => {
-      const result = generateScenariosFromInputsAndFiles({
-        ticket: currentTicket,
-        description: header.description || currentTicket?.description || '',
-        testingScenarios: header.testingScenarios || currentTicket?.testingScenarios || '',
-        attachedDocs: header.attachedDocs || [],
-        screenFields: header.screenFields || [],
-        targetMode: 'developer',
-        existingItems: items,
-        creatorName: currentUser?.name || header.developer || 'Developer',
-        creatorRole: currentUser?.role || 'Developer',
+    try {
+      const resp = await fetch('/api/ai/generate-dev-scenarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketNo: header.ticketNo || selectedTicketNo,
+          clientName: header.clientName || 'Treasury Master',
+          moduleName: currentTicket?.moduleName || 'Term Loan',
+          developerName: header.developer || currentTicket?.developer || currentUser?.name || 'Developer',
+          dealId: header.dealId || `DEAL-${header.ticketNo}`,
+          description: header.description || currentTicket?.description || '',
+          testingScenarios: header.testingScenarios || currentTicket?.testingScenarios || '',
+          screenFields: header.screenFields || [],
+          attachedDocs: (header.attachedDocs || []).map((doc) => ({
+            id: doc.id,
+            name: doc.name,
+            type: doc.type,
+            url: doc.url || doc.dataUrl,
+            dataUrl: doc.dataUrl || doc.url,
+            detectedFields: doc.detectedFields || [],
+            extractedContent: doc.extractedContent || '',
+          })),
+          count: 8,
+        }),
       });
 
-      if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
-        setNotification(
-          `⚠️ All ${result.skippedDuplicates.length} candidate scenarios are already covered in the table! Duplicate rows were prevented.`
-        );
-        setTimeout(() => setNotification(null), 5000);
-        setIsGeneratingAiScenarios(false);
-        return;
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.success && Array.isArray(data.points) && data.points.length > 0) {
+          const startingIndex = items.length + 1;
+          const mappedItems: DeveloperTestItem[] = data.points.map((pt: any, idx: number) => ({
+            id: `dt-${Date.now()}-${idx}`,
+            scenarioId: `DEV-0${startingIndex + idx}`,
+            dealId: pt.dealId || header.dealId || `DEAL-${header.ticketNo}`,
+            developerName: pt.developerName || header.developer || 'Developer',
+            testingPoint: pt.testingPoint || '',
+            scenario: pt.testingPoint || '',
+            testDescription: pt.testingPoint || '',
+            expectedResult: pt.expectedResult || '',
+            testData: pt.testData || '',
+            actualResult: pt.actualResult || 'Verified successfully in local build.',
+            status: pt.status || 'Passed',
+            submissionState: 'Draft',
+            bugFound: 'No',
+            severity: 'Low',
+            date: new Date().toISOString().split('T')[0],
+            isAiGenerated: true,
+            attachments: [],
+          }));
+
+          const updated = [...items, ...mappedItems];
+          saveStateToStore(updated, header);
+          setIsGeneratingAiScenarios(false);
+          const ssCount = (header.attachedDocs || []).filter((d) => d.type === 'image').length;
+          setNotification(
+            `🚀 AI intelligently generated ${mappedItems.length} Developer Testing Points from Description${
+              ssCount > 0 ? ` & ${ssCount} Attached Screenshot(s)` : ''
+            } into table!`
+          );
+          setTimeout(() => setNotification(null), 5000);
+          return;
+        }
       }
+    } catch (err) {
+      console.warn('Backend AI scenario generator failed, falling back to local generator:', err);
+    }
 
-      if (result.newItems.length === 0) {
-        setNotification('Please enter a description, testing scenarios, or attach a screenshot/fields to generate points.');
-        setTimeout(() => setNotification(null), 4000);
-        setIsGeneratingAiScenarios(false);
-        return;
-      }
+    // Local fallback
+    const result = generateScenariosFromInputsAndFiles({
+      ticket: currentTicket,
+      description: header.description || currentTicket?.description || '',
+      testingScenarios: header.testingScenarios || currentTicket?.testingScenarios || '',
+      attachedDocs: header.attachedDocs || [],
+      screenFields: header.screenFields || [],
+      targetMode: 'developer',
+      existingItems: items,
+      creatorName: currentUser?.name || header.developer || 'Developer',
+      creatorRole: currentUser?.role || 'Developer',
+    });
 
-      const updated = [...items, ...result.newItems];
-      saveStateToStore(updated, header);
-      setIsGeneratingAiScenarios(false);
-
-      const dupText =
-        result.skippedDuplicates.length > 0
-          ? ` (${result.skippedDuplicates.length} duplicate scenarios already covered were skipped)`
-          : '';
-      setNotification(`🚀 Generated & added ${result.newItems.length} Developer Testing Points into table!${dupText}`);
+    if (result.newItems.length === 0 && result.skippedDuplicates.length > 0) {
+      setNotification(
+        `⚠️ All ${result.skippedDuplicates.length} candidate scenarios are already covered in the table! Duplicate rows were prevented.`
+      );
       setTimeout(() => setNotification(null), 5000);
-    }, 400);
+      setIsGeneratingAiScenarios(false);
+      return;
+    }
+
+    if (result.newItems.length === 0) {
+      setNotification('Please enter a description, testing scenarios, or attach a screenshot/fields to generate points.');
+      setTimeout(() => setNotification(null), 4000);
+      setIsGeneratingAiScenarios(false);
+      return;
+    }
+
+    const updated = [...items, ...result.newItems];
+    saveStateToStore(updated, header);
+    setIsGeneratingAiScenarios(false);
+
+    const dupText =
+      result.skippedDuplicates.length > 0
+        ? ` (${result.skippedDuplicates.length} duplicate scenarios already covered were skipped)`
+        : '';
+    setNotification(`🚀 Generated & added ${result.newItems.length} Developer Testing Points into table!${dupText}`);
+    setTimeout(() => setNotification(null), 5000);
   };
 
   // 2. Generate Developer Testing from Azure DevOps / Ticket Info
@@ -1582,7 +1730,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           saveStateToStore(items, next);
         }}
         moduleName={currentTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName || header.featureName || 'penalty overdue report'}
+        taskName={header.taskName !== undefined ? header.taskName : (header.featureName || currentTicket?.featureName || 'penalty overdue report')}
         onChangeTaskName={(val) => {
           const next = { ...header, taskName: val, featureName: val };
           setHeader(next);
@@ -1616,8 +1764,8 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           setHeader(next);
           saveStateToStore(items, next);
         }}
-        description={header.description || currentTicket?.description || ''}
-        testingScenarios={header.testingScenarios || currentTicket?.testingScenarios || ''}
+        description={header.description !== undefined ? header.description : (currentTicket?.description || '')}
+        testingScenarios={header.testingScenarios !== undefined ? header.testingScenarios : (currentTicket?.testingScenarios || '')}
         attachedDocs={header.attachedDocs || []}
         onUpdateAttachedDocs={(docs) => {
           const next = { ...header, attachedDocs: docs };
@@ -1764,25 +1912,30 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                     />
                   </td>
 
-                  {/* Testing Point */}
+                  {/* Testing Point - Fully Editable & Convert to English */}
                   <td className="p-1 border-r border-slate-100">
                     <textarea
                       rows={2}
-                      disabled={effectiveReadOnly}
                       value={item.testingPoint || item.scenario || ''}
                       onChange={(e) => {
                         handleCellChange(item.id, 'testingPoint', e.target.value);
                         handleCellChange(item.id, 'scenario', e.target.value);
                       }}
-                      placeholder="Enter simple testing point..."
-                      className="w-full px-2 py-1 text-slate-900 disabled:text-slate-700 font-medium bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
+                      placeholder="Enter simple testing point (any language)..."
+                      className="w-full px-2 py-1 text-slate-900 font-medium bg-transparent hover:bg-white focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 rounded text-xs resize-y"
                     />
-                    {item.createdBy && (
-                      <div className="flex items-center gap-1 px-1.5 pt-0.5 text-[10px] text-slate-400">
-                        <span>by {item.createdBy}</span>
-                        {item.authorRole && <span className="text-slate-400 font-medium">({item.authorRole})</span>}
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between mt-0.5 px-0.5">
+                      <button
+                        type="button"
+                        onClick={() => handleTranslateTestingPoint(item.id, item.testingPoint || item.scenario || '')}
+                        disabled={translatingPointId === item.id || !(item.testingPoint || item.scenario)}
+                        title="Convert any language / Hindi / Hinglish / notes into direct, simple, understandable English"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 bg-gradient-to-r from-purple-50 to-blue-50 hover:from-purple-100 hover:to-blue-100 text-purple-700 border border-purple-200 text-[10px] font-bold rounded cursor-pointer transition-colors shadow-2xs"
+                      >
+                        <Languages className="w-3 h-3 text-purple-600" />
+                        <span>{translatingPointId === item.id ? 'Translating...' : '🌐 Convert to English'}</span>
+                      </button>
+                    </div>
                   </td>
 
                   {/* Expected Result */}

@@ -23,6 +23,7 @@ export interface CorporateTicketHeaderProps {
   selectedTicketNumber: string;
   tickets: TicketSummary[];
   onSelectTicket: (ticketNumber: string) => void;
+  mode?: 'developer' | 'qa' | 'observations';
   // Metadata fields matching Picture 4:
   clientName?: string;
   onChangeClientName?: (val: string) => void;
@@ -47,6 +48,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
   selectedTicketNumber,
   tickets,
   onSelectTicket,
+  mode = 'qa',
   clientName,
   onChangeClientName,
   moduleName,
@@ -200,11 +202,11 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
         <div className="flex items-center gap-2">
           <Building2 className="w-4 h-4 text-sky-200 shrink-0" />
           <span className="text-xs font-black uppercase tracking-wider text-sky-100">
-            Treasury Master corporate header
+            {mode === 'developer' ? 'Developer Testing Matrix' : 'Treasury Master corporate header'}
           </span>
           <span className="text-sky-300 text-xs hidden sm:inline">•</span>
           <span className="text-xs text-sky-100/90 font-medium hidden sm:inline">
-            Standard QA &amp; Dev Verification Artifact
+            {mode === 'developer' ? 'Ticket ID • Client Name • SHA • Task Done By' : 'Standard QA & Dev Verification Artifact'}
           </span>
         </div>
 
@@ -237,8 +239,125 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
         </div>
       </div>
 
-      {/* Main Corporate Metadata Rows (matching Picture 4) */}
-      <div className="p-3 sm:p-4 space-y-2.5">
+      {/* Main Corporate Metadata Rows */}
+      {mode === 'developer' ? (
+        /* DEVELOPER TESTING HEADER: ONLY TICKET ID, CLIENT NAME, SHA, TASK DONE BY */
+        <div className="p-3 sm:p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            {/* 1. Ticket ID */}
+            <div className="flex items-center bg-white/95 border-2 border-blue-400 rounded-xl px-2.5 py-1.5 shadow-2xs group focus-within:ring-2 focus-within:ring-blue-500 transition-all">
+              <span className="text-xs font-black text-blue-950 w-20 shrink-0 flex items-center gap-1">
+                <Ticket className="w-3.5 h-3.5 text-blue-600" />
+                Ticket ID:
+              </span>
+
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <div className="relative shrink-0">
+                  <select
+                    value={selectedTicketNumber.replace(/^#+/, '')}
+                    onChange={(e) => handleSelectDropdownTicket(e.target.value)}
+                    title="Select Ticket"
+                    className="appearance-none bg-blue-100 hover:bg-blue-200/80 text-blue-900 text-xs font-black px-2 py-1 pr-5 rounded-lg cursor-pointer outline-none transition-colors max-w-[100px] truncate"
+                  >
+                    {allAvailableTickets.map((t) => (
+                      <option key={t.id || t.ticketNumber} value={t.ticketNumber}>
+                        #{t.ticketNumber}
+                      </option>
+                    ))}
+                    {allAvailableTickets.every(
+                      (t) => t.ticketNumber.trim().replace(/^#+/, '').toLowerCase() !== selectedTicketNumber.trim().replace(/^#+/, '').toLowerCase()
+                    ) && (
+                      <option value={selectedTicketNumber.replace(/^#+/, '')}>
+                        #{selectedTicketNumber.replace(/^#+/, '')}
+                      </option>
+                    )}
+                  </select>
+                  <ChevronDown className="w-3 h-3 text-blue-800 absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                </div>
+
+                <div className="flex items-center gap-1 flex-1 min-w-0 bg-blue-50/70 border border-blue-200 rounded-lg px-2 py-0.5">
+                  <span className="text-xs font-bold text-blue-500">#</span>
+                  <input
+                    type="text"
+                    value={editableTicketInput}
+                    onFocus={() => setIsTypingTicket(true)}
+                    onBlur={() => {
+                      setIsTypingTicket(false);
+                      const clean = editableTicketInput.trim().replace(/^#+/, '');
+                      onSelectTicket(clean);
+                    }}
+                    onChange={(e) => handleTicketInputChange(e.target.value)}
+                    placeholder="Ticket #"
+                    title="Type or edit Ticket ID directly"
+                    className="w-full text-xs font-black text-blue-900 bg-transparent outline-none font-mono"
+                  />
+                  <Edit3 className="w-3 h-3 text-blue-400 shrink-0" />
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Client Name */}
+            <div className="flex items-center bg-white/95 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
+              <span className="text-xs font-bold text-slate-600 w-24 shrink-0 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-sky-600" />
+                Client Name:
+              </span>
+              <input
+                type="text"
+                value={effectiveClient}
+                onChange={(e) => onChangeClientName?.(e.target.value)}
+                placeholder="Client Name (e.g. Treasury Master)"
+                className="w-full text-xs font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
+              />
+            </div>
+
+            {/* 3. SHA Commit */}
+            <div className="flex items-center bg-white/95 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
+              <span className="text-xs font-bold text-slate-600 w-16 shrink-0 flex items-center gap-1.5">
+                <GitCommit className="w-3.5 h-3.5 text-slate-500" />
+                SHA:
+              </span>
+              <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                <input
+                  type="text"
+                  value={effectiveSha}
+                  onChange={(e) => onChangeSha?.(e.target.value)}
+                  placeholder="SHA commit hash"
+                  className="w-full text-xs font-mono font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
+                />
+                <button
+                  type="button"
+                  onClick={handleCopySha}
+                  title="Copy SHA to clipboard"
+                  className="p-1 text-slate-400 hover:text-blue-600 rounded transition-colors cursor-pointer"
+                >
+                  {copiedSha ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* 4. Task Done By (Developer) */}
+            <div className="flex items-center bg-white/95 border border-sky-200 rounded-xl px-3 py-2 shadow-2xs focus-within:border-blue-400">
+              <span className="text-xs font-bold text-slate-600 w-28 shrink-0 flex items-center gap-1.5">
+                <Code2 className="w-3.5 h-3.5 text-purple-600" />
+                Task Done By:
+              </span>
+              <input
+                type="text"
+                value={effectiveDev || effectiveQa}
+                onChange={(e) => {
+                  onChangeDeveloper?.(e.target.value);
+                  onChangeQaAssignee?.(e.target.value);
+                }}
+                placeholder="Developer name"
+                className="w-full text-xs font-bold text-slate-800 bg-transparent outline-none focus:text-blue-700"
+              />
+            </div>
+          </div>
+        </div>
+      ) : (
+        /* Main Corporate Metadata Rows (matching Picture 4) */
+        <div className="p-3 sm:p-4 space-y-2.5">
         {/* Row 1 & 2: Client Name & Module + Ticket Selection / Editable combo */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {/* Client Name */}
@@ -469,6 +588,7 @@ export const CorporateTicketHeader: React.FC<CorporateTicketHeaderProps> = ({
           </div>
         </div>
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };
