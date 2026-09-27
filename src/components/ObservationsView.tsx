@@ -20,6 +20,10 @@ import {
   FileSpreadsheet,
   Loader2,
   Table,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import {
   ObservationHeaderMeta,
@@ -57,6 +61,11 @@ interface ObservationsViewProps {
   onUpdateHeader?: (header: ObservationHeaderMeta) => void;
   onUpdateObservations?: (items: ObservationItem[], ticketNum?: string) => void;
   onAddTicket?: (ticket: TicketSummary) => void;
+  onSaveAndSubmitTicket?: (ticketNo: string) => void;
+  onReopenEditTicket?: (ticketNo: string) => void;
+  onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const ObservationsView: React.FC<ObservationsViewProps> = ({
@@ -78,9 +87,20 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   onUpdateHeader,
   onUpdateObservations,
   onAddTicket,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'observation-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'observation-screen'>('observation-screen');
+
+  // State for Full UI Table-Only Mode
+  const [isTableOnlyMode, setIsTableOnlyMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isSidebarCollapsed) {
+      setIsTableOnlyMode(true);
+    }
+  }, [isSidebarCollapsed]);
 
   // Selected Active Ticket Number
   const defaultTicketNo = activeTicketNumber || tickets[0]?.ticketNumber || initialHeader.ticketNo;
@@ -210,12 +230,28 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
     if (fetchedHeaderNotice) setFetchedHeaderNotice(null);
   };
 
+  // Sorting & Filtering in Tickets table
+  const [ticketSortKey, setTicketSortKey] = useState<string | null>(null);
+  const [ticketSortDirection, setTicketSortDirection] = useState<SortDirection>(null);
+  const [ticketColumnFilters, setTicketColumnFilters] = useState<Record<string, string>>({
+    ticketNumber: '',
+    featureName: '',
+    moduleName: '',
+    qaAssignee: '',
+    developer: '',
+    priority: '',
+    status: '',
+    obsCounts: '',
+    action: '',
+  });
+
   // Sorting state in detail table
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
 
   // Column Filters map
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
+    rowIndex: '',
     serialNo: '',
     type: '',
     observationRFE: '',
@@ -223,6 +259,8 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
     status: '',
     retesting: '',
     remark: '',
+    evidence: '',
+    actions: '',
   });
 
   // Global search input
@@ -594,7 +632,12 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   };
 
   // Sort Handler in Detail Table
-  const handleSort = (key: string) => {
+  const handleSort = (key: string, dir?: SortDirection) => {
+    if (dir !== undefined) {
+      setSortKey(dir ? key : null);
+      setSortDirection(dir);
+      return;
+    }
     if (sortKey === key) {
       if (sortDirection === 'asc') {
         setSortDirection('desc');
@@ -616,6 +659,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   // Reset all filters & sorting
   const handleResetFilters = () => {
     setColumnFilters({
+      rowIndex: '',
       serialNo: '',
       type: '',
       observationRFE: '',
@@ -623,6 +667,8 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
       status: '',
       retesting: '',
       remark: '',
+      evidence: '',
+      actions: '',
     });
     setGlobalSearch('');
     setSortKey(null);
@@ -632,7 +678,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   // Filtered Observations in Detail Screen
   const filteredObservations = useMemo(() => {
     return observations
-      .filter((obs) => {
+      .filter((obs, idx) => {
         if (selectedTypeFilter !== 'ALL') {
           if ((obs.type || 'Observation') !== selectedTypeFilter) {
             return false;
@@ -650,17 +696,31 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
           if (!matchesGlobal) return false;
         }
 
+        if (columnFilters.rowIndex?.trim() && !String(idx + 1).includes(columnFilters.rowIndex.trim())) return false;
         if (columnFilters.serialNo.trim() && !obs.serialNo.toLowerCase().includes(columnFilters.serialNo.toLowerCase().trim())) return false;
         if (columnFilters.type.trim() && !obs.type.toLowerCase().includes(columnFilters.type.toLowerCase().trim())) return false;
         if (columnFilters.observationRFE.trim() && !obs.observationRFE.toLowerCase().includes(columnFilters.observationRFE.toLowerCase().trim())) return false;
         if (columnFilters.priority.trim() && !obs.priority.toLowerCase().includes(columnFilters.priority.toLowerCase().trim())) return false;
         if (columnFilters.status.trim() && !obs.status.toLowerCase().includes(columnFilters.status.toLowerCase().trim())) return false;
+        if (columnFilters.retesting?.trim() && !String(obs.retesting ?? 1).includes(columnFilters.retesting.trim())) return false;
         if (columnFilters.remark.trim() && !(obs.remark || '').toLowerCase().includes(columnFilters.remark.toLowerCase().trim())) return false;
+        if (columnFilters.evidence?.trim()) {
+          const q = columnFilters.evidence.toLowerCase().trim();
+          const hasAtt = (obs.attachments || []).length > 0 || Boolean(obs.screenshotName);
+          const attNames = [...(obs.attachments || []).map((a) => a.name), obs.screenshotName || ''].join(' ').toLowerCase();
+          const statusStr = hasAtt ? 'with evidence attached' : 'no evidence empty';
+          if (!attNames.includes(q) && !statusStr.includes(q)) return false;
+        }
 
         return true;
       })
       .sort((a, b) => {
         if (!sortKey || !sortDirection) return 0;
+        if (sortKey === 'evidence') {
+          const countA = (a.attachments || []).length;
+          const countB = (b.attachments || []).length;
+          return sortDirection === 'asc' ? countA - countB : countB - countA;
+        }
         const valA = (a as any)[sortKey] ?? '';
         const valB = (b as any)[sortKey] ?? '';
         const comp = String(valA).localeCompare(String(valB));
@@ -670,33 +730,60 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
 
   // Filtered Tickets for Tickets List Table (includes all tickets created on Azure or across system)
   const filteredTickets = useMemo(() => {
-    return systemTicketsList.filter((t) => {
-      if (ticketSearch.trim()) {
-        const q = ticketSearch.toLowerCase();
-        const matches =
-          t.ticketNumber.toLowerCase().includes(q) ||
-          t.featureName.toLowerCase().includes(q) ||
-          t.moduleName.toLowerCase().includes(q) ||
-          t.qaAssignee.toLowerCase().includes(q) ||
-          t.developer.toLowerCase().includes(q) ||
-          (t.scenarioDetails || '').toLowerCase().includes(q) ||
-          (t.testingScenarios || '').toLowerCase().includes(q);
-        if (!matches) return false;
-      }
+    return systemTicketsList
+      .filter((t) => {
+        if (ticketSearch.trim()) {
+          const q = ticketSearch.toLowerCase();
+          const matches =
+            t.ticketNumber.toLowerCase().includes(q) ||
+            t.featureName.toLowerCase().includes(q) ||
+            t.moduleName.toLowerCase().includes(q) ||
+            t.qaAssignee.toLowerCase().includes(q) ||
+            t.developer.toLowerCase().includes(q) ||
+            (t.scenarioDetails || '').toLowerCase().includes(q) ||
+            (t.testingScenarios || '').toLowerCase().includes(q);
+          if (!matches) return false;
+        }
 
-      if (ticketModuleFilter !== 'all') {
-        const tMod = t.moduleName.toLowerCase();
-        const fMod = ticketModuleFilter.toLowerCase();
-        if (!tMod.includes(fMod) && !fMod.includes(tMod)) return false;
-      }
+        if (ticketModuleFilter !== 'all') {
+          const tMod = t.moduleName.toLowerCase();
+          const fMod = ticketModuleFilter.toLowerCase();
+          if (!tMod.includes(fMod) && !fMod.includes(tMod)) return false;
+        }
 
-      if (ticketStatusFilter !== 'all') {
-        if (t.status !== ticketStatusFilter) return false;
-      }
+        if (ticketStatusFilter !== 'all') {
+          if (t.status !== ticketStatusFilter) return false;
+        }
 
-      return true;
-    });
-  }, [systemTicketsList, ticketSearch, ticketModuleFilter, ticketStatusFilter]);
+        const obsList = observationsMap[t.ticketNumber] || [];
+        const obsCount = obsList.filter((o) => (o.type || 'Observation') === 'Observation').length;
+        const rfeCount = obsList.filter((o) => o.type === 'RFE').length;
+        const obsSummary = `${obsCount} Obs ${rfeCount} RFE ${obsList.length} Items`;
+
+        if (ticketColumnFilters.ticketNumber && !t.ticketNumber.toLowerCase().includes(ticketColumnFilters.ticketNumber.toLowerCase())) return false;
+        if (ticketColumnFilters.featureName && !(`${t.featureName} ${t.testingScenarios || ''}`).toLowerCase().includes(ticketColumnFilters.featureName.toLowerCase())) return false;
+        if (ticketColumnFilters.moduleName && !t.moduleName.toLowerCase().includes(ticketColumnFilters.moduleName.toLowerCase())) return false;
+        if (ticketColumnFilters.qaAssignee && !t.qaAssignee.toLowerCase().includes(ticketColumnFilters.qaAssignee.toLowerCase())) return false;
+        if (ticketColumnFilters.developer && !t.developer.toLowerCase().includes(ticketColumnFilters.developer.toLowerCase())) return false;
+        if (ticketColumnFilters.priority && !t.priority.toLowerCase().includes(ticketColumnFilters.priority.toLowerCase())) return false;
+        if (ticketColumnFilters.status && !t.status.toLowerCase().includes(ticketColumnFilters.status.toLowerCase())) return false;
+        if (ticketColumnFilters.obsCounts && !obsSummary.toLowerCase().includes(ticketColumnFilters.obsCounts.toLowerCase())) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (!ticketSortKey || !ticketSortDirection) return 0;
+        if (ticketSortKey === 'obsCounts') {
+          const cA = (observationsMap[a.ticketNumber] || []).length;
+          const cB = (observationsMap[b.ticketNumber] || []).length;
+          return ticketSortDirection === 'asc' ? cA - cB : cB - cA;
+        }
+        const valA = (a as any)[ticketSortKey] || '';
+        const valB = (b as any)[ticketSortKey] || '';
+        const comp = String(valA).localeCompare(String(valB));
+        return ticketSortDirection === 'asc' ? comp : -comp;
+      });
+  }, [systemTicketsList, ticketSearch, ticketModuleFilter, ticketStatusFilter, ticketColumnFilters, ticketSortKey, ticketSortDirection, observationsMap]);
 
   // Add Ticket Submit Handler (with Custom Module support)
   const handleCreateTicketSubmit = (e: React.FormEvent) => {
@@ -779,7 +866,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   // ==========================================
   if (hubMode === 'tickets-table') {
     return (
-      <div className="p-6 max-w-[1600px] mx-auto space-y-5 animate-fadeIn">
+      <div className="p-4 sm:p-6 w-full max-w-none mx-auto space-y-4 animate-fadeIn">
         {/* Header Bar */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="flex items-center gap-3">
@@ -885,19 +972,133 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
 
         {/* Tickets Table View */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
+          <div className="table-always-scroll max-h-[calc(100vh-230px)] min-h-[380px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
               <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
                 <tr>
-                  <th className="p-2.5 w-32 border-r border-slate-700">Ticket ID</th>
-                  <th className="p-2.5 min-w-[240px] border-r border-slate-700">Feature / Task Name</th>
-                  <th className="p-2.5 w-40 border-r border-slate-700">Module</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">QA Assignee</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">Developer</th>
-                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Priority</th>
-                  <th className="p-2.5 w-28 text-center border-r border-slate-700">Status</th>
-                  <th className="p-2.5 w-36 text-center border-r border-slate-700">Observations &amp; RFEs</th>
-                  <th className="p-2.5 w-48 text-center">Action</th>
+                  <ColumnHeader
+                    title="Ticket ID"
+                    columnKey="ticketNumber"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.ticketNumber}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={systemTicketsList.map((t) => t.ticketNumber)}
+                    className="w-32 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Feature / Task Name"
+                    columnKey="featureName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.featureName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={systemTicketsList.map((t) => t.featureName)}
+                    className="min-w-[240px] border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Module"
+                    columnKey="moduleName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.moduleName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={systemTicketsList.map((t) => t.moduleName)}
+                    className="w-40 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="QA Assignee"
+                    columnKey="qaAssignee"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.qaAssignee}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={systemTicketsList.map((t) => t.qaAssignee)}
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Developer"
+                    columnKey="developer"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.developer}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={systemTicketsList.map((t) => t.developer)}
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Priority"
+                    columnKey="priority"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.priority}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Critical', 'High', 'Medium', 'Low']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Status"
+                    columnKey="status"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.status}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Ready for QA', 'In Testing', 'Observation Raised', 'Passed']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Observations & RFEs"
+                    columnKey="obsCounts"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.obsCounts}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    align="center"
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Action"
+                    columnKey="action"
+                    filterValue={ticketColumnFilters.action}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Open']}
+                    align="center"
+                    className="w-48"
+                  />
                 </tr>
               </thead>
 
@@ -1263,10 +1464,16 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
   // VIEW 2: OBSERVATIONS & RFE DETAIL SCREEN
   // ==========================================
   return (
-    <div className="p-6 max-w-[1500px] mx-auto space-y-5 animate-fadeIn">
+    <div
+      className={
+        isTableOnlyMode
+          ? 'w-full max-w-none h-[calc(100vh-3.5rem)] p-2 flex flex-col overflow-hidden bg-[#F8FAFC]'
+          : 'p-4 sm:p-6 w-full max-w-none mx-auto space-y-4 animate-fadeIn'
+      }
+    >
       {/* Azure DevOps Notification Feedback */}
       {adoNotification && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between gap-2 animate-fadeIn shadow-2xs">
+        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center justify-between gap-2 animate-fadeIn shadow-2xs shrink-0 mb-1.5">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
             <span>{adoNotification}</span>
@@ -1279,7 +1486,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
 
       {/* Download Confirmation Feedback */}
       {downloadSuccess && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center justify-between gap-2 animate-fadeIn">
+        <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center justify-between gap-2 animate-fadeIn shrink-0 mb-1.5">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
@@ -1292,172 +1499,282 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
         </div>
       )}
 
-      {/* ENHANCED CORPORATE TICKET HEADER - Strictly Header & Respective Ticket Matching Picture 4 */}
-      <CorporateTicketHeader
-        selectedTicketNumber={selectedTicketNo}
-        tickets={systemTicketsList}
-        onSelectTicket={handleTicketChange}
-        clientName={header.clientName}
-        onChangeClientName={(val) => {
-          const next = { ...header, clientName: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        moduleName={currentTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName !== undefined ? header.taskName : (header.ticketName || '')}
-        onChangeTaskName={(val) => {
-          const next = { ...header, taskName: val, ticketName: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        qaAssignee={header.qaOwner}
-        onChangeQaAssignee={(val) => {
-          const next = { ...header, qaOwner: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        developer={header.developer}
-        onChangeDeveloper={(val) => {
-          const next = { ...header, developer: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        sha={header.sha}
-        onChangeSha={(val) => {
-          const next = { ...header, sha: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        signOffBy={header.signOffBy}
-        onChangeSignOffBy={(val) => {
-          const next = { ...header, signOffBy: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        extraActions={
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            <button
-              type="button"
-              onClick={() => setHubMode('tickets-table')}
-              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-              title="View All Tickets List"
-            >
-              <Table className="w-3.5 h-3.5" />
-              <span>All Tickets</span>
-            </button>
+      {!isTableOnlyMode && (
+        <>
+          {/* ENHANCED CORPORATE TICKET HEADER - Strictly Header & Respective Ticket Matching Picture 4 */}
+          <CorporateTicketHeader
+            selectedTicketNumber={selectedTicketNo}
+            tickets={systemTicketsList}
+            onSelectTicket={handleTicketChange}
+            clientName={header.clientName}
+            onChangeClientName={(val) => {
+              const next = { ...header, clientName: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            moduleName={currentTicket?.moduleName || 'Term Loan'}
+            taskName={header.taskName !== undefined ? header.taskName : (header.ticketName || '')}
+            onChangeTaskName={(val) => {
+              const next = { ...header, taskName: val, ticketName: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            qaAssignee={header.qaOwner}
+            onChangeQaAssignee={(val) => {
+              const next = { ...header, qaOwner: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            developer={header.developer}
+            onChangeDeveloper={(val) => {
+              const next = { ...header, developer: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            sha={header.sha}
+            onChangeSha={(val) => {
+              const next = { ...header, sha: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            signOffBy={header.signOffBy}
+            onChangeSignOffBy={(val) => {
+              const next = { ...header, signOffBy: val };
+              setHeader(next);
+              onUpdateHeader?.(next);
+            }}
+            extraActions={
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <button
+                  type="button"
+                  onClick={() => setHubMode('tickets-table')}
+                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  title="View All Tickets List"
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>All Tickets</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={handlePolishAllObservations}
-              disabled={isAiGenerating || observations.length === 0}
-              className="px-2.5 py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer disabled:opacity-40"
-              title="Auto-translate and polish all observation descriptions into corporate English with AI"
-            >
-              <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
-              <span>{isAiGenerating ? 'Polishing...' : '✨ Polish All with AI'}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={handlePolishAllObservations}
+                  disabled={isAiGenerating || observations.length === 0}
+                  className="px-2.5 py-1 bg-purple-500 hover:bg-purple-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer disabled:opacity-40"
+                  title="Auto-translate and polish all observation descriptions into corporate English with AI"
+                >
+                  <Wand2 className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>{isAiGenerating ? 'Polishing...' : '✨ Polish All with AI'}</span>
+                </button>
 
+                <button
+                  type="button"
+                  onClick={handleAddRow}
+                  className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Row</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadExcel}
+                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Export exact Excel sheet matching corporate format"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsAdoModalOpen(true)}
+                  className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  title="Upload observations to Azure DevOps"
+                >
+                  <UploadCloud className="w-3.5 h-3.5" />
+                  <span>Azure DevOps</span>
+                </button>
+              </div>
+            }
+          />
+
+          {/* Observation vs RFE Filter Pills */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs text-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 font-medium">Filter Type:</span>
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                <button
+                  onClick={() => setSelectedTypeFilter('ALL')}
+                  className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    selectedTypeFilter === 'ALL'
+                      ? 'bg-white text-slate-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  All Records ({observations.length})
+                </button>
+                <button
+                  onClick={() => setSelectedTypeFilter('Observation')}
+                  className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    selectedTypeFilter === 'Observation'
+                      ? 'bg-amber-100 text-amber-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Observations (
+                  {observations.filter((o) => (o.type || 'Observation') === 'Observation').length})
+                </button>
+                <button
+                  onClick={() => setSelectedTypeFilter('RFE')}
+                  className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
+                    selectedTypeFilter === 'RFE'
+                      ? 'bg-purple-100 text-purple-900 shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  RFEs ({observations.filter((o) => o.type === 'RFE').length})
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+                <input
+                  type="text"
+                  placeholder="Search observations..."
+                  value={globalSearch}
+                  onChange={(e) => setGlobalSearch(e.target.value)}
+                  className="pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-52"
+                />
+              </div>
+              {(globalSearch || Object.values(columnFilters).some(Boolean)) && (
+                <button
+                  onClick={handleResetFilters}
+                  title="Reset Filters"
+                  className="p-1 text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Observation Table */}
+      <div
+        className={`bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden flex flex-col ${
+          isTableOnlyMode ? 'flex-1 min-h-0' : ''
+        }`}
+      >
+        {/* Table Control Toolbar */}
+        <div className="bg-slate-900 text-slate-100 px-3 sm:px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shadow-xs shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {isTableOnlyMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTableOnlyMode(false);
+                  setHubMode('tickets-table');
+                }}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Tickets</span>
+              </button>
+            )}
+            <span className="px-2.5 py-1 bg-blue-600/20 border border-blue-500/40 text-blue-300 rounded-lg font-mono font-bold text-xs">
+              #{header.ticketNo}
+            </span>
             <button
-              type="button"
               onClick={handleAddRow}
-              className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>+ Add Row</span>
             </button>
+            <span className="text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
+              {filteredObservations.length} of {observations.length} rows
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {onToggleSidebar && (
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                  isSidebarCollapsed
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                }`}
+              >
+                {isSidebarCollapsed ? (
+                  <>
+                    <PanelLeftOpen className="w-3.5 h-3.5" />
+                    <span>Show Nav</span>
+                  </>
+                ) : (
+                  <>
+                    <PanelLeftClose className="w-3.5 h-3.5" />
+                    <span>Hide Nav</span>
+                  </>
+                )}
+              </button>
+            )}
 
             <button
               type="button"
+              onClick={() => setIsTableOnlyMode((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                isTableOnlyMode
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
+                  : 'bg-slate-800 text-blue-300 border-slate-700 hover:bg-slate-700'
+              }`}
+            >
+              {isTableOnlyMode ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Show Top Headers</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Only Table View</span>
+                </>
+              )}
+            </button>
+
+            <button
               onClick={handleDownloadExcel}
-              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-              title="Export exact Excel sheet matching corporate format"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" />
               <span>Export Excel</span>
             </button>
-
-            <button
-              type="button"
-              onClick={() => setIsAdoModalOpen(true)}
-              className="px-2.5 py-1 bg-white/20 hover:bg-white/30 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-              title="Upload observations to Azure DevOps"
-            >
-              <UploadCloud className="w-3.5 h-3.5" />
-              <span>Azure DevOps</span>
-            </button>
-          </div>
-        }
-      />
-
-      {/* Observation vs RFE Filter Pills */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200 shadow-2xs text-xs">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-500 font-medium">Filter Type:</span>
-          <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-            <button
-              onClick={() => setSelectedTypeFilter('ALL')}
-              className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                selectedTypeFilter === 'ALL'
-                  ? 'bg-white text-slate-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              All Records ({observations.length})
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('Observation')}
-              className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                selectedTypeFilter === 'Observation'
-                  ? 'bg-amber-100 text-amber-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              Observations (
-              {observations.filter((o) => (o.type || 'Observation') === 'Observation').length})
-            </button>
-            <button
-              onClick={() => setSelectedTypeFilter('RFE')}
-              className={`px-3 py-1 rounded-md font-semibold transition-colors cursor-pointer ${
-                selectedTypeFilter === 'RFE'
-                  ? 'bg-purple-100 text-purple-900 shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              RFEs ({observations.filter((o) => o.type === 'RFE').length})
-            </button>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
-            <input
-              type="text"
-              placeholder="Search observations..."
-              value={globalSearch}
-              onChange={(e) => setGlobalSearch(e.target.value)}
-              className="pl-8 pr-3 py-1 bg-slate-50 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 w-52"
-            />
-          </div>
-          {(globalSearch || Object.values(columnFilters).some(Boolean)) && (
-            <button
-              onClick={handleResetFilters}
-              title="Reset Filters"
-              className="p-1 text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 rounded cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Observation Table */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto max-h-[620px]">
-          <table className="w-full text-left text-xs border-collapse min-w-[1250px]">
+        <div
+          className={`table-always-scroll ${
+            isTableOnlyMode
+              ? 'flex-1 min-h-0'
+              : 'max-h-[calc(100vh-220px)] min-h-[420px]'
+          }`}
+        >
+          <table className="w-full text-left text-xs border-collapse min-w-[1450px]">
             <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
               <tr>
-                <th className="p-2.5 w-12 text-center border-r border-slate-700">#</th>
+                <ColumnHeader
+                  title="#"
+                  columnKey="rowIndex"
+                  filterValue={columnFilters.rowIndex}
+                  onFilterChange={handleFilterChange}
+                  align="center"
+                  placeholder="#"
+                  className="w-16 border-r border-slate-700"
+                />
 
                 <ColumnHeader
                   title="Sr. No."
@@ -1467,7 +1784,8 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.serialNo}
                   onFilterChange={handleFilterChange}
-                  className="w-24 border-r border-slate-700"
+                  options={observations.map((o) => o.serialNo)}
+                  className="w-28 border-r border-slate-700"
                 />
 
                 <ColumnHeader
@@ -1478,6 +1796,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.type}
                   onFilterChange={handleFilterChange}
+                  options={['Observation', 'RFE']}
                   className="w-32 border-r border-slate-700"
                 />
 
@@ -1489,6 +1808,7 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.observationRFE}
                   onFilterChange={handleFilterChange}
+                  options={observations.map((o) => o.observationRFE)}
                   className="min-w-[320px] border-r border-slate-700"
                 />
 
@@ -1500,7 +1820,9 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.priority}
                   onFilterChange={handleFilterChange}
-                  className="w-24 text-center border-r border-slate-700"
+                  options={['Critical', 'High', 'Medium', 'Low']}
+                  align="center"
+                  className="w-28 text-center border-r border-slate-700"
                 />
 
                 <ColumnHeader
@@ -1511,12 +1833,23 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.status}
                   onFilterChange={handleFilterChange}
+                  options={['Open', 'Fixed', 'Pending', 'Closed', 'Reopened']}
+                  align="center"
                   className="w-36 text-center border-r border-slate-700"
                 />
 
-                <th className="p-2.5 w-20 text-center border-r border-slate-700 font-semibold">
-                  Retesting
-                </th>
+                <ColumnHeader
+                  title="Retesting"
+                  columnKey="retesting"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterValue={columnFilters.retesting}
+                  onFilterChange={handleFilterChange}
+                  options={['1', '2', '3']}
+                  align="center"
+                  className="w-24 text-center border-r border-slate-700"
+                />
 
                 <ColumnHeader
                   title="Developer Remark"
@@ -1526,18 +1859,42 @@ export const ObservationsView: React.FC<ObservationsViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.remark}
                   onFilterChange={handleFilterChange}
+                  options={observations.map((o) => o.remark || '')}
                   className="w-56 border-r border-slate-700"
                 />
 
-                <th className="p-2.5 w-64 border-r border-slate-700 font-semibold">
-                  Evidence (Screenshots / Files)
-                </th>
+                <ColumnHeader
+                  title="Evidence (Screenshots / Files)"
+                  columnKey="evidence"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterValue={columnFilters.evidence}
+                  onFilterChange={handleFilterChange}
+                  options={['With Evidence', 'No Evidence']}
+                  className="w-64 border-r border-slate-700"
+                />
 
-                <th className="p-2.5 w-24 text-center font-semibold">Actions</th>
+                <ColumnHeader
+                  title="Actions"
+                  columnKey="actions"
+                  filterValue={columnFilters.actions}
+                  onFilterChange={handleFilterChange}
+                  options={['Duplicate', 'Delete']}
+                  align="center"
+                  className="w-28"
+                />
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-200 text-slate-800">
+            <tbody
+              className="divide-y divide-slate-200 text-slate-800"
+              onFocusCapture={() => {
+                if (!isTableOnlyMode) {
+                  setIsTableOnlyMode(true);
+                }
+              }}
+            >
               {filteredObservations.map((obs, index) => (
                 <tr key={obs.id} className="hover:bg-slate-50 transition-colors">
                   {/* # */}

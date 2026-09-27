@@ -33,6 +33,7 @@ import {
 } from '../utils/aiGenerator';
 import { parseUploadedFile } from '../utils/fileParser';
 import { CommonHeader } from './common/CommonHeader';
+import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { polishObservationText } from '../utils/textPolisher';
 import {
   FileSpreadsheet,
@@ -96,6 +97,38 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   // Status Filter
   const [queueFilter, setQueueFilter] = useState<'pending' | 'all' | 'approved' | 'changes'>('pending');
 
+  // Column Sort & Filter for Submitted Test Cases Review Queue Table
+  const [queueSortKey, setQueueSortKey] = useState<string | null>(null);
+  const [queueSortDirection, setQueueSortDirection] = useState<SortDirection>(null);
+  const [queueColumnFilters, setQueueColumnFilters] = useState<Record<string, string[]>>({});
+  const [queueColumnSearchTerms, setQueueColumnSearchTerms] = useState<Record<string, string>>({});
+
+  // Column Sort & Filter for Editable Test Cases Matrix Table in Review
+  const [tcSortKey, setTcSortKey] = useState<string | null>(null);
+  const [tcSortDirection, setTcSortDirection] = useState<SortDirection>(null);
+  const [tcColumnFilters, setTcColumnFilters] = useState<Record<string, string[]>>({});
+  const [tcColumnSearchTerms, setTcColumnSearchTerms] = useState<Record<string, string>>({});
+
+  const handleQueueSort = (key: string) => {
+    if (queueSortKey === key) {
+      setQueueSortDirection((prev) => (prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc'));
+      if (queueSortDirection === 'desc') setQueueSortKey(null);
+    } else {
+      setQueueSortKey(key);
+      setQueueSortDirection('asc');
+    }
+  };
+
+  const handleTcSort = (key: string) => {
+    if (tcSortKey === key) {
+      setTcSortDirection((prev) => (prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc'));
+      if (tcSortDirection === 'desc') setTcSortKey(null);
+    } else {
+      setTcSortKey(key);
+      setTcSortDirection('asc');
+    }
+  };
+
   // Build review queue items
   const queueItems = useMemo(() => {
     return tickets.map((t) => {
@@ -122,26 +155,122 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
   }, [tickets, testCaseHeadersMap, testCasesMap]);
 
   // Filtered Items
+  const queueColumnOptions = useMemo(() => {
+    const getUnique = (getter: (q: (typeof queueItems)[0]) => string) =>
+      Array.from(new Set(queueItems.map(getter).filter(Boolean)));
+    return {
+      ticketId: getUnique((q) => `#${q.ticket.ticketNumber} – ${q.ticket.featureName}`),
+      assignedQa: getUnique((q) => q.header.taskDoneBy || ''),
+      testCases: getUnique((q) => `${q.testCases.length} Cases`),
+      status: getUnique((q) => String(q.status || '')),
+    };
+  }, [queueItems]);
+
   const filteredQueue = useMemo(() => {
-    return queueItems.filter((q) => {
+    const getColVal = (q: (typeof queueItems)[0], key: string): string => {
+      switch (key) {
+        case 'ticketId':
+          return `#${q.ticket.ticketNumber} – ${q.ticket.featureName}`;
+        case 'assignedQa':
+          return q.header.taskDoneBy || '';
+        case 'testCases':
+          return `${q.testCases.length} Cases`;
+        case 'status':
+          return String(q.status || '');
+        default:
+          return '';
+      }
+    };
+
+    const list = queueItems.filter((q) => {
       if (queueFilter === 'pending') {
-        return q.status === 'Review Pending' || q.status === 'In Review';
+        if (!(q.status === 'Review Pending' || q.status === 'In Review')) return false;
+      } else if (queueFilter === 'approved') {
+        if (q.status !== 'Approved') return false;
+      } else if (queueFilter === 'changes') {
+        if (q.status !== 'Changes Required') return false;
       }
-      if (queueFilter === 'approved') {
-        return q.status === 'Approved';
+
+      for (const colKey of Object.keys(queueColumnFilters)) {
+        const selectedVals = queueColumnFilters[colKey];
+        if (selectedVals && selectedVals.length > 0) {
+          if (!selectedVals.includes(getColVal(q, colKey))) return false;
+        }
       }
-      if (queueFilter === 'changes') {
-        return q.status === 'Changes Required';
+
+      for (const colKey of Object.keys(queueColumnSearchTerms)) {
+        const searchVal = queueColumnSearchTerms[colKey];
+        if (searchVal && searchVal.trim() !== '') {
+          if (!getColVal(q, colKey).toLowerCase().includes(searchVal.trim().toLowerCase())) return false;
+        }
       }
+
       return true;
     });
-  }, [queueItems, queueFilter]);
+
+    if (queueSortKey && queueSortDirection) {
+      list.sort((a, b) => {
+        const cmp = getColVal(a, queueSortKey).localeCompare(getColVal(b, queueSortKey), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+        return queueSortDirection === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return list;
+  }, [queueItems, queueFilter, queueColumnFilters, queueColumnSearchTerms, queueSortKey, queueSortDirection]);
 
   // Selected Active Item
   const activeItem = useMemo(() => {
     if (!selectedTicketNo) return null;
     return queueItems.find((q) => q.ticket.ticketNumber.toLowerCase() === selectedTicketNo.toLowerCase()) || null;
   }, [queueItems, selectedTicketNo]);
+
+  const tcColumnOptions = useMemo(() => {
+    const cases = activeItem?.testCases || [];
+    const getUnique = (getter: (tc: TestCaseItem) => string) =>
+      Array.from(new Set(cases.map(getter).filter(Boolean)));
+    return {
+      testCaseId: getUnique((tc) => tc.testCaseId || ''),
+      testScenario: getUnique((tc) => tc.testScenario || ''),
+      testCases: getUnique((tc) => tc.testCases || ''),
+      expectedResult: getUnique((tc) => tc.expectedResult || ''),
+    };
+  }, [activeItem]);
+
+  const filteredActiveTestCases = useMemo(() => {
+    const cases = activeItem?.testCases || [];
+    const getColVal = (tc: TestCaseItem, key: string): string => String((tc as any)[key] || '');
+
+    const list = cases.filter((tc) => {
+      for (const colKey of Object.keys(tcColumnFilters)) {
+        const selectedVals = tcColumnFilters[colKey];
+        if (selectedVals && selectedVals.length > 0) {
+          if (!selectedVals.includes(getColVal(tc, colKey))) return false;
+        }
+      }
+      for (const colKey of Object.keys(tcColumnSearchTerms)) {
+        const searchVal = tcColumnSearchTerms[colKey];
+        if (searchVal && searchVal.trim() !== '') {
+          if (!getColVal(tc, colKey).toLowerCase().includes(searchVal.trim().toLowerCase())) return false;
+        }
+      }
+      return true;
+    });
+
+    if (tcSortKey && tcSortDirection) {
+      list.sort((a, b) => {
+        const cmp = getColVal(a, tcSortKey).localeCompare(getColVal(b, tcSortKey), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+        return tcSortDirection === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return list;
+  }, [activeItem, tcColumnFilters, tcColumnSearchTerms, tcSortKey, tcSortDirection]);
 
   // AI Coverage Check Action
   const handleRunAiCoverageCheck = () => {
@@ -501,10 +630,60 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
           <table className="w-full text-left text-xs border-collapse">
             <thead className="bg-slate-900 text-slate-200 uppercase font-semibold text-[11px]">
               <tr>
-                <th className="p-3 border-r border-slate-800">Ticket ID</th>
-                <th className="p-3 border-r border-slate-800">Assigned QA</th>
-                <th className="p-3 border-r border-slate-800 text-center">Test Cases</th>
-                <th className="p-3 border-r border-slate-800 text-center">Status</th>
+                <ColumnHeader
+                  label="Ticket ID"
+                  sortKey="ticketId"
+                  currentSortKey={queueSortKey}
+                  sortDirection={queueSortDirection}
+                  onSort={handleQueueSort}
+                  filterOptions={queueColumnOptions.ticketId}
+                  selectedFilters={queueColumnFilters.ticketId || []}
+                  onFilterChange={(vals) => setQueueColumnFilters((prev) => ({ ...prev, ticketId: vals }))}
+                  searchTerm={queueColumnSearchTerms.ticketId || ''}
+                  onSearchChange={(term) => setQueueColumnSearchTerms((prev) => ({ ...prev, ticketId: term }))}
+                  className="p-3 border-r border-slate-800"
+                />
+                <ColumnHeader
+                  label="Assigned QA"
+                  sortKey="assignedQa"
+                  currentSortKey={queueSortKey}
+                  sortDirection={queueSortDirection}
+                  onSort={handleQueueSort}
+                  filterOptions={queueColumnOptions.assignedQa}
+                  selectedFilters={queueColumnFilters.assignedQa || []}
+                  onFilterChange={(vals) => setQueueColumnFilters((prev) => ({ ...prev, assignedQa: vals }))}
+                  searchTerm={queueColumnSearchTerms.assignedQa || ''}
+                  onSearchChange={(term) => setQueueColumnSearchTerms((prev) => ({ ...prev, assignedQa: term }))}
+                  className="p-3 border-r border-slate-800"
+                />
+                <ColumnHeader
+                  label="Test Cases"
+                  sortKey="testCases"
+                  currentSortKey={queueSortKey}
+                  sortDirection={queueSortDirection}
+                  onSort={handleQueueSort}
+                  filterOptions={queueColumnOptions.testCases}
+                  selectedFilters={queueColumnFilters.testCases || []}
+                  onFilterChange={(vals) => setQueueColumnFilters((prev) => ({ ...prev, testCases: vals }))}
+                  searchTerm={queueColumnSearchTerms.testCases || ''}
+                  onSearchChange={(term) => setQueueColumnSearchTerms((prev) => ({ ...prev, testCases: term }))}
+                  align="center"
+                  className="p-3 border-r border-slate-800"
+                />
+                <ColumnHeader
+                  label="Status"
+                  sortKey="status"
+                  currentSortKey={queueSortKey}
+                  sortDirection={queueSortDirection}
+                  onSort={handleQueueSort}
+                  filterOptions={queueColumnOptions.status}
+                  selectedFilters={queueColumnFilters.status || []}
+                  onFilterChange={(vals) => setQueueColumnFilters((prev) => ({ ...prev, status: vals }))}
+                  searchTerm={queueColumnSearchTerms.status || ''}
+                  onSearchChange={(term) => setQueueColumnSearchTerms((prev) => ({ ...prev, status: term }))}
+                  align="center"
+                  className="p-3 border-r border-slate-800"
+                />
                 <th className="p-3 text-center">Action</th>
               </tr>
             </thead>
@@ -880,14 +1059,62 @@ export const SeniorQAReviewQueue: React.FC<SeniorQAReviewQueueProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead className="bg-slate-800 text-slate-200 font-semibold text-[11px]">
                   <tr>
-                    <th className="p-2.5 w-24 border-r border-slate-700">ID</th>
-                    <th className="p-2.5 border-r border-slate-700 min-w-[220px]">Scenario</th>
-                    <th className="p-2.5 border-r border-slate-700 min-w-[240px]">Test Steps</th>
-                    <th className="p-2.5 border-r border-slate-700 min-w-[220px]">Expected Result</th>
+                    <ColumnHeader
+                      label="ID"
+                      sortKey="testCaseId"
+                      currentSortKey={tcSortKey}
+                      sortDirection={tcSortDirection}
+                      onSort={handleTcSort}
+                      filterOptions={tcColumnOptions.testCaseId}
+                      selectedFilters={tcColumnFilters.testCaseId || []}
+                      onFilterChange={(vals) => setTcColumnFilters((prev) => ({ ...prev, testCaseId: vals }))}
+                      searchTerm={tcColumnSearchTerms.testCaseId || ''}
+                      onSearchChange={(term) => setTcColumnSearchTerms((prev) => ({ ...prev, testCaseId: term }))}
+                      className="p-2.5 w-24 border-r border-slate-700"
+                    />
+                    <ColumnHeader
+                      label="Scenario"
+                      sortKey="testScenario"
+                      currentSortKey={tcSortKey}
+                      sortDirection={tcSortDirection}
+                      onSort={handleTcSort}
+                      filterOptions={tcColumnOptions.testScenario}
+                      selectedFilters={tcColumnFilters.testScenario || []}
+                      onFilterChange={(vals) => setTcColumnFilters((prev) => ({ ...prev, testScenario: vals }))}
+                      searchTerm={tcColumnSearchTerms.testScenario || ''}
+                      onSearchChange={(term) => setTcColumnSearchTerms((prev) => ({ ...prev, testScenario: term }))}
+                      className="p-2.5 border-r border-slate-700 min-w-[220px]"
+                    />
+                    <ColumnHeader
+                      label="Test Steps"
+                      sortKey="testCases"
+                      currentSortKey={tcSortKey}
+                      sortDirection={tcSortDirection}
+                      onSort={handleTcSort}
+                      filterOptions={tcColumnOptions.testCases}
+                      selectedFilters={tcColumnFilters.testCases || []}
+                      onFilterChange={(vals) => setTcColumnFilters((prev) => ({ ...prev, testCases: vals }))}
+                      searchTerm={tcColumnSearchTerms.testCases || ''}
+                      onSearchChange={(term) => setTcColumnSearchTerms((prev) => ({ ...prev, testCases: term }))}
+                      className="p-2.5 border-r border-slate-700 min-w-[240px]"
+                    />
+                    <ColumnHeader
+                      label="Expected Result"
+                      sortKey="expectedResult"
+                      currentSortKey={tcSortKey}
+                      sortDirection={tcSortDirection}
+                      onSort={handleTcSort}
+                      filterOptions={tcColumnOptions.expectedResult}
+                      selectedFilters={tcColumnFilters.expectedResult || []}
+                      onFilterChange={(vals) => setTcColumnFilters((prev) => ({ ...prev, expectedResult: vals }))}
+                      searchTerm={tcColumnSearchTerms.expectedResult || ''}
+                      onSearchChange={(term) => setTcColumnSearchTerms((prev) => ({ ...prev, expectedResult: term }))}
+                      className="p-2.5 border-r border-slate-700 min-w-[220px]"
+                    />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800">
-                  {activeItem.testCases.map((tc) => (
+                  {filteredActiveTestCases.map((tc) => (
                     <tr key={tc.id} className="hover:bg-slate-50">
                       <td className="p-2.5 font-mono font-bold text-blue-700 border-r border-slate-100">
                         {tc.testCaseId}

@@ -31,8 +31,14 @@ import {
   Languages,
   Lock,
   Eye,
+  EyeOff,
+  Building2,
   FileSpreadsheet,
   CloudDownload,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import {
   TestCaseHeaderMeta,
@@ -64,7 +70,6 @@ import { CommonHeader } from './common/CommonHeader';
 import { TestCaseSolutionModal } from './common/TestCaseSolutionModal';
 import { TicketLockedModal } from './common/TicketLockedModal';
 import { ExcelUploadModal } from './common/ExcelUploadModal';
-import { AiLinePolisherBar } from './common/AiLinePolisherBar';
 import { getAllCreatedTicketsOnSystem } from '../data/dbStore';
 import {
   generateTestCaseFromOneLine,
@@ -93,6 +98,8 @@ interface UnifiedAITestHubProps {
   onSaveAndSubmitTicket?: (ticketNo: string) => void;
   onReopenEditTicket?: (ticketNo: string) => void;
   onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
@@ -112,6 +119,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   onSaveAndSubmitTicket,
   onReopenEditTicket,
   onDeleteTicket,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   // Hub Navigation Mode: Tickets Table vs Test Cases Screen
   const [hubMode, setHubMode] = useState<'tickets-table' | 'test-case-screen'>('tickets-table');
@@ -177,6 +186,18 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
       comments: initialHeader.comments || [],
     };
   });
+
+  // State to toggle hide / unhide for the ticket header specifications card
+  const [isHeaderCardHidden, setIsHeaderCardHidden] = useState(false);
+
+  // State for Full UI Table-Only Mode (automatically active when working in the table or hiding navigation window)
+  const [isTableOnlyMode, setIsTableOnlyMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isSidebarCollapsed) {
+      setIsTableOnlyMode(true);
+    }
+  }, [isSidebarCollapsed]);
 
   // Keep header synchronized when ticket changes or testCaseHeadersMap updates
   useEffect(() => {
@@ -350,16 +371,35 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   const [isAdoModalOpen, setIsAdoModalOpen] = useState<boolean>(false);
   const [isAiGeneratingSuite, setIsAiGeneratingSuite] = useState<boolean>(false);
 
+  // Column Sort & Filter for Tickets Table
+  const [ticketSortKey, setTicketSortKey] = useState<string | null>(null);
+  const [ticketSortDirection, setTicketSortDirection] = useState<SortDirection>(null);
+  const [ticketColumnFilters, setTicketColumnFilters] = useState<Record<string, string>>({
+    ticketNumber: '',
+    featureName: '',
+    moduleName: '',
+    qaAssignee: '',
+    developer: '',
+    priority: '',
+    status: '',
+    testCasesCount: '',
+    reviewStatus: '',
+    action: '',
+  });
+
   // Column Sort & Filter for Test Cases Table
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
+    rowIndex: '',
     testCaseId: '',
     testScenario: '',
     testCases: '',
     expectedResult: '',
     actualResult: '',
     status: '',
+    evidence: '',
+    actions: '',
   });
 
   // Permissions & Review Locks
@@ -689,6 +729,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             type: d.type,
             content: d.parsedText || d.dataUrl || '',
           })),
+          existingTestCases: testCases,
           count: 22,
         }),
       });
@@ -1137,31 +1178,67 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
   // Filtered Tickets for Tickets Table View
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      if (ticketStatusFilter !== 'all' && t.status.toLowerCase() !== ticketStatusFilter.toLowerCase()) {
-        return false;
-      }
-      if (ticketModuleFilter !== 'all' && t.moduleId !== ticketModuleFilter) {
-        return false;
-      }
-      if (ticketSearch.trim()) {
-        const q = ticketSearch.toLowerCase().trim();
-        const matches =
-          t.ticketNumber.toLowerCase().includes(q) ||
-          t.featureName.toLowerCase().includes(q) ||
-          t.moduleName.toLowerCase().includes(q) ||
-          t.qaAssignee.toLowerCase().includes(q) ||
-          t.developer.toLowerCase().includes(q);
-        if (!matches) return false;
-      }
-      return true;
-    });
-  }, [tickets, ticketSearch, ticketStatusFilter, ticketModuleFilter]);
+    return tickets
+      .filter((t) => {
+        if (ticketStatusFilter !== 'all' && t.status.toLowerCase() !== ticketStatusFilter.toLowerCase()) {
+          return false;
+        }
+        if (ticketModuleFilter !== 'all' && t.moduleId !== ticketModuleFilter) {
+          return false;
+        }
+        if (ticketSearch.trim()) {
+          const q = ticketSearch.toLowerCase().trim();
+          const matches =
+            t.ticketNumber.toLowerCase().includes(q) ||
+            t.featureName.toLowerCase().includes(q) ||
+            t.moduleName.toLowerCase().includes(q) ||
+            t.qaAssignee.toLowerCase().includes(q) ||
+            t.developer.toLowerCase().includes(q);
+          if (!matches) return false;
+        }
+        const casesCount = (testCasesMap[t.ticketNumber] || []).length || t.testCasesCount || 0;
+        const ticketHeader = testCaseHeadersMap[t.ticketNumber];
+        const reviewStatus = ticketHeader?.reviewStatus || t.reviewStatus || 'Draft';
+        const rowPerm = canUserOpenTicket(t, currentUser);
+        const actionLabel = !rowPerm.allowed ? 'Locked' : 'Open';
+
+        if (ticketColumnFilters.ticketNumber && !t.ticketNumber.toLowerCase().includes(ticketColumnFilters.ticketNumber.toLowerCase())) return false;
+        if (ticketColumnFilters.featureName && !(`${t.featureName} ${t.testingScenarios || ''}`).toLowerCase().includes(ticketColumnFilters.featureName.toLowerCase())) return false;
+        if (ticketColumnFilters.moduleName && !t.moduleName.toLowerCase().includes(ticketColumnFilters.moduleName.toLowerCase())) return false;
+        if (ticketColumnFilters.qaAssignee && !t.qaAssignee.toLowerCase().includes(ticketColumnFilters.qaAssignee.toLowerCase())) return false;
+        if (ticketColumnFilters.developer && !t.developer.toLowerCase().includes(ticketColumnFilters.developer.toLowerCase())) return false;
+        if (ticketColumnFilters.priority && !t.priority.toLowerCase().includes(ticketColumnFilters.priority.toLowerCase())) return false;
+        if (ticketColumnFilters.status && !t.status.toLowerCase().includes(ticketColumnFilters.status.toLowerCase())) return false;
+        if (ticketColumnFilters.testCasesCount && !(`${casesCount} Cases`).toLowerCase().includes(ticketColumnFilters.testCasesCount.toLowerCase())) return false;
+        if (ticketColumnFilters.reviewStatus && !reviewStatus.toLowerCase().includes(ticketColumnFilters.reviewStatus.toLowerCase())) return false;
+        if (ticketColumnFilters.action && !actionLabel.toLowerCase().includes(ticketColumnFilters.action.toLowerCase())) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (!ticketSortKey || !ticketSortDirection) return 0;
+        const getVal = (t: TicketSummary) => {
+          if (ticketSortKey === 'testCasesCount') return (testCasesMap[t.ticketNumber] || []).length || t.testCasesCount || 0;
+          if (ticketSortKey === 'reviewStatus') return testCaseHeadersMap[t.ticketNumber]?.reviewStatus || t.reviewStatus || 'Draft';
+          return (t as any)[ticketSortKey] || '';
+        };
+        const valA = getVal(a);
+        const valB = getVal(b);
+        if (typeof valA === 'number' && typeof valB === 'number') {
+          return ticketSortDirection === 'asc' ? valA - valB : valB - valA;
+        }
+        const comp = String(valA).localeCompare(String(valB));
+        return ticketSortDirection === 'asc' ? comp : -comp;
+      });
+  }, [tickets, ticketSearch, ticketStatusFilter, ticketModuleFilter, ticketColumnFilters, ticketSortKey, ticketSortDirection, testCasesMap, testCaseHeadersMap, currentUser]);
 
   // Filtered Test Cases for Table
   const filteredTestCases = useMemo(() => {
     return testCases
-      .filter((tc) => {
+      .filter((tc, idx) => {
+        if (columnFilters.rowIndex && !String(idx + 1).includes(columnFilters.rowIndex.trim())) {
+          return false;
+        }
         if (columnFilters.testCaseId && !tc.testCaseId.toLowerCase().includes(columnFilters.testCaseId.toLowerCase())) {
           return false;
         }
@@ -1177,13 +1254,25 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
         if (columnFilters.actualResult && !(tc.actualResult || '').toLowerCase().includes(columnFilters.actualResult.toLowerCase())) {
           return false;
         }
-        if (columnFilters.status && tc.status.toLowerCase() !== columnFilters.status.toLowerCase()) {
+        if (columnFilters.status && !tc.status.toLowerCase().includes(columnFilters.status.toLowerCase())) {
           return false;
+        }
+        if (columnFilters.evidence) {
+          const q = columnFilters.evidence.toLowerCase().trim();
+          const hasAtt = (tc.attachments || []).length > 0;
+          const attNames = (tc.attachments || []).map((a) => a.name).join(' ').toLowerCase();
+          const statusStr = hasAtt ? 'with evidence attached' : 'no evidence empty';
+          if (!attNames.includes(q) && !statusStr.includes(q)) return false;
         }
         return true;
       })
       .sort((a, b) => {
         if (!sortKey || !sortDirection) return 0;
+        if (sortKey === 'evidence') {
+          const countA = (a.attachments || []).length;
+          const countB = (b.attachments || []).length;
+          return sortDirection === 'asc' ? countA - countB : countB - countA;
+        }
         const valA = (a as any)[sortKey] || '';
         const valB = (b as any)[sortKey] || '';
         const comp = String(valA).localeCompare(String(valB));
@@ -1194,7 +1283,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
   // Render Tickets Table View
   if (hubMode === 'tickets-table') {
     return (
-      <div className="p-6 max-w-[1500px] mx-auto space-y-5">
+      <div className="p-4 sm:p-6 w-full max-w-none mx-auto space-y-4">
         {/* Hub Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="flex items-center gap-3">
@@ -1323,20 +1412,148 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
         {/* Tickets Table View with requested columns */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse min-w-[1100px]">
+          <div className="table-always-scroll max-h-[calc(100vh-230px)] min-h-[380px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1350px]">
               <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
                 <tr>
-                  <th className="p-2.5 w-28 border-r border-slate-700">Ticket ID</th>
-                  <th className="p-2.5 min-w-[220px] border-r border-slate-700">Feature / Task Name</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">Module</th>
-                  <th className="p-2.5 w-32 border-r border-slate-700">QA Assignee</th>
-                  <th className="p-2.5 w-32 border-r border-slate-700">Developer</th>
-                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Priority</th>
-                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Status</th>
-                  <th className="p-2.5 w-28 text-center border-r border-slate-700">Test Cases</th>
-                  <th className="p-2.5 w-36 text-center border-r border-slate-700">Review Status</th>
-                  <th className="p-2.5 min-w-[180px] text-center">Action</th>
+                  <ColumnHeader
+                    title="Ticket ID"
+                    columnKey="ticketNumber"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.ticketNumber}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.ticketNumber)}
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Feature / Task Name"
+                    columnKey="featureName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.featureName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.featureName)}
+                    className="min-w-[220px] border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Module"
+                    columnKey="moduleName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.moduleName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.moduleName)}
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="QA Assignee"
+                    columnKey="qaAssignee"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.qaAssignee}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.qaAssignee)}
+                    className="w-32 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Developer"
+                    columnKey="developer"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.developer}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.developer)}
+                    className="w-32 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Priority"
+                    columnKey="priority"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.priority}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Critical', 'High', 'Medium', 'Low']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Status"
+                    columnKey="status"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.status}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Ready for QA', 'In Testing', 'Observation Raised', 'Passed']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Test Cases"
+                    columnKey="testCasesCount"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.testCasesCount}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Review Status"
+                    columnKey="reviewStatus"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.reviewStatus}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Draft', 'Review Pending', 'In Review', 'Changes Required', 'Approved']}
+                    align="center"
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Action"
+                    columnKey="action"
+                    filterValue={ticketColumnFilters.action}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Open', 'Locked']}
+                    align="center"
+                    className="min-w-[180px]"
+                  />
                 </tr>
               </thead>
 
@@ -1802,498 +2019,555 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
             </div>
           </div>
         )}
+
+        {/* Excel Submit & Upload Modal */}
+        <ExcelUploadModal
+          isOpen={isExcelUploadOpen}
+          onClose={() => setIsExcelUploadOpen(false)}
+          onImportSuccess={handleExcelImportSuccess}
+          currentTicketNo={header.ticketNo || selectedTicketNumber}
+          currentTestCaseCount={testCases.length}
+        />
       </div>
     );
   }
 
   // Render Test Cases Screen for Selected Ticket
   return (
-    <div className="p-6 max-w-[1500px] mx-auto space-y-5">
-      {/* Top Breadcrumb Navigation */}
-      <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
-        <button
-          onClick={() => setHubMode('tickets-table')}
-          className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>← Back to Tickets List</span>
-        </button>
+    <div
+      className={
+        isTableOnlyMode
+          ? 'w-full max-w-none h-[calc(100vh-3.5rem)] p-2 flex flex-col overflow-hidden bg-[#F8FAFC]'
+          : 'p-4 sm:p-6 w-full max-w-none mx-auto space-y-4'
+      }
+    >
+      {!isTableOnlyMode && (
+        <>
+          {/* Top Breadcrumb Navigation */}
+          <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
+            <button
+              onClick={() => setHubMode('tickets-table')}
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>← Back to Tickets List</span>
+            </button>
 
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-400 font-medium">Viewing Test Cases for:</span>
-          <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-            Ticket #{header.ticketNo}
-          </span>
-          <span className="font-bold text-slate-800">{header.taskName}</span>
-        </div>
-      </div>
-
-      {/* Top Header Card */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <span className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
-            <Sparkles className="w-5 h-5" />
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-                Test Case Suite • Ticket #{header.ticketNo}
-              </h1>
-              <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                  header.reviewStatus === 'Approved'
-                    ? 'bg-emerald-100 text-emerald-800'
-                    : header.reviewStatus === 'Review Pending'
-                    ? 'bg-purple-100 text-purple-800'
-                    : 'bg-amber-100 text-amber-800'
-                }`}
-              >
-                {header.reviewStatus || 'Draft'}
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-slate-400 font-medium">Viewing Test Cases for:</span>
+              <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+                Ticket #{header.ticketNo}
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
-                v{header.version || '1.0'}
-              </span>
+              <span className="font-bold text-slate-800">{header.taskName}</span>
             </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Assigned QA: <strong>{header.taskDoneBy}</strong> • Senior QA: <strong>{header.signOffBy}</strong> • Module: <strong>{matchedTicket?.moduleName || 'Term Loan'}</strong>
-            </p>
           </div>
-        </div>
 
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Creator Save & Submit / Reopen Controls */}
-          {isTicketCreator && (
-            isTicketInDraft(matchedTicket) ? (
-              <button
-                onClick={() => {
-                  const tNo = matchedTicket?.ticketNumber || header.ticketNo;
-                  onSaveAndSubmitTicket?.(tNo);
-                  setNotification(`🚀 Ticket #${tNo} submitted! Team members can now view in Read-Only mode.`);
-                  setTimeout(() => setNotification(null), 5000);
-                }}
-                className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
-                title="Submit your draft ticket so other users can view it"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>Save &amp; Submit Ticket</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  const tNo = matchedTicket?.ticketNumber || header.ticketNo;
-                  onReopenEditTicket?.(tNo);
-                  setNotification(`✏️ Ticket #${tNo} reopened for editing! Only you can edit until submitted.`);
-                  setTimeout(() => setNotification(null), 5000);
-                }}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
-                title="Reopen ticket to edit again"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Reopen for Editing</span>
-              </button>
-            )
-          )}
-
-          {/* Read-Only Notice Badge for Non-Creators */}
-          {!isTicketCreator && currentTicketPerms.isReadOnly && (
-            <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
-              <Eye className="w-3.5 h-3.5 text-blue-600" />
-              <span>Read-Only View (Submitted by {matchedTicket?.createdBy || header.taskDoneBy || 'Creator'})</span>
-            </span>
-          )}
-
-          <button
-            onClick={() => handleAiGenerateFullSuite()}
-            disabled={isAiGeneratingSuite || effectiveReadOnly}
-            className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-            <span>{isAiGeneratingSuite ? 'Generating...' : '✨ AI Generate Full Suite'}</span>
-          </button>
-
-          <button
-            onClick={handleAddRow}
-            disabled={effectiveReadOnly}
-            className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 text-blue-700 border border-blue-200 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Add Row</span>
-          </button>
-
-          <button
-            onClick={() => setIsExcelUploadOpen(true)}
-            disabled={effectiveReadOnly}
-            className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
-            title="Submit or import an Excel spreadsheet (.xlsx) with test cases into this ticket"
-          >
-            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
-            <span>📥 Submit / Import Excel</span>
-          </button>
-
-          <button
-            onClick={handleDownloadExcel}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Download Excel</span>
-          </button>
-
-          <button
-            onClick={() => setIsAdoModalOpen(true)}
-            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
-          >
-            <UploadCloud className="w-3.5 h-3.5" />
-            <span>Azure DevOps</span>
-          </button>
-
-          {onDeleteTicket && (
-            <button
-              type="button"
-              onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.taskName })}
-              className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
-              title={`Delete Ticket #${header.ticketNo}`}
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Ticket</span>
-            </button>
-          )}
-
-          {isApprovedAndReadOnly ? (
-            <button
-              onClick={handleCreateNewRevision}
-              className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>+ Create Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
-            </button>
-          ) : header.reviewStatus === 'Review Pending' ? (
-            <div className="flex items-center gap-1.5">
-              <span className="px-3 py-1.5 bg-purple-50 text-purple-800 border border-purple-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs">
-                <Clock className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
-                <span>Submitted for Review</span>
+          {/* Top Header Card */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+                <Sparkles className="w-5 h-5" />
               </span>
-              {onNavigateTab && (
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+                    Test Case Suite • Ticket #{header.ticketNo}
+                  </h1>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                      header.reviewStatus === 'Approved'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : header.reviewStatus === 'Review Pending'
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {header.reviewStatus || 'Draft'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-100 text-blue-800">
+                    v{header.version || '1.0'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Assigned QA: <strong>{header.taskDoneBy}</strong> • Senior QA: <strong>{header.signOffBy}</strong> • Module: <strong>{matchedTicket?.moduleName || 'Term Loan'}</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Action Controls */}
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Creator Save & Submit / Reopen Controls */}
+              {isTicketCreator && (
+                isTicketInDraft(matchedTicket) ? (
+                  <button
+                    onClick={() => {
+                      const tNo = matchedTicket?.ticketNumber || header.ticketNo;
+                      onSaveAndSubmitTicket?.(tNo);
+                      setNotification(`🚀 Ticket #${tNo} submitted! Team members can now view in Read-Only mode.`);
+                      setTimeout(() => setNotification(null), 5000);
+                    }}
+                    className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                    title="Submit your draft ticket so other users can view it"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Save &amp; Submit Ticket</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      const tNo = matchedTicket?.ticketNumber || header.ticketNo;
+                      onReopenEditTicket?.(tNo);
+                      setNotification(`✏️ Ticket #${tNo} reopened for editing! Only you can edit until submitted.`);
+                      setTimeout(() => setNotification(null), 5000);
+                    }}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                    title="Reopen ticket to edit again"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Reopen for Editing</span>
+                  </button>
+                )
+              )}
+
+              {/* Read-Only Notice Badge for Non-Creators */}
+              {!isTicketCreator && currentTicketPerms.isReadOnly && (
+                <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                  <Eye className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Read-Only View (Submitted by {matchedTicket?.createdBy || header.taskDoneBy || 'Creator'})</span>
+                </span>
+              )}
+
+              <button
+                onClick={() => handleAiGenerateFullSuite()}
+                disabled={isAiGeneratingSuite || effectiveReadOnly}
+                className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-all"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                <span>{isAiGeneratingSuite ? 'Generating...' : '✨ AI Generate Full Suite'}</span>
+              </button>
+
+              <button
+                onClick={handleAddRow}
+                disabled={effectiveReadOnly}
+                className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 disabled:opacity-40 text-blue-700 border border-blue-200 text-xs font-semibold rounded-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add Row</span>
+              </button>
+
+              <button
+                onClick={() => setIsExcelUploadOpen(true)}
+                disabled={effectiveReadOnly}
+                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                title="Submit or import an Excel spreadsheet (.xlsx) with test cases into this ticket"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-200" />
+                <span>📥 Submit / Import Excel</span>
+              </button>
+
+              <button
+                onClick={handleDownloadExcel}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Download Excel</span>
+              </button>
+
+              <button
+                onClick={() => setIsAdoModalOpen(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>Azure DevOps</span>
+              </button>
+
+              {onDeleteTicket && (
                 <button
-                  onClick={() => onNavigateTab('review-queue')}
-                  className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1 shadow-xs cursor-pointer whitespace-nowrap"
-                  title="Open in Senior QA Review Queue"
+                  type="button"
+                  onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.taskName })}
+                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                  title={`Delete Ticket #${header.ticketNo}`}
                 >
-                  <span>Review Queue</span>
-                  <ExternalLink className="w-3 h-3" />
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Ticket</span>
+                </button>
+              )}
+
+              {isApprovedAndReadOnly ? (
+                <button
+                  onClick={handleCreateNewRevision}
+                  className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>+ Create Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
+                </button>
+              ) : header.reviewStatus === 'Review Pending' ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="px-3 py-1.5 bg-purple-50 text-purple-800 border border-purple-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs">
+                    <Clock className="w-3.5 h-3.5 text-purple-600 animate-pulse" />
+                    <span>Submitted for Review</span>
+                  </span>
+                  {onNavigateTab && (
+                    <button
+                      onClick={() => onNavigateTab('review-queue')}
+                      className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-md flex items-center gap-1 shadow-xs cursor-pointer whitespace-nowrap"
+                      title="Open in Senior QA Review Queue"
+                    >
+                      <span>Review Queue</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={handleOpenSubmitModalFromWorkbench}
+                  className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-sm cursor-pointer transition-all transform active:scale-95"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{header.reviewStatus === 'Changes Required' ? 'Resubmit for Review' : 'Submit for Test Case Review'}</span>
                 </button>
               )}
             </div>
-          ) : (
-            <button
-              onClick={handleOpenSubmitModalFromWorkbench}
-              className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-sm cursor-pointer transition-all transform active:scale-95"
-            >
-              <Send className="w-3.5 h-3.5" />
-              <span>{header.reviewStatus === 'Changes Required' ? 'Resubmit for Review' : 'Submit for Test Case Review'}</span>
-            </button>
-          )}
-        </div>
-      </div>
+          </div>
 
-      {/* MULTI-LANGUAGE NATURAL QA COMMAND BAR */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-xl p-4 text-white shadow-md">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 mb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-indigo-500/20 text-indigo-300 rounded-lg border border-indigo-500/30">
-              <Languages className="w-4 h-4 text-indigo-400" />
+          {/* MULTI-LANGUAGE NATURAL QA COMMAND BAR */}
+          <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-xl p-4 text-white shadow-md">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-2 mb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 bg-indigo-500/20 text-indigo-300 rounded-lg border border-indigo-500/30">
+                  <Languages className="w-4 h-4 text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-100 flex items-center gap-2">
+                    <span>Natural Language QA Command Bar</span>
+                    <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-[10px] font-mono rounded-full">
+                      Hindi / Hinglish / Any Language ➔ Simple English
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    Kisi bhi language me scenario/command likhein — direct crystal-clear simple English test case me convert hoga!
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLanguageCommand('Agar loan tenure 0 ya negative daale to validation error alert aana chahiye aur save nahi hona chahiye');
+                  }}
+                  className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
+                >
+                  Hinglish Example 1
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLanguageCommand('Jab interest rate blank chhod de to submit button disabled dikhna chahiye');
+                  }}
+                  className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
+                >
+                  Hinglish Example 2
+                </button>
+              </div>
             </div>
-            <div>
-              <h3 className="text-xs font-bold text-slate-100 flex items-center gap-2">
-                <span>Natural Language QA Command Bar</span>
-                <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-400/30 text-indigo-300 text-[10px] font-mono rounded-full">
-                  Hindi / Hinglish / Any Language ➔ Simple English
+
+            <div className="flex flex-col sm:flex-row items-stretch gap-2">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  value={languageCommand}
+                  onChange={(e) => setLanguageCommand(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleParseLanguageCommandToTestCase();
+                    }
+                  }}
+                  placeholder="e.g. 'Agar borrower status inactive ho to loan disburse nahi hona chahiye' ya 'Verify repayment schedule'..."
+                  className="w-full bg-slate-800/90 border border-slate-700 focus:border-indigo-400 rounded-lg pl-3 pr-8 py-2 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
+                />
+                {languageCommand && (
+                  <button
+                    type="button"
+                    onClick={() => setLanguageCommand('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleTranslateLanguageCommand}
+                  disabled={!languageCommand.trim() || isProcessingCommand}
+                  title="Convert this command text into simple, understandable English"
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-xs"
+                >
+                  <Languages className="w-3.5 h-3.5" />
+                  <span>{isProcessingCommand ? 'Translating...' : 'Translate to English'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleParseLanguageCommandToTestCase}
+                  disabled={!languageCommand.trim() || isProcessingCommand}
+                  title="Translate command and insert directly into table as a complete Test Case"
+                  className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-sm active:scale-95"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
+                  <span>{isProcessingCommand ? 'Generating...' : '+ Convert & Add Test Case'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* COMMON MODULE HEADER WITH HIDE / UNHIDE */}
+          {isHeaderCardHidden ? (
+            <div className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs flex items-center justify-between gap-3 text-xs animate-fadeIn">
+              <div className="flex items-center gap-2 min-w-0">
+                <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="font-bold text-slate-800">
+                  Ticket Header & Requirements (#{(header.ticketNo || selectedTicketNumber).replace(/^#+/, '')})
                 </span>
-              </h3>
-              <p className="text-[11px] text-slate-400">
-                Kisi bhi language me scenario/command likhein — direct crystal-clear simple English test case me convert hoga!
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setLanguageCommand('Agar loan tenure 0 ya negative daale to validation error alert aana chahiye aur save nahi hona chahiye');
-              }}
-              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
-            >
-              Hinglish Example 1
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setLanguageCommand('Jab interest rate blank chhod de to submit button disabled dikhna chahiye');
-              }}
-              className="text-[10px] bg-slate-800 hover:bg-slate-700 text-indigo-200 border border-slate-700 px-2 py-1 rounded cursor-pointer transition-colors"
-            >
-              Hinglish Example 2
-            </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch gap-2">
-          <div className="relative flex-1">
-            <input
-              type="text"
-              value={languageCommand}
-              onChange={(e) => setLanguageCommand(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  handleParseLanguageCommandToTestCase();
-                }
-              }}
-              placeholder="e.g. 'Agar borrower status inactive ho to loan disburse nahi hona chahiye' ya 'Verify repayment schedule'..."
-              className="w-full bg-slate-800/90 border border-slate-700 focus:border-indigo-400 rounded-lg pl-3 pr-8 py-2 text-xs text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-sans"
-            />
-            {languageCommand && (
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-600 font-medium truncate">
+                  {header.clientName || 'Treasury Master'} - {matchedTicket?.moduleName || 'Term Loan'} - {header.taskName || 'Test Specifications'}
+                </span>
+                <span className="text-slate-400 hidden sm:inline">•</span>
+                <span className="text-[11px] text-slate-400 hidden sm:inline italic">Header details hidden to maximize workspace</span>
+              </div>
               <button
                 type="button"
-                onClick={() => setLanguageCommand('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white cursor-pointer"
+                onClick={() => setIsHeaderCardHidden(false)}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-lg flex items-center gap-1.5 shadow-2xs cursor-pointer transition-all shrink-0"
               >
-                <X className="w-3.5 h-3.5" />
+                <Eye className="w-3.5 h-3.5" />
+                <span>Unhide Header</span>
               </button>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleTranslateLanguageCommand}
-              disabled={!languageCommand.trim() || isProcessingCommand}
-              title="Convert this command text into simple, understandable English"
-              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-xs"
-            >
-              <Languages className="w-3.5 h-3.5" />
-              <span>{isProcessingCommand ? 'Translating...' : 'Translate to English'}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleParseLanguageCommandToTestCase}
-              disabled={!languageCommand.trim() || isProcessingCommand}
-              title="Translate command and insert directly into table as a complete Test Case"
-              className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-40 transition-all shadow-sm active:scale-95"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-              <span>{isProcessingCommand ? 'Generating...' : '+ Convert & Add Test Case'}</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* COMMON MODULE HEADER */}
-      <CommonHeader
-        mode="qa"
-        selectedTicketNumber={selectedTicketNumber}
-        tickets={systemTicketsList}
-        clientName={header.clientName}
-        onChangeClientName={(val) => {
-          const next = { ...header, clientName: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        moduleName={matchedTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName !== undefined ? header.taskName : (headerDescription || matchedTicket?.featureName || '')}
-        onChangeTaskName={(val) => {
-          const next = { ...header, taskName: val, description: val };
-          setHeader(next);
-          setHeaderDescription(val);
-          onUpdateHeader?.(next);
-        }}
-        sha={header.sha !== undefined ? header.sha : (matchedTicket?.shaCommit || '')}
-        onChangeSha={(val) => {
-          const next = { ...header, sha: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        signOffBy={header.signOffBy !== undefined ? header.signOffBy : (matchedTicket?.signOffBy || '')}
-        onChangeSignOffBy={(val) => {
-          const next = { ...header, signOffBy: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        developerName={header.developer !== undefined ? header.developer : (matchedTicket?.developer || '')}
-        onChangeDeveloperName={(val) => {
-          const next = { ...header, developer: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        qaAssigneeName={header.taskDoneBy !== undefined ? header.taskDoneBy : (matchedTicket?.qaAssignee || '')}
-        onChangeQaAssigneeName={(val) => {
-          const next = { ...header, taskDoneBy: val };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        reviewDoneBy={header.reviewDoneBy || header.approvedBy}
-        reviewDoneAt={header.reviewDoneAt || header.approvedAt}
-        reviewStatus={header.reviewStatus}
-        description={headerDescription}
-        testingScenarios={headerTestingScenarios}
-        attachedDocs={header.attachedDocs || []}
-        onUpdateAttachedDocs={(docs) => {
-          const next = { ...header, attachedDocs: docs };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        screenFields={header.screenFields || []}
-        onUpdateScreenFields={(fields) => {
-          const next = { ...header, screenFields: fields };
-          setHeader(next);
-          onUpdateHeader?.(next);
-        }}
-        onSelectTicket={(tNo) => {
-          setSelectedTicketNumber(tNo);
-          onSelectTicket?.(tNo);
-          const clean = (tNo || '').trim().replace(/^#+/, '').toLowerCase();
-          const found = systemTicketsList.find(
-            (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === clean
-          ) || tickets.find((t) => t.ticketNumber === tNo);
-          if (found) {
-            handleOpenTestCasesScreen(found);
-          }
-        }}
-        onChangeDescription={(val) => {
-          setHeaderDescription(val);
-          setHeader((prev) => ({ ...prev, description: val }));
-        }}
-        onChangeTestingScenarios={(val) => {
-          setHeaderTestingScenarios(val);
-          setHeader((prev) => ({ ...prev, testingScenarios: val }));
-        }}
-        onGenerateAi={handleCommonHeaderGenerateAi}
-        isGenerating={isAiGeneratingSuite}
-        generateButtonText="✨ AI Auto-Generate Test Cases into Table"
-        showGenerateButton={!effectiveReadOnly}
-        readOnly={effectiveReadOnly}
-      />
-
-      {/* Dynamic Review Status Lifecycle Workflow Banner */}
-      {header.reviewStatus === 'Approved' ? (
-        <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-emerald-950 animate-fadeIn shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
-              <CheckCheck className="w-5 h-5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-sm text-emerald-950">Test Case Suite Approved & Certified</p>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
-                  Ready for Test Execution
-                </span>
+          ) : (
+            <div className="space-y-1">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsHeaderCardHidden(true)}
+                  className="text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-2.5 py-1 rounded-md flex items-center gap-1 cursor-pointer transition-colors shadow-2xs"
+                  title="Hide this entire ticket header section to maximize spreadsheet table view"
+                >
+                  <EyeOff className="w-3 h-3 text-slate-500" />
+                  <span>Hide Ticket Header</span>
+                </button>
               </div>
-              <p className="text-emerald-800 mt-0.5">
-                Reviewed & Signed Off By: <strong>{header.reviewDoneBy || header.approvedBy || header.signOffBy || 'QA Lead'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Certified Version: <strong>v{header.approvedVersion || header.version || '1.0'}</strong>
-              </p>
+              <CommonHeader
+                mode="qa"
+                selectedTicketNumber={selectedTicketNumber}
+                tickets={systemTicketsList}
+                clientName={header.clientName}
+                onChangeClientName={(val) => {
+                  const next = { ...header, clientName: val };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                moduleName={matchedTicket?.moduleName || 'Term Loan'}
+                taskName={header.taskName !== undefined ? header.taskName : (headerDescription || matchedTicket?.featureName || '')}
+                onChangeTaskName={(val) => {
+                  const next = { ...header, taskName: val, description: val };
+                  setHeader(next);
+                  setHeaderDescription(val);
+                  onUpdateHeader?.(next);
+                }}
+                sha={header.sha !== undefined ? header.sha : (matchedTicket?.shaCommit || '')}
+                onChangeSha={(val) => {
+                  const next = { ...header, sha: val };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                signOffBy={header.signOffBy !== undefined ? header.signOffBy : (matchedTicket?.signOffBy || '')}
+                onChangeSignOffBy={(val) => {
+                  const next = { ...header, signOffBy: val };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                developerName={header.developer !== undefined ? header.developer : (matchedTicket?.developer || '')}
+                onChangeDeveloperName={(val) => {
+                  const next = { ...header, developer: val };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                qaAssigneeName={header.taskDoneBy !== undefined ? header.taskDoneBy : (matchedTicket?.qaAssignee || '')}
+                onChangeQaAssigneeName={(val) => {
+                  const next = { ...header, taskDoneBy: val };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                reviewDoneBy={header.reviewDoneBy || header.approvedBy}
+                reviewDoneAt={header.reviewDoneAt || header.approvedAt}
+                reviewStatus={header.reviewStatus}
+                description={headerDescription}
+                testingScenarios={headerTestingScenarios}
+                attachedDocs={header.attachedDocs || []}
+                onUpdateAttachedDocs={(docs) => {
+                  const next = { ...header, attachedDocs: docs };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                screenFields={header.screenFields || []}
+                onUpdateScreenFields={(fields) => {
+                  const next = { ...header, screenFields: fields };
+                  setHeader(next);
+                  onUpdateHeader?.(next);
+                }}
+                onSelectTicket={(tNo) => {
+                  setSelectedTicketNumber(tNo);
+                  onSelectTicket?.(tNo);
+                  const clean = (tNo || '').trim().replace(/^#+/, '').toLowerCase();
+                  const found = systemTicketsList.find(
+                    (t) => (t.ticketNumber || '').trim().replace(/^#+/, '').toLowerCase() === clean
+                  ) || tickets.find((t) => t.ticketNumber === tNo);
+                  if (found) {
+                    handleOpenTestCasesScreen(found);
+                  }
+                }}
+                onChangeDescription={(val) => {
+                  setHeaderDescription(val);
+                  setHeader((prev) => ({ ...prev, description: val }));
+                }}
+                onChangeTestingScenarios={(val) => {
+                  setHeaderTestingScenarios(val);
+                  setHeader((prev) => ({ ...prev, testingScenarios: val }));
+                }}
+                onGenerateAi={handleCommonHeaderGenerateAi}
+                isGenerating={isAiGeneratingSuite}
+                generateButtonText="✨ AI Auto-Generate Test Cases into Table"
+                showGenerateButton={!effectiveReadOnly}
+                readOnly={effectiveReadOnly}
+              />
             </div>
-          </div>
-          <button
-            onClick={handleCreateNewRevision}
-            className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>+ Create New Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
-          </button>
-        </div>
-      ) : header.reviewStatus === 'Review Pending' ? (
-        <div className="p-4 bg-purple-50 border border-purple-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-purple-950 animate-fadeIn shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
-              <Clock className="w-5 h-5 animate-pulse" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-sm text-purple-950">Submitted for Test Case Review (Pending Sign-off)</p>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-200 text-purple-900">
-                  In Senior QA Queue
-                </span>
+          )}
+
+          {/* Dynamic Review Status Lifecycle Workflow Banner */}
+          {header.reviewStatus === 'Approved' ? (
+            <div className="p-4 bg-emerald-50 border border-emerald-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-emerald-950 animate-fadeIn shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+                  <CheckCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm text-emerald-950">Test Case Suite Approved & Certified</p>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-200 text-emerald-900">
+                      Ready for Test Execution
+                    </span>
+                  </div>
+                  <p className="text-emerald-800 mt-0.5">
+                    Reviewed & Signed Off By: <strong>{header.reviewDoneBy || header.approvedBy || header.signOffBy || 'QA Lead'}</strong> • Approval Date: <strong>{header.reviewDoneAt || header.approvedAt || new Date().toLocaleDateString()}</strong> • Certified Version: <strong>v{header.approvedVersion || header.version || '1.0'}</strong>
+                  </p>
+                </div>
               </div>
-              <p className="text-purple-800 mt-0.5">
-                Submitted by <strong>{header.submittedBy || header.taskDoneBy}</strong> to <strong>{header.submittedTo || header.signOffBy || 'Senior QA'}</strong> on <strong>{header.submittedAt || 'Today'}</strong>. Suite contains <strong>{testCases.length} test cases</strong> awaiting formal QA evaluation.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {onNavigateTab && (
               <button
-                onClick={() => onNavigateTab('review-queue')}
-                className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                onClick={handleCreateNewRevision}
+                className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap shrink-0"
               >
-                <span>Open Senior QA Review Queue</span>
-                <ChevronRight className="w-3.5 h-3.5" />
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>+ Create New Revision (v{(parseFloat(header.version || '1.0') + 0.1).toFixed(1)})</span>
               </button>
-            )}
-            <button
-              onClick={handleOpenSubmitModalFromWorkbench}
-              className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-700 border border-purple-300 font-semibold rounded-lg cursor-pointer flex items-center gap-1 whitespace-nowrap"
-            >
-              <Edit2 className="w-3 h-3" />
-              <span>Edit Submission</span>
-            </button>
-          </div>
-        </div>
-      ) : header.reviewStatus === 'Changes Required' ? (
-        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-950 animate-fadeIn shadow-xs">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0">
-              <AlertTriangle className="w-5 h-5 text-amber-600" />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-sm text-amber-950">Changes Requested by Senior QA Reviewer</p>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
-                  Needs Revision
-                </span>
+          ) : header.reviewStatus === 'Review Pending' ? (
+            <div className="p-4 bg-purple-50 border border-purple-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-purple-950 animate-fadeIn shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-purple-100 text-purple-700 rounded-lg shrink-0">
+                  <Clock className="w-5 h-5 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm text-purple-950">Submitted for Test Case Review (Pending Sign-off)</p>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-200 text-purple-900">
+                      In Senior QA Queue
+                    </span>
+                  </div>
+                  <p className="text-purple-800 mt-0.5">
+                    Submitted by <strong>{header.submittedBy || header.taskDoneBy}</strong> to <strong>{header.submittedTo || header.signOffBy || 'Senior QA'}</strong> on <strong>{header.submittedAt || 'Today'}</strong>. Suite contains <strong>{testCases.length} test cases</strong> awaiting formal QA evaluation.
+                  </p>
+                </div>
               </div>
-              <p className="text-amber-800 mt-0.5">
-                Senior QA requested updates for Ticket #{header.ticketNo}. Please review comments, update test cases in the table below, and click <strong>Resubmit for Review</strong>.
-              </p>
+              <div className="flex items-center gap-2 shrink-0">
+                {onNavigateTab && (
+                  <button
+                    onClick={() => onNavigateTab('review-queue')}
+                    className="px-3.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-2xs whitespace-nowrap"
+                  >
+                    <span>Open Senior QA Review Queue</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={handleOpenSubmitModalFromWorkbench}
+                  className="px-3 py-1.5 bg-white hover:bg-purple-100 text-purple-700 border border-purple-300 font-semibold rounded-lg cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                >
+                  <Edit2 className="w-3 h-3" />
+                  <span>Edit Submission</span>
+                </button>
+              </div>
             </div>
-          </div>
-          <button
-            onClick={handleOpenSubmitModalFromWorkbench}
-            className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-xs whitespace-nowrap shrink-0"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Resubmit for Test Case Review</span>
-          </button>
-        </div>
-      ) : (
-        <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-800 shadow-2xs">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
-              <FileText className="w-4 h-4" />
+          ) : header.reviewStatus === 'Changes Required' ? (
+            <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-amber-950 animate-fadeIn shadow-xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-amber-100 text-amber-700 rounded-lg shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm text-amber-950">Changes Requested by Senior QA Reviewer</p>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-200 text-amber-900">
+                      Needs Revision
+                    </span>
+                  </div>
+                  <p className="text-amber-800 mt-0.5">
+                    Senior QA requested updates for Ticket #{header.ticketNo}. Please review comments, update test cases in the table below, and click <strong>Resubmit for Review</strong>.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleOpenSubmitModalFromWorkbench}
+                className="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-xs whitespace-nowrap shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Resubmit for Test Case Review</span>
+              </button>
             </div>
-            <div>
-              <p className="font-bold text-slate-900">
-                Draft Test Suite • <span className="text-blue-700">{testCases.length} Test Cases</span> configured for Ticket #{header.ticketNo}
-              </p>
-              <p className="text-slate-500 mt-0.5">
-                Generate or refine your test scenarios below. Once complete, submit this suite to Senior QA for formal review, sign-off, and release approval.
-              </p>
+          ) : (
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs text-slate-800 shadow-2xs">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-lg shrink-0">
+                  <FileText className="w-4 h-4" />
+                </div>
+                <div>
+                  <p className="font-bold text-slate-900">
+                    Draft Test Suite • <span className="text-blue-700">{testCases.length} Test Cases</span> configured for Ticket #{header.ticketNo}
+                  </p>
+                  <p className="text-slate-500 mt-0.5">
+                    Generate or refine your test scenarios below. Once complete, submit this suite to Senior QA for formal review, sign-off, and release approval.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={handleOpenSubmitModalFromWorkbench}
+                className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 transition-all transform active:scale-95"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Submit for Test Case Review</span>
+              </button>
             </div>
-          </div>
-          <button
-            onClick={handleOpenSubmitModalFromWorkbench}
-            className="px-4 py-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold rounded-lg cursor-pointer flex items-center gap-1.5 shadow-sm whitespace-nowrap shrink-0 transition-all transform active:scale-95"
-          >
-            <Send className="w-3.5 h-3.5" />
-            <span>Submit for Test Case Review</span>
-          </button>
-        </div>
+          )}
+        </>
       )}
 
       {/* Toast Notification with Action Link */}
       {notification && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-3 animate-fadeIn shadow-2xs">
+        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-3 animate-fadeIn shadow-2xs shrink-0 mb-1.5">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
             <span className="font-medium">{notification}</span>
@@ -2312,45 +2586,41 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
 
       {/* Excel Upload Notice */}
       {excelUploadSuccessNotice && (
-        <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex items-center gap-2 animate-fadeIn shadow-2xs font-medium">
+        <div className="p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 flex items-center gap-2 animate-fadeIn shadow-2xs font-medium shrink-0 mb-1.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>{excelUploadSuccessNotice}</span>
         </div>
       )}
 
-      {/* AI Quick Line Polisher & Scenario Generator (GPT-Style) */}
-      {!effectiveReadOnly && (
-        <AiLinePolisherBar
-          currentModule={header.taskName || matchedTicket?.moduleName}
-          currentTicketNo={header.ticketNo || selectedTicketNumber}
-          creatorName={currentUser?.name || header.taskDoneBy}
-          creatorRole={currentUser?.role || 'QA'}
-          onAddTestCase={handleAddAiTestCase}
-          onApplyToDescription={(desc) => {
-            const updated = { ...header, taskName: desc, lastModified: new Date().toLocaleDateString() };
-            setHeader(updated);
-            setHeaderDescription(desc);
-            onUpdateHeader?.(updated);
-            setNotification('Applied polished text to feature/task description!');
-            setTimeout(() => setNotification(null), 3500);
-          }}
-          onApplyToTestingScenarios={(scen) => {
-            const updated = { ...header, testingScenarios: scen, lastModified: new Date().toLocaleDateString() };
-            setHeader(updated);
-            setHeaderTestingScenarios(scen);
-            onUpdateHeader?.(updated);
-            setNotification('Applied scenario to testing scenarios!');
-            setTimeout(() => setNotification(null), 3500);
-          }}
-        />
-      )}
-
       {/* SPREADSHEET TABLE: QA Test Cases */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
+      <div
+        className={`bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden flex flex-col ${
+          isTableOnlyMode ? 'flex-1 min-h-0' : ''
+        }`}
+      >
         {/* TABLE CONTROL TOOLBAR: Left corner "Delete All", Right corner "Export & Add" */}
-        <div className="bg-slate-900 text-slate-100 px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-          {/* LEFT CORNER: Delete All Test Cases + Add Row + Row Counter */}
-          <div className="flex items-center gap-2.5">
+        <div className="bg-slate-900 text-slate-100 px-3 sm:px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shadow-xs shrink-0">
+          {/* LEFT CORNER: Back (if Table Only), Ticket Badge, Delete All Test Cases + Add Row + Row Counter */}
+          <div className="flex flex-wrap items-center gap-2">
+            {isTableOnlyMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTableOnlyMode(false);
+                  setHubMode('tickets-table');
+                }}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                title="Return to Tickets List"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Tickets</span>
+              </button>
+            )}
+
+            <span className="px-2.5 py-1 bg-blue-600/20 border border-blue-500/40 text-blue-300 rounded-lg font-mono font-bold text-xs">
+              #{header.ticketNo}
+            </span>
+
             <button
               onClick={handleDeleteAllTestCases}
               disabled={testCases.length === 0 || isApprovedAndReadOnly}
@@ -2358,7 +2628,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
               className="px-3 py-1.5 bg-rose-600/90 hover:bg-rose-600 active:scale-95 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete All Test Cases ({testCases.length})</span>
+              <span>Delete All ({testCases.length})</span>
             </button>
 
             <button
@@ -2378,61 +2648,127 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
               className="px-3 py-1.5 bg-indigo-900/70 hover:bg-indigo-800 text-indigo-200 border border-indigo-700/60 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all shadow-xs cursor-pointer disabled:opacity-40"
             >
               <Languages className="w-3.5 h-3.5 text-yellow-300" />
-              <span>{isTranslatingAll ? 'Translating All Rows...' : '🌐 Auto-Translate All Rows'}</span>
+              <span>{isTranslatingAll ? 'Translating...' : '🌐 Auto-Translate All'}</span>
             </button>
 
-            <span className="hidden sm:inline-block text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
-              {filteredTestCases.length} of {testCases.length} rows shown
+            <span className="hidden xl:inline-block text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
+              {filteredTestCases.length} of {testCases.length} rows
             </span>
           </div>
 
-          {/* RIGHT CORNER: Export options (Excel & Word) + AI suite trigger + Submit Excel */}
+          {/* RIGHT CORNER: Full UI Table Mode toggle, Navigation Hide/Show, Export options + AI suite trigger */}
           <div className="flex flex-wrap items-center gap-2">
+            {onToggleSidebar && (
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                  isSidebarCollapsed
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                }`}
+                title={isSidebarCollapsed ? 'Show Left Navigation Window' : 'Hide Left Navigation Window for Full Width Table'}
+              >
+                {isSidebarCollapsed ? (
+                  <>
+                    <PanelLeftOpen className="w-3.5 h-3.5" />
+                    <span>Show Nav</span>
+                  </>
+                ) : (
+                  <>
+                    <PanelLeftClose className="w-3.5 h-3.5" />
+                    <span>Hide Nav</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsTableOnlyMode((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                isTableOnlyMode
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
+                  : 'bg-slate-800 text-blue-300 border-slate-700 hover:bg-slate-700'
+              }`}
+              title={
+                isTableOnlyMode
+                  ? 'Show Top Headers & Command Bars'
+                  : 'Only Table View (Hide all top sections so only the table fills the screen)'
+              }
+            >
+              {isTableOnlyMode ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Show Top Headers</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Only Table View</span>
+                </>
+              )}
+            </button>
+
             <button
               onClick={() => handleAiGenerateFullSuite()}
               disabled={isAiGeneratingSuite || isApprovedAndReadOnly}
-              className="px-3.5 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+              className="px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
               title="Generate 20+ comprehensive positive & negative test cases with AI"
             >
               <Sparkles className="w-3.5 h-3.5 text-yellow-300" />
-              <span>{isAiGeneratingSuite ? 'Generating 20+ cases...' : '✨ AI Generate (20+ Cases)'}</span>
+              <span>{isAiGeneratingSuite ? 'Generating...' : '✨ AI Generate'}</span>
             </button>
 
             <button
               onClick={() => setIsExcelUploadOpen(true)}
               disabled={isApprovedAndReadOnly}
-              className="px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+              className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               title="Submit or import an Excel spreadsheet (.xlsx) with test cases directly into this ticket"
             >
               <UploadCloud className="w-3.5 h-3.5 text-emerald-200" />
-              <span>📥 Submit / Import Excel (.xlsx)</span>
+              <span>📥 Import Excel</span>
             </button>
 
             <button
               onClick={handleDownloadExcel}
-              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               title="Export to Excel spreadsheet with visible screenshots, metadata, and Actual Result"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Export to Excel (.xlsx)</span>
+              <span>Export Excel</span>
             </button>
 
             <button
               onClick={handleDownloadDocx}
-              className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
               title="Export to Microsoft Word (.docx) document with embedded screenshots & full specification"
             >
               <FileText className="w-3.5 h-3.5" />
-              <span>Export to Word (.docx)</span>
+              <span>Export Word</span>
             </button>
           </div>
         </div>
 
-        <div className="overflow-x-auto max-h-[580px]">
-          <table className="w-full text-left text-xs border-collapse min-w-[1550px]">
+        <div
+          className={`table-always-scroll ${
+            isTableOnlyMode
+              ? 'flex-1 min-h-0'
+              : 'max-h-[calc(100vh-220px)] min-h-[420px]'
+          }`}
+        >
+          <table className="w-full text-left text-xs border-collapse min-w-[1650px]">
             <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
               <tr>
-                <th className="p-2.5 w-12 text-center border-r border-slate-700">#</th>
+                <ColumnHeader
+                  title="#"
+                  columnKey="rowIndex"
+                  filterValue={columnFilters.rowIndex}
+                  onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  align="center"
+                  placeholder="#"
+                  className="w-16 border-r border-slate-700"
+                />
 
                 <ColumnHeader
                   title="TestCase_ID"
@@ -2445,7 +2781,8 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   }}
                   filterValue={columnFilters.testCaseId}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
-                  className="w-28 border-r border-slate-700"
+                  options={testCases.map((tc) => tc.testCaseId)}
+                  className="w-32 border-r border-slate-700"
                 />
 
                 <ColumnHeader
@@ -2459,6 +2796,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   }}
                   filterValue={columnFilters.testScenario}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={testCases.map((tc) => tc.testScenario)}
                   className="min-w-[240px] border-r border-slate-700"
                 />
 
@@ -2473,6 +2811,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   }}
                   filterValue={columnFilters.testCases}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={testCases.map((tc) => tc.testCases)}
                   className="min-w-[240px] border-r border-slate-700"
                 />
 
@@ -2487,6 +2826,7 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   }}
                   filterValue={columnFilters.expectedResult}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={testCases.map((tc) => tc.expectedResult)}
                   className="min-w-[220px] border-r border-slate-700"
                 />
 
@@ -2501,16 +2841,50 @@ export const UnifiedAITestHub: React.FC<UnifiedAITestHubProps> = ({
                   }}
                   filterValue={columnFilters.actualResult}
                   onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={testCases.map((tc) => tc.actualResult || '')}
                   className="min-w-[220px] border-r border-slate-700 text-emerald-300 font-semibold"
                 />
 
-                <th className="p-2.5 w-28 border-r border-slate-700 text-center font-semibold">
-                  Status
-                </th>
+                <ColumnHeader
+                  title="Status"
+                  columnKey="status"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={(k, d) => {
+                    setSortKey(k);
+                    setSortDirection(d);
+                  }}
+                  filterValue={columnFilters.status}
+                  onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={['pass', 'fail', 'blocked', 'not run']}
+                  align="center"
+                  className="w-32 border-r border-slate-700"
+                />
 
-                <th className="p-2.5 w-48 border-r border-slate-700 font-semibold">Evidence</th>
+                <ColumnHeader
+                  title="Evidence"
+                  columnKey="evidence"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={(k, d) => {
+                    setSortKey(k);
+                    setSortDirection(d);
+                  }}
+                  filterValue={columnFilters.evidence}
+                  onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={['With Evidence', 'No Evidence']}
+                  className="w-48 border-r border-slate-700"
+                />
 
-                <th className="p-2.5 w-32 text-center font-semibold">Actions</th>
+                <ColumnHeader
+                  title="Actions"
+                  columnKey="actions"
+                  filterValue={columnFilters.actions}
+                  onFilterChange={(k, v) => setColumnFilters((p) => ({ ...p, [k]: v }))}
+                  options={['Edit', 'Polish', 'Duplicate', 'Delete']}
+                  align="center"
+                  className="w-32"
+                />
               </tr>
             </thead>
 

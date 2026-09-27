@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Ticket, Plus, Search, Filter, CheckCircle2, AlertTriangle, PlayCircle, UploadCloud, X, ArrowUpDown, DownloadCloud, Loader2, Trash2, Key, Building, FolderGit2, Info, Sparkles, Wand2, Copy, Layers } from 'lucide-react';
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
+import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { fetchWorkItemFromAzure, loadSavedAdoConfig, saveAdoConfig } from '../utils/azureDevopsService';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 import { generateTicketDetailsWithAi } from '../utils/aiGenerator';
@@ -31,6 +32,30 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   const [moduleFilter, setModuleFilter] = useState<string>('all');
   const [priorityFilter, setPriorityFilter] = useState<string>('all');
   const [qaFilter, setQaFilter] = useState<string>('all');
+
+  // Column Sort & Filter state for Tickets Table
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
+
+  const handleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc'));
+      if (sortDirection === 'desc') setSortKey(null);
+    } else {
+      setSortKey(key);
+      setSortDirection('asc');
+    }
+  };
+
+  const handleFilterChange = (key: string, values: string[]) => {
+    setColumnFilters((prev) => ({ ...prev, [key]: values }));
+  };
+
+  const handleColumnSearchChange = (key: string, term: string) => {
+    setColumnSearchTerms((prev) => ({ ...prev, [key]: term }));
+  };
 
   // Delete ticket confirmation modal state
   const [deleteTicketTarget, setDeleteTicketTarget] = useState<TicketSummary | null>(null);
@@ -283,8 +308,43 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   }, [roleFilteredTickets]);
 
   // Comprehensive Search & Filter pipeline
+  const columnFilterOptions = useMemo(() => {
+    const getUnique = (getter: (t: TicketSummary) => string) =>
+      Array.from(new Set(roleFilteredTickets.map(getter).filter(Boolean)));
+    return {
+      ticketNumber: getUnique((t) => t.ticketNumber),
+      featureAndModule: getUnique((t) => `${t.featureName} (${t.moduleName})`),
+      priority: getUnique((t) => t.priority),
+      devAndQa: getUnique((t) => `Dev: ${t.developer} | QA: ${t.qaAssignee}`),
+      testCasesCount: getUnique((t) => `${t.testCasesCount} Cases (${t.passedCount} Passed)`),
+      observationsCount: getUnique((t) => `${t.observationsCount} Pending`),
+      status: getUnique((t) => t.status),
+    };
+  }, [roleFilteredTickets]);
+
   const filteredTickets = useMemo(() => {
-    return roleFilteredTickets.filter((t) => {
+    const getColValue = (t: TicketSummary, key: string): string => {
+      switch (key) {
+        case 'ticketNumber':
+          return t.ticketNumber || '';
+        case 'featureAndModule':
+          return `${t.featureName} (${t.moduleName})`;
+        case 'priority':
+          return t.priority || '';
+        case 'devAndQa':
+          return `Dev: ${t.developer} | QA: ${t.qaAssignee}`;
+        case 'testCasesCount':
+          return `${t.testCasesCount} Cases (${t.passedCount} Passed)`;
+        case 'observationsCount':
+          return `${t.observationsCount} Pending`;
+        case 'status':
+          return t.status || '';
+        default:
+          return String((t as any)[key] || '');
+      }
+    };
+
+    const list = roleFilteredTickets.filter((t) => {
       const matchesSearch =
         t.ticketNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
         t.featureName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -298,9 +358,40 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
       const matchesPriority = priorityFilter === 'all' || t.priority === priorityFilter;
       const matchesQa = qaFilter === 'all' || t.qaAssignee.toLowerCase() === qaFilter.toLowerCase();
 
-      return matchesSearch && matchesStatus && matchesModule && matchesPriority && matchesQa;
+      if (!(matchesSearch && matchesStatus && matchesModule && matchesPriority && matchesQa)) return false;
+
+      // Check column checkbox filters
+      for (const colKey of Object.keys(columnFilters)) {
+        const selectedVals = columnFilters[colKey];
+        if (selectedVals && selectedVals.length > 0) {
+          const val = getColValue(t, colKey);
+          if (!selectedVals.includes(val)) return false;
+        }
+      }
+
+      // Check inline column search filters
+      for (const colKey of Object.keys(columnSearchTerms)) {
+        const searchVal = columnSearchTerms[colKey];
+        if (searchVal && searchVal.trim() !== '') {
+          const val = getColValue(t, colKey).toLowerCase();
+          if (!val.includes(searchVal.trim().toLowerCase())) return false;
+        }
+      }
+
+      return true;
     });
-  }, [roleFilteredTickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter]);
+
+    if (sortKey && sortDirection) {
+      list.sort((a, b) => {
+        const valA = getColValue(a, sortKey);
+        const valB = getColValue(b, sortKey);
+        const cmp = valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' });
+        return sortDirection === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return list;
+  }, [roleFilteredTickets, searchTerm, statusFilter, moduleFilter, priorityFilter, qaFilter, columnFilters, columnSearchTerms, sortKey, sortDirection]);
 
   const handleAiGenerateTicketDetails = async () => {
     if (!newFeatureName.trim()) {
@@ -378,7 +469,7 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-[1500px] mx-auto space-y-6">
+    <div className="p-4 sm:p-6 w-full max-w-none mx-auto space-y-5">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -514,17 +605,103 @@ export const TicketsView: React.FC<TicketsViewProps> = ({
 
       {/* Tickets Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
-            <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[10px] tracking-wider">
+        <div className="table-always-scroll max-h-[calc(100vh-230px)] min-h-[380px]">
+          <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
+            <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[10px] tracking-wider sticky top-0 z-20">
               <tr>
-                <th className="p-3 font-semibold">Ticket ID #</th>
-                <th className="p-3 font-semibold">Feature &amp; Module</th>
-                <th className="p-3 font-semibold">Priority</th>
-                <th className="p-3 font-semibold">Developer / QA</th>
-                <th className="p-3 font-semibold text-center">Test Cases Written</th>
-                <th className="p-3 font-semibold text-center">Pending Obs</th>
-                <th className="p-3 font-semibold">Status</th>
+                <ColumnHeader
+                  label="Ticket ID #"
+                  sortKey="ticketNumber"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.ticketNumber}
+                  selectedFilters={columnFilters.ticketNumber || []}
+                  onFilterChange={(vals) => handleFilterChange('ticketNumber', vals)}
+                  searchTerm={columnSearchTerms.ticketNumber || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('ticketNumber', term)}
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Feature & Module"
+                  sortKey="featureAndModule"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.featureAndModule}
+                  selectedFilters={columnFilters.featureAndModule || []}
+                  onFilterChange={(vals) => handleFilterChange('featureAndModule', vals)}
+                  searchTerm={columnSearchTerms.featureAndModule || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('featureAndModule', term)}
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Priority"
+                  sortKey="priority"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.priority}
+                  selectedFilters={columnFilters.priority || []}
+                  onFilterChange={(vals) => handleFilterChange('priority', vals)}
+                  searchTerm={columnSearchTerms.priority || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('priority', term)}
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Developer / QA"
+                  sortKey="devAndQa"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.devAndQa}
+                  selectedFilters={columnFilters.devAndQa || []}
+                  onFilterChange={(vals) => handleFilterChange('devAndQa', vals)}
+                  searchTerm={columnSearchTerms.devAndQa || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('devAndQa', term)}
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Test Cases Written"
+                  sortKey="testCasesCount"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.testCasesCount}
+                  selectedFilters={columnFilters.testCasesCount || []}
+                  onFilterChange={(vals) => handleFilterChange('testCasesCount', vals)}
+                  searchTerm={columnSearchTerms.testCasesCount || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('testCasesCount', term)}
+                  align="center"
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Pending Obs"
+                  sortKey="observationsCount"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.observationsCount}
+                  selectedFilters={columnFilters.observationsCount || []}
+                  onFilterChange={(vals) => handleFilterChange('observationsCount', vals)}
+                  searchTerm={columnSearchTerms.observationsCount || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('observationsCount', term)}
+                  align="center"
+                  className="p-3"
+                />
+                <ColumnHeader
+                  label="Status"
+                  sortKey="status"
+                  currentSortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterOptions={columnFilterOptions.status}
+                  selectedFilters={columnFilters.status || []}
+                  onFilterChange={(vals) => handleFilterChange('status', vals)}
+                  searchTerm={columnSearchTerms.status || ''}
+                  onSearchChange={(term) => handleColumnSearchChange('status', term)}
+                  className="p-3"
+                />
                 <th className="p-3 text-right font-semibold">Actions</th>
               </tr>
             </thead>

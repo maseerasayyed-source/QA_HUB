@@ -6,12 +6,8 @@ import {
   AlertCircle,
   X,
   FileText,
-  Building2,
-  GitBranch,
-  User,
   ListChecks,
   ArrowRight,
-  Sparkles,
 } from 'lucide-react';
 import { TestCaseItem, TestCaseHeaderMeta } from '../../types';
 import { parseCorporateExcelSheet, CorporateExcelParseResult } from '../../utils/fileParser';
@@ -186,7 +182,7 @@ export const ExcelUploadModal: React.FC<ExcelUploadModalProps> = ({
                   <CheckCircle2 className="w-6 h-6 text-emerald-400 shrink-0" />
                   <div>
                     <h3 className="text-sm font-bold text-white">
-                      Found {parseResult.totalRows} Test Cases in Sheet: "{parseResult.sheetName}"
+                      Found {parseResult.totalRows} Test Cases in Sheet: &quot;{parseResult.sheetName}&quot;
                     </h3>
                     <p className="text-xs text-slate-400">
                       All columns have been mapped successfully. Review extracted metadata and preview rows below.

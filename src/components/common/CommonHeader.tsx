@@ -16,6 +16,7 @@ import {
   Upload,
   Languages,
   Eye,
+  EyeOff,
   ClipboardPaste,
   Maximize2,
   ExternalLink,
@@ -127,6 +128,8 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
   const [pasteNotice, setPasteNotice] = useState<string | null>(null);
   const [isPasteModalOpen, setIsPasteModalOpen] = useState(false);
   const pasteCaptureRef = useRef<HTMLTextAreaElement>(null);
+  const [isDescriptionHidden, setIsDescriptionHidden] = useState(false);
+  const [isAttachmentsHidden, setIsAttachmentsHidden] = useState(false);
 
   // Focus paste capture area when modal opens
   useEffect(() => {
@@ -479,10 +482,35 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
       {/* 2. Main Input: Description (Full Width) */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-            Description / Requirements {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(read-only)</span>}
-          </label>
-          {!readOnly && (
+          <div className="flex items-center gap-2">
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Description / Requirements {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(read-only)</span>}
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsDescriptionHidden(!isDescriptionHidden)}
+              className={`px-2.5 py-1 text-[11px] font-bold rounded-md flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs border ${
+                isDescriptionHidden
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-300'
+              }`}
+              title={isDescriptionHidden ? 'Unhide Description / Requirements' : 'Hide Description / Requirements'}
+            >
+              {isDescriptionHidden ? (
+                <>
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>Unhide Description</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Hide Description</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {!readOnly && !isDescriptionHidden && (
             <button
               type="button"
               onClick={handleTranslateDescription}
@@ -495,33 +523,81 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
             </button>
           )}
         </div>
-        <textarea
-          rows={3}
-          value={description ?? ''}
-          readOnly={readOnly}
-          onChange={(e) => !readOnly && onChangeDescription?.(e.target.value)}
-          placeholder="Enter ticket description or requirements..."
-          className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
-            readOnly
-              ? 'bg-slate-100/80 border-slate-200 text-slate-700 cursor-default'
-              : 'bg-slate-50 border-slate-300 text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
-          }`}
-        />
+
+        {isDescriptionHidden ? (
+          <div className="p-3 bg-slate-50 border border-dashed border-slate-300 rounded-lg flex items-center justify-between gap-3 text-xs text-slate-600 animate-fadeIn">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileText className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="font-semibold text-slate-700">Description / Requirements is hidden</span>
+              {description && (
+                <span className="text-[11px] text-slate-500 truncate max-w-lg hidden sm:inline font-mono">
+                  &ldquo;{description.slice(0, 70)}{description.length > 70 ? '...' : ''}&rdquo;
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsDescriptionHidden(false)}
+              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold rounded-md text-xs flex items-center gap-1 shadow-2xs cursor-pointer transition-all shrink-0"
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Unhide</span>
+            </button>
+          </div>
+        ) : (
+          <textarea
+            rows={3}
+            value={description ?? ''}
+            readOnly={readOnly}
+            onChange={(e) => !readOnly && onChangeDescription?.(e.target.value)}
+            placeholder="Enter ticket description or requirements..."
+            className={`w-full p-2.5 border rounded-lg text-xs font-medium resize-y transition-all ${
+              readOnly
+                ? 'bg-slate-100/80 border-slate-200 text-slate-700 cursor-default'
+                : 'bg-slate-50 border-slate-300 text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'
+            }`}
+          />
+        )}
       </div>
 
       {/* 3. Attached Files & Screenshots (Full Width) */}
       <div className="space-y-2 pt-1">
         <div className="flex items-center justify-between">
-          <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
-            <Paperclip className="w-3.5 h-3.5 text-blue-600" />
-            <span>Attached UI Screenshots / Files {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}</span>
-            <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
-              attachedDocs.length > 0 ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-200 text-slate-600'
-            }`}>
-              {attachedDocs.length} {attachedDocs.length === 1 ? 'file attached' : 'files attached'}
-            </span>
-          </label>
-          {!readOnly && (
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-bold text-slate-700 uppercase tracking-wider">
+              <Paperclip className="w-3.5 h-3.5 text-blue-600" />
+              <span>Attached UI Screenshots / Files {readOnly && <span className="text-[10px] text-slate-400 font-normal lowercase">(view-only)</span>}</span>
+              <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full ${
+                attachedDocs.length > 0 ? 'bg-blue-600 text-white shadow-2xs' : 'bg-slate-200 text-slate-600'
+              }`}>
+                {attachedDocs.length} {attachedDocs.length === 1 ? 'file attached' : 'files attached'}
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() => setIsAttachmentsHidden(!isAttachmentsHidden)}
+              className={`px-2 py-0.5 text-[11px] font-bold rounded-md flex items-center gap-1 cursor-pointer transition-colors shadow-2xs border ${
+                isAttachmentsHidden
+                  ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+                  : 'bg-slate-100 hover:bg-slate-200 text-slate-600 border-slate-200'
+              }`}
+              title={isAttachmentsHidden ? 'Unhide attached files' : 'Hide attached files'}
+            >
+              {isAttachmentsHidden ? (
+                <>
+                  <Eye className="w-3 h-3" />
+                  <span>Unhide</span>
+                </>
+              ) : (
+                <>
+                  <EyeOff className="w-3 h-3 text-slate-500" />
+                  <span>Hide</span>
+                </>
+              )}
+            </button>
+          </div>
+
+          {!readOnly && !isAttachmentsHidden && (
             <div className="flex items-center gap-2">
               {attachedDocs.length > 0 && (
                 <button
@@ -548,34 +624,50 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
           )}
         </div>
 
-        {/* Prominent Attachment Summary Banner */}
-        <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
-          attachedDocs.length > 0
-            ? 'bg-blue-50/80 border-blue-200 text-blue-900'
-            : 'bg-slate-50 border-slate-200 text-slate-500'
-        }`}>
-          <div className="flex items-center gap-2">
-            <span className="font-bold">
-              {attachedDocs.length > 0
-                ? `📎 ${attachedDocs.length} ${attachedDocs.length === 1 ? 'File' : 'Files'} Attached (${attachedDocs.filter((d) => d.type === 'image').length} Screenshots, ${attachedDocs.filter((d) => d.type !== 'image').length} Documents)`
-                : '📎 No screenshots or files attached yet.'}
+        {isAttachmentsHidden ? (
+          <div className="p-2.5 rounded-xl border border-dashed border-slate-300 bg-slate-50 flex items-center justify-between text-xs text-slate-600 animate-fadeIn">
+            <span className="font-semibold text-slate-700">
+              📎 Attached Files section is hidden ({attachedDocs.length} {attachedDocs.length === 1 ? 'file' : 'files'} attached)
             </span>
-            {attachedDocs.length > 0 && (
-              <span className="text-[11px] text-blue-700">
-                • {attachedDocs.map((d) => d.name).slice(0, 3).join(', ')}{attachedDocs.length > 3 ? ` +${attachedDocs.length - 3} more` : ''}
-              </span>
-            )}
-          </div>
-          {attachedDocs.length > 0 && (
             <button
               type="button"
-              onClick={() => setPreviewDoc(attachedDocs[0])}
-              className="text-[11px] font-bold text-blue-700 underline hover:text-blue-900 cursor-pointer shrink-0"
+              onClick={() => setIsAttachmentsHidden(false)}
+              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-md text-xs flex items-center gap-1 shadow-2xs cursor-pointer transition-colors"
             >
-              View All
+              <Eye className="w-3.5 h-3.5" />
+              <span>Unhide Attachments</span>
             </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <>
+            {/* Prominent Attachment Summary Banner */}
+            <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 text-xs ${
+              attachedDocs.length > 0
+                ? 'bg-blue-50/80 border-blue-200 text-blue-900'
+                : 'bg-slate-50 border-slate-200 text-slate-500'
+            }`}>
+              <div className="flex items-center gap-2">
+                <span className="font-bold">
+                  {attachedDocs.length > 0
+                    ? `📎 ${attachedDocs.length} ${attachedDocs.length === 1 ? 'File' : 'Files'} Attached (${attachedDocs.filter((d) => d.type === 'image').length} Screenshots, ${attachedDocs.filter((d) => d.type !== 'image').length} Documents)`
+                    : '📎 No screenshots or files attached yet.'}
+                </span>
+                {attachedDocs.length > 0 && (
+                  <span className="text-[11px] text-blue-700">
+                    • {attachedDocs.map((d) => d.name).slice(0, 3).join(', ')}{attachedDocs.length > 3 ? ` +${attachedDocs.length - 3} more` : ''}
+                  </span>
+                )}
+              </div>
+              {attachedDocs.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPreviewDoc(attachedDocs[0])}
+                  className="text-[11px] font-bold text-blue-700 underline hover:text-blue-900 cursor-pointer shrink-0"
+                >
+                  View All
+                </button>
+              )}
+            </div>
 
         {/* Drag & Drop / Paste / Upload Area */}
         {!readOnly && (
@@ -736,6 +828,8 @@ export const CommonHeader: React.FC<CommonHeaderProps> = ({
             No attached documents or screenshots for this ticket.
           </div>
         ) : null}
+          </>
+        )}
       </div>
 
       {/* 4. Action Row: AI Auto-Generate Button & Duplicate Prevention Badge */}

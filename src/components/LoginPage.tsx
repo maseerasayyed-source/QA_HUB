@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Lock, Sparkles, ArrowRight, AlertCircle, ShieldAlert, CheckCircle2, User, ChevronRight, X, Loader2 } from 'lucide-react';
-import { UserProfile } from '../types';
+import { Lock, Sparkles, ArrowRight, AlertCircle, ShieldAlert, CheckCircle2, User, ChevronRight, X, Loader2, Palette } from 'lucide-react';
+import { UserProfile, ColourTheme } from '../types';
 import { getSavedUserRegistry, saveUserToRegistry, SavedUserRecord } from '../data/dbStore';
 
 interface LoginPageProps {
   requestedTargetTabLabel?: string;
   onLoginSuccess: (user: UserProfile) => void;
+  currentTheme?: ColourTheme;
+  onSelectTheme?: (theme: ColourTheme) => void;
 }
 
 // Google Multicolor G SVG Icon
@@ -33,7 +35,17 @@ const GoogleIcon: React.FC<{ className?: string }> = ({ className = 'w-4 h-4' })
 export const LoginPage: React.FC<LoginPageProps> = ({
   requestedTargetTabLabel = 'QA Hub Workspace',
   onLoginSuccess,
+  currentTheme = 'Default',
+  onSelectTheme,
 }) => {
+  const loginThemes: { id: ColourTheme; label: string; colorClass: string }[] = [
+    { id: 'Default', label: 'Default Navy', colorClass: 'bg-slate-900' },
+    { id: 'Blue', label: 'Azure Blue', colorClass: 'bg-blue-600' },
+    { id: 'Green', label: 'Emerald Green', colorClass: 'bg-emerald-600' },
+    { id: 'Purple', label: 'Executive Purple', colorClass: 'bg-purple-600' },
+    { id: 'Amber', label: 'Warm Amber', colorClass: 'bg-amber-600' },
+    { id: 'Dark', label: 'Obsidian Dark', colorClass: 'bg-black' },
+  ];
   const [fullName, setFullName] = useState<string>('');
   const [officialEmail, setOfficialEmail] = useState<string>('');
   const [selectedRole, setSelectedRole] = useState<string>('');
@@ -296,7 +308,30 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-[#0F172A] flex flex-col items-center justify-center p-4 font-sans select-none">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center p-4 font-sans select-none relative">
+      {/* Top-Right Theme Switcher on Login Screen */}
+      {onSelectTheme && (
+        <div className="fixed top-4 right-4 z-30 flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-1.5 shadow-md text-xs">
+          <Palette className="w-3.5 h-3.5 text-slate-500" />
+          <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">Theme:</span>
+          <div className="flex items-center gap-1.5">
+            {loginThemes.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onSelectTheme(t.id)}
+                title={`Switch UI & Font Theme to ${t.label}`}
+                className={`w-4 h-4 rounded-full transition-transform cursor-pointer ${t.colorClass} ${
+                  currentTheme === t.id
+                    ? 'ring-2 ring-offset-1 ring-blue-500 scale-110 shadow-xs'
+                    : 'opacity-65 hover:opacity-100 hover:scale-105'
+                }`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="max-w-md w-full bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden animate-fadeIn">
         {/* Header */}
         <div className="bg-slate-900 text-white p-6 border-b border-slate-800 text-center space-y-2">

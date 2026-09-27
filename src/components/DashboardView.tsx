@@ -23,6 +23,7 @@ import {
 import { TicketSummary, BeaconModule, UserProfile } from '../types';
 import { AzureDevopsModal } from './common/AzureDevopsModal';
 import { TicketLockedModal } from './common/TicketLockedModal';
+import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 import { getTestCasesExcelBlob } from '../utils/excelExport';
 import { canUserOpenTicket, isUserTicketCreator, isTicketInDraft } from '../utils/ticketPermissions';
 
@@ -47,6 +48,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [ticketScope, setTicketScope] = useState<'all' | 'mine'>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortBy, setSortBy] = useState<'priority' | 'testCases' | 'observations' | 'newest'>('priority');
+
+  // Column Sort & Filter state for Dashboard Tickets Queue Table
+  const [colSortKey, setColSortKey] = useState<string | null>(null);
+  const [colSortDirection, setColSortDirection] = useState<SortDirection>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnSearchTerms, setColumnSearchTerms] = useState<Record<string, string>>({});
+
+  const handleColSort = (key: string) => {
+    if (colSortKey === key) {
+      setColSortDirection((prev) => (prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc'));
+      if (colSortDirection === 'desc') setColSortKey(null);
+    } else {
+      setColSortKey(key);
+      setColSortDirection('asc');
+    }
+  };
 
   // State for Azure DevOps Direct Attach Modal
   const [isAdoModalOpen, setIsAdoModalOpen] = useState<boolean>(false);
@@ -81,8 +98,44 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   }, [tickets]);
 
   // Compute Dashboard Metrics dynamically based on active filters
+  const columnFilterOptions = useMemo(() => {
+    const getUnique = (getter: (t: TicketSummary) => string) =>
+      Array.from(new Set(baseTickets.map(getter).filter(Boolean)));
+    return {
+      ticketNumber: getUnique((t) => t.ticketNumber || ''),
+      moduleAndFeature: getUnique((t) => `${t.featureName} (${t.moduleName})`),
+      statusMode: getUnique((t) => {
+        const inDraft = isTicketInDraft(t);
+        const isCreator = isUserTicketCreator(t, currentUser);
+        return inDraft ? (isCreator ? 'Draft (You)' : 'Draft / Edit') : 'Submitted';
+      }),
+      testCasesCount: getUnique((t) => `${t.testCasesCount} Cases`),
+      observationsCount: getUnique((t) => `${t.observationsCount} Obs`),
+    };
+  }, [baseTickets, currentUser]);
+
   const filteredTickets = useMemo(() => {
-    return baseTickets
+    const getColVal = (t: TicketSummary, key: string): string => {
+      switch (key) {
+        case 'ticketNumber':
+          return t.ticketNumber || '';
+        case 'moduleAndFeature':
+          return `${t.featureName} (${t.moduleName})`;
+        case 'statusMode': {
+          const inDraft = isTicketInDraft(t);
+          const isCreator = isUserTicketCreator(t, currentUser);
+          return inDraft ? (isCreator ? 'Draft (You)' : 'Draft / Edit') : 'Submitted';
+        }
+        case 'testCasesCount':
+          return `${t.testCasesCount} Cases`;
+        case 'observationsCount':
+          return `${t.observationsCount} Obs`;
+        default:
+          return String((t as any)[key] || '');
+      }
+    };
+
+    const list = baseTickets
       .filter((t) => {
         if (selectedModule !== 'all' && t.moduleId !== selectedModule && t.moduleName.toLowerCase() !== selectedModule.toLowerCase()) {
           return false;
@@ -103,9 +156,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             t.status.toLowerCase().includes(q);
           if (!match) return false;
         }
+
+        for (const colKey of Object.keys(columnFilters)) {
+          const selectedVals = columnFilters[colKey];
+          if (selectedVals && selectedVals.length > 0) {
+            if (!selectedVals.includes(getColVal(t, colKey))) return false;
+          }
+        }
+
+        for (const colKey of Object.keys(columnSearchTerms)) {
+          const searchVal = columnSearchTerms[colKey];
+          if (searchVal && searchVal.trim() !== '') {
+            if (!getColVal(t, colKey).toLowerCase().includes(searchVal.trim().toLowerCase())) return false;
+          }
+        }
+
         return true;
       })
       .sort((a, b) => {
+        if (colSortKey && colSortDirection) {
+          const cmp = getColVal(a, colSortKey).localeCompare(getColVal(b, colSortKey), undefined, {
+            numeric: true,
+            sensitivity: 'base',
+          });
+          return colSortDirection === 'asc' ? cmp : -cmp;
+        }
         if (sortBy === 'priority') {
           const priorityWeight: Record<string, number> = { Critical: 4, High: 3, Medium: 2, Low: 1 };
           return (priorityWeight[b.priority] || 0) - (priorityWeight[a.priority] || 0);
@@ -118,7 +193,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         }
         return b.id.localeCompare(a.id);
       });
-  }, [baseTickets, selectedModule, selectedQa, searchQuery, sortBy]);
+
+    return list;
+  }, [baseTickets, selectedModule, selectedQa, searchQuery, sortBy, columnFilters, columnSearchTerms, colSortKey, colSortDirection, currentUser]);
 
   // Handle clicking on a ticket in Dashboard: Enforces creator-only draft lock
   const handleTicketRowClick = (t: TicketSummary) => {
@@ -346,12 +423,75 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           <div className="flex-1 overflow-x-auto p-2 max-h-[420px]">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="text-[10px] text-slate-400 uppercase tracking-wider bg-slate-50">
-                  <th className="p-2 font-semibold">Ticket #</th>
-                  <th className="p-2 font-semibold">Module &amp; Feature</th>
-                  <th className="p-2 font-semibold text-center">Status / Mode</th>
-                  <th className="p-2 font-semibold text-center">Test Cases</th>
-                  <th className="p-2 font-semibold text-center">Obs</th>
+                <tr className="text-[10px] text-slate-200 uppercase tracking-wider bg-slate-800">
+                  <ColumnHeader
+                    label="Ticket #"
+                    sortKey="ticketNumber"
+                    currentSortKey={colSortKey}
+                    sortDirection={colSortDirection}
+                    onSort={handleColSort}
+                    filterOptions={columnFilterOptions.ticketNumber}
+                    selectedFilters={columnFilters.ticketNumber || []}
+                    onFilterChange={(vals) => setColumnFilters((prev) => ({ ...prev, ticketNumber: vals }))}
+                    searchTerm={columnSearchTerms.ticketNumber || ''}
+                    onSearchChange={(term) => setColumnSearchTerms((prev) => ({ ...prev, ticketNumber: term }))}
+                    className="p-2"
+                  />
+                  <ColumnHeader
+                    label="Module & Feature"
+                    sortKey="moduleAndFeature"
+                    currentSortKey={colSortKey}
+                    sortDirection={colSortDirection}
+                    onSort={handleColSort}
+                    filterOptions={columnFilterOptions.moduleAndFeature}
+                    selectedFilters={columnFilters.moduleAndFeature || []}
+                    onFilterChange={(vals) => setColumnFilters((prev) => ({ ...prev, moduleAndFeature: vals }))}
+                    searchTerm={columnSearchTerms.moduleAndFeature || ''}
+                    onSearchChange={(term) => setColumnSearchTerms((prev) => ({ ...prev, moduleAndFeature: term }))}
+                    className="p-2"
+                  />
+                  <ColumnHeader
+                    label="Status / Mode"
+                    sortKey="statusMode"
+                    currentSortKey={colSortKey}
+                    sortDirection={colSortDirection}
+                    onSort={handleColSort}
+                    filterOptions={columnFilterOptions.statusMode}
+                    selectedFilters={columnFilters.statusMode || []}
+                    onFilterChange={(vals) => setColumnFilters((prev) => ({ ...prev, statusMode: vals }))}
+                    searchTerm={columnSearchTerms.statusMode || ''}
+                    onSearchChange={(term) => setColumnSearchTerms((prev) => ({ ...prev, statusMode: term }))}
+                    align="center"
+                    className="p-2"
+                  />
+                  <ColumnHeader
+                    label="Test Cases"
+                    sortKey="testCasesCount"
+                    currentSortKey={colSortKey}
+                    sortDirection={colSortDirection}
+                    onSort={handleColSort}
+                    filterOptions={columnFilterOptions.testCasesCount}
+                    selectedFilters={columnFilters.testCasesCount || []}
+                    onFilterChange={(vals) => setColumnFilters((prev) => ({ ...prev, testCasesCount: vals }))}
+                    searchTerm={columnSearchTerms.testCasesCount || ''}
+                    onSearchChange={(term) => setColumnSearchTerms((prev) => ({ ...prev, testCasesCount: term }))}
+                    align="center"
+                    className="p-2"
+                  />
+                  <ColumnHeader
+                    label="Obs"
+                    sortKey="observationsCount"
+                    currentSortKey={colSortKey}
+                    sortDirection={colSortDirection}
+                    onSort={handleColSort}
+                    filterOptions={columnFilterOptions.observationsCount}
+                    selectedFilters={columnFilters.observationsCount || []}
+                    onFilterChange={(vals) => setColumnFilters((prev) => ({ ...prev, observationsCount: vals }))}
+                    searchTerm={columnSearchTerms.observationsCount || ''}
+                    onSearchChange={(term) => setColumnSearchTerms((prev) => ({ ...prev, observationsCount: term }))}
+                    align="center"
+                    className="p-2"
+                  />
                   <th className="p-2 font-semibold text-center">Action</th>
                 </tr>
               </thead>

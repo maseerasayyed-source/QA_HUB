@@ -94,6 +94,7 @@ export interface TicketSummary {
   isEditing?: boolean;
   submittedAt?: string;
   submittedBy?: string;
+  reviewStatus?: TestCaseReviewStatus;
 }
 
 export type TestCaseReviewStatus = 'Draft' | 'Review Pending' | 'In Review' | 'Changes Required' | 'Approved';

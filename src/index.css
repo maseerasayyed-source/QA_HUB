@@ -14,35 +14,574 @@ body[data-font="Poppins"] {
   font-family: 'Poppins', sans-serif;
 }
 
+/* ============================================================================
+   1. DARK THEME (Obsidian Dark - Full UI & High-Contrast Light Fonts)
+   ============================================================================ */
 body[data-theme="Dark"] {
-  background-color: #0b0f19;
-  color: #f1f5f9;
-}
-body[data-theme="Dark"] .bg-white {
-  background-color: #1e293b;
-  color: #f8fafc;
-  border-color: #334155;
-}
-body[data-theme="Dark"] .bg-\[\#F8FAFC\] {
-  background-color: #0f172a;
-}
-body[data-theme="Dark"] .text-slate-900,
-body[data-theme="Dark"] .text-slate-800 {
-  color: #f8fafc;
-}
-body[data-theme="Dark"] .text-slate-600,
-body[data-theme="Dark"] .text-slate-500 {
-  color: #94a3b8;
+  background-color: #0b0f19 !important;
+  color: #f8fafc !important;
 }
 
-body[data-theme="Blue"] .bg-blue-600 {
-  background-color: #2563eb;
+body[data-theme="Dark"] aside {
+  background-color: #070b14 !important;
+  border-color: #1e293b !important;
 }
-body[data-theme="Green"] .bg-blue-600 {
-  background-color: #059669;
+
+body[data-theme="Dark"] .bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
 }
-body[data-theme="Purple"] .bg-blue-600 {
-  background-color: #7c3aed;
+
+body[data-theme="Dark"] .bg-\[\#F8FAFC\],
+body[data-theme="Dark"] .bg-slate-50,
+body[data-theme="Dark"] .bg-slate-50\/40,
+body[data-theme="Dark"] .bg-slate-50\/50,
+body[data-theme="Dark"] .bg-slate-50\/60,
+body[data-theme="Dark"] .bg-slate-50\/70,
+body[data-theme="Dark"] .bg-slate-50\/80 {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+body[data-theme="Dark"] .bg-slate-100,
+body[data-theme="Dark"] .bg-slate-100\/80,
+body[data-theme="Dark"] .bg-slate-100\/90,
+body[data-theme="Dark"] .bg-slate-200 {
+  background-color: #26334d !important;
+  color: #f1f5f9 !important;
+  border-color: #475569 !important;
+}
+
+body[data-theme="Dark"] .text-slate-950,
+body[data-theme="Dark"] .text-slate-900,
+body[data-theme="Dark"] .text-slate-800 {
+  color: #f8fafc !important;
+}
+
+body[data-theme="Dark"] .text-slate-700 {
+  color: #e2e8f0 !important;
+}
+
+body[data-theme="Dark"] .text-slate-600,
+body[data-theme="Dark"] .text-slate-500 {
+  color: #cbd5e1 !important;
+}
+
+body[data-theme="Dark"] .text-slate-400 {
+  color: #94a3b8 !important;
+}
+
+body[data-theme="Dark"] .border-slate-100,
+body[data-theme="Dark"] .border-slate-200,
+body[data-theme="Dark"] .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+body[data-theme="Dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]),
+body[data-theme="Dark"] .divide-slate-200 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #334155 !important;
+}
+
+body[data-theme="Dark"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Dark"] textarea,
+body[data-theme="Dark"] select {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #475569 !important;
+}
+
+body[data-theme="Dark"] input::placeholder,
+body[data-theme="Dark"] textarea::placeholder {
+  color: #94a3b8 !important;
+  opacity: 1;
+}
+
+body[data-theme="Dark"] select option {
+  background-color: #0f172a;
+  color: #f8fafc;
+}
+
+body[data-theme="Dark"] input:-webkit-autofill,
+body[data-theme="Dark"] input:-webkit-autofill:hover,
+body[data-theme="Dark"] input:-webkit-autofill:focus,
+body[data-theme="Dark"] textarea:-webkit-autofill,
+body[data-theme="Dark"] select:-webkit-autofill {
+  -webkit-text-fill-color: #f8fafc !important;
+  -webkit-box-shadow: 0 0 0px 1000px #0f172a inset !important;
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: #f8fafc !important;
+}
+
+body[data-theme="Dark"] .bg-blue-50,
+body[data-theme="Dark"] .bg-blue-50\/70,
+body[data-theme="Dark"] .bg-blue-50\/80,
+body[data-theme="Dark"] .bg-purple-50,
+body[data-theme="Dark"] .bg-purple-50\/50,
+body[data-theme="Dark"] .bg-purple-50\/80,
+body[data-theme="Dark"] .bg-emerald-50,
+body[data-theme="Dark"] .bg-emerald-50\/60,
+body[data-theme="Dark"] .bg-amber-50,
+body[data-theme="Dark"] .bg-amber-50\/70,
+body[data-theme="Dark"] .bg-red-50,
+body[data-theme="Dark"] .bg-rose-50,
+body[data-theme="Dark"] .bg-indigo-50 {
+  background-color: #172554 !important;
+  color: #e2e8f0 !important;
+  border-color: #1e40af !important;
+}
+
+body[data-theme="Dark"] .text-blue-950,
+body[data-theme="Dark"] .text-blue-900,
+body[data-theme="Dark"] .text-blue-800,
+body[data-theme="Dark"] .text-blue-700,
+body[data-theme="Dark"] .text-blue-600 {
+  color: #60a5fa !important;
+}
+
+body[data-theme="Dark"] .text-purple-950,
+body[data-theme="Dark"] .text-purple-900,
+body[data-theme="Dark"] .text-purple-800,
+body[data-theme="Dark"] .text-purple-700 {
+  color: #d8b4fe !important;
+}
+
+body[data-theme="Dark"] .text-emerald-950,
+body[data-theme="Dark"] .text-emerald-900,
+body[data-theme="Dark"] .text-emerald-800,
+body[data-theme="Dark"] .text-emerald-700 {
+  color: #6ee7b7 !important;
+}
+
+body[data-theme="Dark"] .text-amber-950,
+body[data-theme="Dark"] .text-amber-900,
+body[data-theme="Dark"] .text-amber-800,
+body[data-theme="Dark"] .text-amber-700 {
+  color: #fcd34d !important;
+}
+
+body[data-theme="Dark"] .text-red-900,
+body[data-theme="Dark"] .text-red-800,
+body[data-theme="Dark"] .text-red-700,
+body[data-theme="Dark"] .text-rose-800,
+body[data-theme="Dark"] .text-rose-700 {
+  color: #fca5a5 !important;
+}
+
+body[data-theme="Dark"] tr:hover td {
+  background-color: rgba(30, 58, 138, 0.25) !important;
+}
+
+/* ============================================================================
+   2. BLUE THEME (Azure Blue - Full UI Surfaces, Borders & Ocean Blue Fonts)
+   ============================================================================ */
+body[data-theme="Blue"] {
+  background-color: #eff6ff !important;
+  color: #0c4a6e !important;
+}
+
+body[data-theme="Blue"] aside {
+  background-color: #0c2d6b !important;
+  border-color: #1e40af !important;
+}
+
+body[data-theme="Blue"] .bg-\[\#F8FAFC\] {
+  background-color: #eff6ff !important;
+  color: #0c4a6e !important;
+}
+
+body[data-theme="Blue"] .bg-white {
+  background-color: #ffffff !important;
+  color: #0c4a6e !important;
+  border-color: #bfdbfe !important;
+}
+
+body[data-theme="Blue"] .bg-slate-50,
+body[data-theme="Blue"] .bg-slate-50\/40,
+body[data-theme="Blue"] .bg-slate-50\/50,
+body[data-theme="Blue"] .bg-slate-50\/60,
+body[data-theme="Blue"] .bg-slate-50\/70,
+body[data-theme="Blue"] .bg-slate-50\/80 {
+  background-color: #f0f9ff !important;
+  color: #0c4a6e !important;
+}
+
+body[data-theme="Blue"] .bg-slate-100,
+body[data-theme="Blue"] .bg-slate-100\/80,
+body[data-theme="Blue"] .bg-slate-100\/90 {
+  background-color: #e0f2fe !important;
+  color: #075985 !important;
+}
+
+body[data-theme="Blue"] thead,
+body[data-theme="Blue"] .bg-\[\#1E293B\],
+body[data-theme="Blue"] .bg-slate-900,
+body[data-theme="Blue"] .bg-slate-800 {
+  background-color: #1e3a8a !important;
+}
+
+body[data-theme="Blue"] .text-slate-950,
+body[data-theme="Blue"] .text-slate-900,
+body[data-theme="Blue"] .text-slate-800 {
+  color: #0c4a6e !important;
+}
+
+body[data-theme="Blue"] .text-slate-700 {
+  color: #1e40af !important;
+}
+
+body[data-theme="Blue"] .text-slate-600,
+body[data-theme="Blue"] .text-slate-500 {
+  color: #0369a1 !important;
+}
+
+body[data-theme="Blue"] .border-slate-100,
+body[data-theme="Blue"] .border-slate-200,
+body[data-theme="Blue"] .border-slate-300 {
+  border-color: #bae6fd !important;
+}
+
+body[data-theme="Blue"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Blue"] textarea,
+body[data-theme="Blue"] select {
+  color: #0c4a6e !important;
+  border-color: #93c5fd !important;
+}
+
+body[data-theme="Blue"] thead input {
+  background-color: #172554 !important;
+  color: #f0f9ff !important;
+  border-color: #3b82f6 !important;
+}
+
+body[data-theme="Blue"] .bg-blue-600,
+body[data-theme="Blue"] .bg-indigo-600 {
+  background-color: #0284c7 !important;
+}
+
+/* ============================================================================
+   3. GREEN THEME (Emerald Green - Full UI Surfaces, Borders & Forest Green Fonts)
+   ============================================================================ */
+body[data-theme="Green"] {
+  background-color: #ecfdf5 !important;
+  color: #064e3b !important;
+}
+
+body[data-theme="Green"] aside {
+  background-color: #022c22 !important;
+  border-color: #065f46 !important;
+}
+
+body[data-theme="Green"] .bg-\[\#F8FAFC\] {
+  background-color: #ecfdf5 !important;
+  color: #064e3b !important;
+}
+
+body[data-theme="Green"] .bg-white {
+  background-color: #ffffff !important;
+  color: #064e3b !important;
+  border-color: #a7f3d0 !important;
+}
+
+body[data-theme="Green"] .bg-slate-50,
+body[data-theme="Green"] .bg-slate-50\/40,
+body[data-theme="Green"] .bg-slate-50\/50,
+body[data-theme="Green"] .bg-slate-50\/60,
+body[data-theme="Green"] .bg-slate-50\/70,
+body[data-theme="Green"] .bg-slate-50\/80 {
+  background-color: #f0fdf4 !important;
+  color: #064e3b !important;
+}
+
+body[data-theme="Green"] .bg-slate-100,
+body[data-theme="Green"] .bg-slate-100\/80,
+body[data-theme="Green"] .bg-slate-100\/90 {
+  background-color: #d1fae5 !important;
+  color: #065f46 !important;
+}
+
+body[data-theme="Green"] thead,
+body[data-theme="Green"] .bg-\[\#1E293B\],
+body[data-theme="Green"] .bg-slate-900,
+body[data-theme="Green"] .bg-slate-800 {
+  background-color: #064e3b !important;
+}
+
+body[data-theme="Green"] .text-slate-950,
+body[data-theme="Green"] .text-slate-900,
+body[data-theme="Green"] .text-slate-800 {
+  color: #064e3b !important;
+}
+
+body[data-theme="Green"] .text-slate-700 {
+  color: #047857 !important;
+}
+
+body[data-theme="Green"] .text-slate-600,
+body[data-theme="Green"] .text-slate-500 {
+  color: #0d9488 !important;
+}
+
+body[data-theme="Green"] .text-blue-600,
+body[data-theme="Green"] .text-blue-700,
+body[data-theme="Green"] .text-indigo-600,
+body[data-theme="Green"] .text-indigo-700 {
+  color: #059669 !important;
+}
+
+body[data-theme="Green"] .bg-blue-50,
+body[data-theme="Green"] .bg-indigo-50 {
+  background-color: #ecfdf5 !important;
+  border-color: #6ee7b7 !important;
+  color: #065f46 !important;
+}
+
+body[data-theme="Green"] .border-slate-100,
+body[data-theme="Green"] .border-slate-200,
+body[data-theme="Green"] .border-slate-300 {
+  border-color: #a7f3d0 !important;
+}
+
+body[data-theme="Green"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Green"] textarea,
+body[data-theme="Green"] select {
+  color: #064e3b !important;
+  border-color: #6ee7b7 !important;
+}
+
+body[data-theme="Green"] thead input {
+  background-color: #022c22 !important;
+  color: #ecfdf5 !important;
+  border-color: #10b981 !important;
+}
+
+body[data-theme="Green"] .bg-blue-600,
+body[data-theme="Green"] .bg-indigo-600 {
+  background-color: #059669 !important;
+}
+body[data-theme="Green"] .hover\:bg-blue-700:hover,
+body[data-theme="Green"] .hover\:bg-indigo-700:hover {
+  background-color: #047857 !important;
+}
+
+/* ============================================================================
+   4. PURPLE THEME (Executive Purple - Full UI Surfaces, Borders & Royal Violet Fonts)
+   ============================================================================ */
+body[data-theme="Purple"] {
+  background-color: #f5f3ff !important;
+  color: #3b0764 !important;
+}
+
+body[data-theme="Purple"] aside {
+  background-color: #2e1065 !important;
+  border-color: #581c87 !important;
+}
+
+body[data-theme="Purple"] .bg-\[\#F8FAFC\] {
+  background-color: #f5f3ff !important;
+  color: #3b0764 !important;
+}
+
+body[data-theme="Purple"] .bg-white {
+  background-color: #ffffff !important;
+  color: #3b0764 !important;
+  border-color: #ddd6fe !important;
+}
+
+body[data-theme="Purple"] .bg-slate-50,
+body[data-theme="Purple"] .bg-slate-50\/40,
+body[data-theme="Purple"] .bg-slate-50\/50,
+body[data-theme="Purple"] .bg-slate-50\/60,
+body[data-theme="Purple"] .bg-slate-50\/70,
+body[data-theme="Purple"] .bg-slate-50\/80 {
+  background-color: #faf5ff !important;
+  color: #3b0764 !important;
+}
+
+body[data-theme="Purple"] .bg-slate-100,
+body[data-theme="Purple"] .bg-slate-100\/80,
+body[data-theme="Purple"] .bg-slate-100\/90 {
+  background-color: #ede9fe !important;
+  color: #4c1d95 !important;
+}
+
+body[data-theme="Purple"] thead,
+body[data-theme="Purple"] .bg-\[\#1E293B\],
+body[data-theme="Purple"] .bg-slate-900,
+body[data-theme="Purple"] .bg-slate-800 {
+  background-color: #3b0764 !important;
+}
+
+body[data-theme="Purple"] .text-slate-950,
+body[data-theme="Purple"] .text-slate-900,
+body[data-theme="Purple"] .text-slate-800 {
+  color: #3b0764 !important;
+}
+
+body[data-theme="Purple"] .text-slate-700 {
+  color: #5b21b6 !important;
+}
+
+body[data-theme="Purple"] .text-slate-600,
+body[data-theme="Purple"] .text-slate-500 {
+  color: #7c3aed !important;
+}
+
+body[data-theme="Purple"] .text-blue-600,
+body[data-theme="Purple"] .text-blue-700,
+body[data-theme="Purple"] .text-indigo-600,
+body[data-theme="Purple"] .text-indigo-700 {
+  color: #7c3aed !important;
+}
+
+body[data-theme="Purple"] .bg-blue-50,
+body[data-theme="Purple"] .bg-indigo-50 {
+  background-color: #f5f3ff !important;
+  border-color: #c4b5fd !important;
+  color: #4c1d95 !important;
+}
+
+body[data-theme="Purple"] .border-slate-100,
+body[data-theme="Purple"] .border-slate-200,
+body[data-theme="Purple"] .border-slate-300 {
+  border-color: #ddd6fe !important;
+}
+
+body[data-theme="Purple"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Purple"] textarea,
+body[data-theme="Purple"] select {
+  color: #3b0764 !important;
+  border-color: #c4b5fd !important;
+}
+
+body[data-theme="Purple"] thead input {
+  background-color: #2e1065 !important;
+  color: #f5f3ff !important;
+  border-color: #a855f7 !important;
+}
+
+body[data-theme="Purple"] .bg-blue-600,
+body[data-theme="Purple"] .bg-indigo-600 {
+  background-color: #7c3aed !important;
+}
+body[data-theme="Purple"] .hover\:bg-blue-700:hover,
+body[data-theme="Purple"] .hover\:bg-indigo-700:hover {
+  background-color: #6d28d9 !important;
+}
+
+/* ============================================================================
+   5. AMBER THEME (Warm Amber - Full UI Surfaces, Borders & Espresso/Bronze Fonts)
+   ============================================================================ */
+body[data-theme="Amber"] {
+  background-color: #fffbeb !important;
+  color: #451a03 !important;
+}
+
+body[data-theme="Amber"] aside {
+  background-color: #451a03 !important;
+  border-color: #78350f !important;
+}
+
+body[data-theme="Amber"] .bg-\[\#F8FAFC\] {
+  background-color: #fffbeb !important;
+  color: #451a03 !important;
+}
+
+body[data-theme="Amber"] .bg-white {
+  background-color: #ffffff !important;
+  color: #451a03 !important;
+  border-color: #fde68a !important;
+}
+
+body[data-theme="Amber"] .bg-slate-50,
+body[data-theme="Amber"] .bg-slate-50\/40,
+body[data-theme="Amber"] .bg-slate-50\/50,
+body[data-theme="Amber"] .bg-slate-50\/60,
+body[data-theme="Amber"] .bg-slate-50\/70,
+body[data-theme="Amber"] .bg-slate-50\/80 {
+  background-color: #fef3c7 !important;
+  color: #451a03 !important;
+}
+
+body[data-theme="Amber"] .bg-slate-100,
+body[data-theme="Amber"] .bg-slate-100\/80,
+body[data-theme="Amber"] .bg-slate-100\/90 {
+  background-color: #fde68a !important;
+  color: #78350f !important;
+}
+
+body[data-theme="Amber"] thead,
+body[data-theme="Amber"] .bg-\[\#1E293B\],
+body[data-theme="Amber"] .bg-slate-900,
+body[data-theme="Amber"] .bg-slate-800 {
+  background-color: #78350f !important;
+}
+
+body[data-theme="Amber"] .text-slate-950,
+body[data-theme="Amber"] .text-slate-900,
+body[data-theme="Amber"] .text-slate-800 {
+  color: #451a03 !important;
+}
+
+body[data-theme="Amber"] .text-slate-700 {
+  color: #92400e !important;
+}
+
+body[data-theme="Amber"] .text-slate-600,
+body[data-theme="Amber"] .text-slate-500 {
+  color: #b45309 !important;
+}
+
+body[data-theme="Amber"] .text-blue-600,
+body[data-theme="Amber"] .text-blue-700,
+body[data-theme="Amber"] .text-indigo-600,
+body[data-theme="Amber"] .text-indigo-700 {
+  color: #d97706 !important;
+}
+
+body[data-theme="Amber"] .bg-blue-50,
+body[data-theme="Amber"] .bg-indigo-50 {
+  background-color: #fffbeb !important;
+  border-color: #fcd34d !important;
+  color: #78350f !important;
+}
+
+body[data-theme="Amber"] .border-slate-100,
+body[data-theme="Amber"] .border-slate-200,
+body[data-theme="Amber"] .border-slate-300 {
+  border-color: #fde68a !important;
+}
+
+body[data-theme="Amber"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Amber"] textarea,
+body[data-theme="Amber"] select {
+  color: #451a03 !important;
+  border-color: #fcd34d !important;
+}
+
+body[data-theme="Amber"] thead input {
+  background-color: #451a03 !important;
+  color: #fffbeb !important;
+  border-color: #f59e0b !important;
+}
+
+body[data-theme="Amber"] .bg-blue-600,
+body[data-theme="Amber"] .bg-indigo-600 {
+  background-color: #d97706 !important;
+}
+body[data-theme="Amber"] .hover\:bg-blue-700:hover,
+body[data-theme="Amber"] .hover\:bg-indigo-700:hover {
+  background-color: #b45309 !important;
+}
+
+/* Ensure table headers & dark top banners always keep crisp white text across all themes */
+body[data-theme] thead th > div > div > span:first-child,
+body[data-theme] aside h1,
+body[data-theme] .bg-slate-900.text-white,
+body[data-theme] .bg-slate-900.text-white h1,
+body[data-theme] .bg-slate-900.text-white h2 {
+  color: #ffffff !important;
 }
 
 @layer base {
@@ -53,3 +592,42 @@ body[data-theme="Purple"] .bg-blue-600 {
     -moz-osx-font-smoothing: grayscale;
   }
 }
+
+/* Always-visible Horizontal & Vertical Scrollbars for QA / Dev / Observation Tables */
+.table-always-scroll {
+  overflow-x: scroll !important;
+  overflow-y: scroll !important;
+  scrollbar-gutter: stable both-edges;
+  scrollbar-width: auto;
+  scrollbar-color: #64748b #e2e8f0;
+}
+
+.table-always-scroll::-webkit-scrollbar {
+  width: 12px !important;
+  height: 12px !important;
+  display: block !important;
+  -webkit-appearance: none;
+}
+
+.table-always-scroll::-webkit-scrollbar-track {
+  background: #e2e8f0 !important;
+  border-radius: 0px;
+  border: 1px solid #cbd5e1;
+}
+
+.table-always-scroll::-webkit-scrollbar-thumb {
+  background-color: #64748b !important;
+  border-radius: 6px;
+  border: 2px solid #e2e8f0;
+  min-height: 36px;
+  min-width: 36px;
+}
+
+.table-always-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #334155 !important;
+}
+
+.table-always-scroll::-webkit-scrollbar-corner {
+  background: #cbd5e1 !important;
+}
+

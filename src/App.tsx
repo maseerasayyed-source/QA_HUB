@@ -613,6 +613,12 @@ export default function App() {
       <LoginPage
         requestedTargetTabLabel={getTabLabel(targetTabAfterLogin)}
         onLoginSuccess={handleLoginSuccess}
+        currentTheme={settings.theme}
+        onSelectTheme={(theme) => {
+          const updated = { ...settings, theme };
+          setSettings(updated);
+          saveAppSettingsToStorage(updated);
+        }}
       />
     );
   }
@@ -683,6 +689,8 @@ export default function App() {
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
             onDeleteTicket={handleDeleteTicket}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
           />
         );
 
@@ -710,6 +718,8 @@ export default function App() {
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
             onDeleteTicket={handleDeleteTicket}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
           />
         );
 
@@ -816,6 +826,8 @@ export default function App() {
             onSaveAndSubmitTicket={handleSaveAndSubmitTicket}
             onReopenEditTicket={handleReopenEditTicket}
             onDeleteTicket={handleDeleteTicket}
+            isSidebarCollapsed={isSidebarCollapsed}
+            onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
           />
         );
 
@@ -835,8 +847,8 @@ export default function App() {
                 <label className="text-xs font-bold text-slate-800 uppercase tracking-wider block">
                   Colour Theme:
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs font-bold">
-                  {(['Default', 'Blue', 'Green', 'Purple', 'Dark'] as ColourTheme[]).map((themeName) => (
+                <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 text-xs font-bold">
+                  {(['Default', 'Blue', 'Green', 'Purple', 'Amber', 'Dark'] as ColourTheme[]).map((themeName) => (
                     <button
                       key={themeName}
                       onClick={() => setSettings({ ...settings, theme: themeName })}

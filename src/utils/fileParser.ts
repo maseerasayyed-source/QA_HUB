@@ -256,55 +256,88 @@ export async function parseCorporateExcelSheet(file: File): Promise<CorporateExc
           }
         }
 
-        // 2. Locate Table Header Row (containing TestCase_ID or Test Scenario or Test Cases)
+        // 2. Locate Table Header Row (containing TestCase_ID or Test Scenario or Test Cases or general columns)
         let headerRowIndex = -1;
         let colMap: Record<string, number> = {};
 
-        for (let r = 0; r < Math.min(rawGrid.length, 25); r++) {
+        for (let r = 0; r < Math.min(rawGrid.length, 30); r++) {
           const row = rawGrid[r] || [];
+          const nonEmptyCount = row.filter((c) => String(c || '').trim().length > 0).length;
+          if (nonEmptyCount < 2) continue;
+
           const rowStr = row.map((c) => String(c).toLowerCase().replace(/[^a-z0-9]/g, '')).join(' ');
 
           if (
             rowStr.includes('testcase') ||
             rowStr.includes('testscenario') ||
             rowStr.includes('scenario') ||
-            (rowStr.includes('expected') && rowStr.includes('actual'))
+            rowStr.includes('testingpoint') ||
+            rowStr.includes('description') ||
+            (rowStr.includes('expected') && (rowStr.includes('actual') || rowStr.includes('status') || rowStr.includes('result')))
           ) {
             headerRowIndex = r;
-            // Build column map
             row.forEach((cellVal, cIdx) => {
               const norm = String(cellVal).toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (norm.includes('testcaseid') || norm === 'tcid' || norm === 'id' || norm.includes('testcase')) {
-                if (!colMap['testCaseId']) colMap['testCaseId'] = cIdx;
+              if (!norm) return;
+              if (
+                norm.includes('testcaseid') ||
+                norm === 'tcid' ||
+                norm === 'id' ||
+                norm === 'srno' ||
+                norm === 'sno' ||
+                norm === 'slno'
+              ) {
+                if (colMap['testCaseId'] === undefined) colMap['testCaseId'] = cIdx;
               }
-              if (norm.includes('testmodule') || (norm.includes('module') && !colMap['testModule'])) {
+              if (norm.includes('testmodule') || (norm.includes('module') && colMap['testModule'] === undefined)) {
                 colMap['testModule'] = cIdx;
               }
-              if (norm.includes('featuretab') || norm.includes('flag') || norm.includes('report') || norm.includes('tab')) {
-                colMap['featureTab'] = cIdx;
-              }
-              if (norm.includes('testscenario') || (norm.includes('scenario') && !colMap['testScenario'])) {
-                colMap['testScenario'] = cIdx;
+              if (
+                norm.includes('featuretab') ||
+                norm.includes('flag') ||
+                norm.includes('report') ||
+                norm.includes('tab') ||
+                norm.includes('screen') ||
+                norm.includes('subfeature')
+              ) {
+                if (colMap['featureTab'] === undefined) colMap['featureTab'] = cIdx;
               }
               if (
-                (norm.includes('testcases') || norm.includes('teststeps') || norm.includes('steps')) &&
+                norm.includes('testscenario') ||
+                (norm.includes('scenario') && colMap['testScenario'] === undefined) ||
+                norm.includes('testingpoint') ||
+                norm === 'point' ||
+                norm === 'title' ||
+                norm === 'objective'
+              ) {
+                if (colMap['testScenario'] === undefined) colMap['testScenario'] = cIdx;
+              }
+              if (
+                (norm.includes('testcases') ||
+                  norm.includes('testcase') ||
+                  norm.includes('teststeps') ||
+                  norm.includes('steps') ||
+                  norm.includes('description') ||
+                  norm.includes('verification') ||
+                  norm.includes('action')) &&
+                cIdx !== colMap['testCaseId'] &&
                 cIdx !== colMap['testScenario']
               ) {
-                colMap['testCases'] = cIdx;
+                if (colMap['testCases'] === undefined) colMap['testCases'] = cIdx;
               }
-              if (norm.includes('inputs') || norm.includes('testinputs') || norm.includes('data')) {
-                colMap['testInputs'] = cIdx;
+              if (norm.includes('inputs') || norm.includes('testinputs') || norm.includes('testdata') || norm === 'data' || norm.includes('parameter')) {
+                if (colMap['testInputs'] === undefined) colMap['testInputs'] = cIdx;
               }
               if (norm.includes('expected')) {
-                colMap['expectedResult'] = cIdx;
+                if (colMap['expectedResult'] === undefined) colMap['expectedResult'] = cIdx;
               }
-              if (norm.includes('actual')) {
-                colMap['actualResult'] = cIdx;
+              if (norm.includes('actual') || norm.includes('observation') || norm.includes('remark')) {
+                if (colMap['actualResult'] === undefined) colMap['actualResult'] = cIdx;
               }
-              if (norm.includes('status') || norm === 'result') {
-                colMap['status'] = cIdx;
+              if (norm.includes('status') || norm === 'result' || norm === 'passfail') {
+                if (colMap['status'] === undefined) colMap['status'] = cIdx;
               }
-              if (norm.includes('screenshot1') || (norm.includes('screenshot') && !colMap['screenshot1'])) {
+              if (norm.includes('screenshot1') || (norm.includes('screenshot') && colMap['screenshot1'] === undefined)) {
                 colMap['screenshot1'] = cIdx;
               }
               if (norm.includes('screenshot2')) colMap['screenshot2'] = cIdx;
@@ -315,13 +348,52 @@ export async function parseCorporateExcelSheet(file: File): Promise<CorporateExc
           }
         }
 
+        // Fallback: if no standard header keywords matched, find the first row with >= 2 non-empty cells
+        if (headerRowIndex === -1) {
+          for (let r = 0; r < Math.min(rawGrid.length, 15); r++) {
+            const row = rawGrid[r] || [];
+            const nonEmpty = row
+              .map((val, idx) => ({ val: String(val || '').trim(), idx }))
+              .filter((x) => x.val.length > 0);
+            if (nonEmpty.length >= 2) {
+              headerRowIndex = r;
+              if (nonEmpty.length >= 5) {
+                colMap['testCaseId'] = nonEmpty[0].idx;
+                colMap['testScenario'] = nonEmpty[1].idx;
+                colMap['testCases'] = nonEmpty[2].idx;
+                colMap['expectedResult'] = nonEmpty[3].idx;
+                colMap['actualResult'] = nonEmpty[4].idx;
+                if (nonEmpty[5]) colMap['status'] = nonEmpty[5].idx;
+              } else if (nonEmpty.length === 4) {
+                colMap['testScenario'] = nonEmpty[0].idx;
+                colMap['testCases'] = nonEmpty[1].idx;
+                colMap['expectedResult'] = nonEmpty[2].idx;
+                colMap['actualResult'] = nonEmpty[3].idx;
+              } else if (nonEmpty.length === 3) {
+                colMap['testScenario'] = nonEmpty[0].idx;
+                colMap['testCases'] = nonEmpty[1].idx;
+                colMap['expectedResult'] = nonEmpty[2].idx;
+              } else {
+                colMap['testScenario'] = nonEmpty[0].idx;
+                colMap['testCases'] = nonEmpty[1].idx;
+              }
+              break;
+            }
+          }
+        }
+
         // Fallback column positions if specific columns were not matched by name
         if (headerRowIndex !== -1) {
-          if (colMap['testCaseId'] === undefined) colMap['testCaseId'] = 0;
-          if (colMap['testScenario'] === undefined) colMap['testScenario'] = 3;
-          if (colMap['testCases'] === undefined) colMap['testCases'] = 4;
-          if (colMap['expectedResult'] === undefined) colMap['expectedResult'] = 6;
-          if (colMap['actualResult'] === undefined) colMap['actualResult'] = 7;
+          if (colMap['testScenario'] === undefined && colMap['testCases'] !== undefined) {
+            colMap['testScenario'] = colMap['testCases'];
+          }
+          if (colMap['testCases'] === undefined && colMap['testScenario'] !== undefined) {
+            colMap['testCases'] = colMap['testScenario'];
+          }
+          if (colMap['testScenario'] === undefined) colMap['testScenario'] = 1;
+          if (colMap['testCases'] === undefined) colMap['testCases'] = 2;
+          if (colMap['expectedResult'] === undefined) colMap['expectedResult'] = 3;
+          if (colMap['actualResult'] === undefined) colMap['actualResult'] = 4;
         }
 
         const testCases: TestCaseItem[] = [];
@@ -505,3 +577,4 @@ function extractFieldsFromText(text: string, fileName: string): string[] {
   }
   return Array.from(found);
 }
+

@@ -1,7 +1,8 @@
 import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { GoogleGenAI } from '@google/genai';
-import { query, getDbStatus } from './db';
+import { query, getDbStatus } from './db.ts';
+import { BEACON_ARCHITECTURE_BLUEPRINT, BEACON_TRAINED_TEST_CASES } from './beaconTrainingData.ts';
 
 export const apiRouter = express.Router();
 apiRouter.use(express.json({ limit: '50mb' }));
@@ -22,6 +23,7 @@ interface ServerStore {
   observationsMap: Record<string, any[]>;
   devTestingMap: Record<string, any[]>;
   devTestingHeadersMap: Record<string, any>;
+  productKnowledgeCases: any[];
 }
 
 function loadServerStoreFromDisk(): ServerStore {
@@ -43,7 +45,8 @@ function loadServerStoreFromDisk(): ServerStore {
         testCaseHeadersMap: parsed.testCaseHeadersMap || {},
         observationsMap: parsed.observationsMap || {},
         devTestingMap: parsed.devTestingMap || {},
-        devTestingHeadersMap: parsed.devTestingHeadersMap || {}
+        devTestingHeadersMap: parsed.devTestingHeadersMap || {},
+        productKnowledgeCases: parsed.productKnowledgeCases || []
       };
     }
   } catch (err) {
@@ -64,7 +67,8 @@ function loadServerStoreFromDisk(): ServerStore {
     testCaseHeadersMap: {},
     observationsMap: {},
     devTestingMap: {},
-    devTestingHeadersMap: {}
+    devTestingHeadersMap: {},
+    productKnowledgeCases: []
   };
 }
 
@@ -796,17 +800,91 @@ function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
   if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey });
+    aiClient = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        },
+      },
+    });
   }
   return aiClient;
 }
 
 const CANDIDATE_GEMINI_MODELS = [
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite',
   'gemini-3.8-flash',
+  'gemini-3.1-flash-lite',
   'gemini-flash-latest',
 ];
+
+function getProductKnowledgeContext(moduleName?: string, ticketNo?: string, currentTicketCases?: any[]): string {
+  // Collect all pre-trained Beacon test cases + historical test cases from saved/imported tickets
+  const historicalCases: any[] = [
+    ...BEACON_TRAINED_TEST_CASES,
+    ...(mockMemoryStore.productKnowledgeCases || []),
+  ];
+  if (mockMemoryStore.testCasesMap && typeof mockMemoryStore.testCasesMap === 'object') {
+    for (const [tKey, cases] of Object.entries(mockMemoryStore.testCasesMap)) {
+      if (Array.isArray(cases)) {
+        for (const c of cases) {
+          if (c && (c.testScenario || c.testCases)) {
+            historicalCases.push({ ...c, ticketNo: tKey });
+          }
+        }
+      }
+    }
+  }
+
+  const modLower = (moduleName || '').toLowerCase();
+  const matchedHistory = modLower
+    ? historicalCases.filter((c: any) =>
+        String(c.testModule || '').toLowerCase().includes(modLower) ||
+        String(c.featureTab || '').toLowerCase().includes(modLower) ||
+        String(c.testScenario || '').toLowerCase().includes(modLower)
+      )
+    : [];
+
+  const historySamples = (matchedHistory.length >= 3 ? matchedHistory : historicalCases).slice(0, 18);
+
+  // Also inspect current ticket's already-written points so AI can generate the NEXT logical points (aage ke points)
+  const cleanTicket = String(ticketNo || '').replace(/^#+/, '').trim();
+  const activeCases =
+    Array.isArray(currentTicketCases) && currentTicketCases.length > 0
+      ? currentTicketCases
+      : (cleanTicket && Array.isArray(mockMemoryStore.testCasesMap?.[cleanTicket])
+          ? mockMemoryStore.testCasesMap[cleanTicket]
+          : []);
+
+  const parts: string[] = [BEACON_ARCHITECTURE_BLUEPRINT];
+
+  if (activeCases.length > 0) {
+    const existingList = activeCases
+      .slice(-15)
+      .map(
+        (c: any, idx: number) =>
+          `${idx + 1}. [${c.testCaseId || `TC0${idx + 1}`}] Scenario: ${c.testScenario || ''} | Test Case: ${c.testCases || ''}`
+      )
+      .join('\n');
+    parts.push(
+      `CURRENT TICKET'S PREVIOUS POINTS (${activeCases.length} points already in table):\n${existingList}\nIMPORTANT: Do NOT repeat the points above. Just like ChatGPT, use this previous history to automatically generate the NEXT logical test points (aage ke points) in sequence — covering the remaining workflows, Initiate Action options, Bulk Import rules (Row 5 headers / Row 6 data), Cashflow/Report reflections, maker-checker authorization, and negative validations!`
+    );
+  }
+
+  if (historySamples.length > 0) {
+    const formatted = historySamples
+      .map(
+        (s: any, idx: number) =>
+          `Beacon Example ${idx + 1} [Module: ${s.testModule || 'General'} | Tab: ${s.featureTab || 'General'}]:\n  - Scenario: ${s.testScenario}\n  - Test Case: ${s.testCases}\n  - Expected Result: ${(s.expectedResult || '').replace(/\n/g, ' ')}\n  - Actual Result: ${(s.actualResult || '').replace(/\n/g, ' ')}`
+      )
+      .join('\n');
+    parts.push(
+      `BEACON TRAINED EXAMPLES & PREVIOUS HISTORY (${historicalCases.length} real Beacon test cases in memory):\nFollow Maseera Sayyed's exact Beacon terminology, screen names, and QA phrasing style from these real examples:\n${formatted}`
+    );
+  }
+
+  return `\n\n${parts.join('\n\n')}\n`;
+}
 
 // Helper to call OpenAI ChatGPT if OPENAI_API_KEY is configured in env, or fall back to Gemini
 async function callChatGptOrGemini(options: {
@@ -1251,6 +1329,40 @@ function generateRichFallbackTestCases(params: {
     });
   }
 
+  // Pull matching real Beacon test cases from BEACON_TRAINED_TEST_CASES
+  const searchPool = `${mod} ${rawText}`.toLowerCase();
+  const matchedBeaconTrained = BEACON_TRAINED_TEST_CASES.filter((btc) => {
+    const modMatch = searchPool.includes(btc.testModule.toLowerCase()) || btc.testModule.toLowerCase().includes(mod.toLowerCase());
+    const tabMatch = searchPool.includes(btc.featureTab.toLowerCase());
+    const kwMatch =
+      (searchPool.includes('sanction') && btc.testModule.toLowerCase().includes('sanction')) ||
+      (searchPool.includes('ecb') && btc.featureTab.toLowerCase().includes('ecb')) ||
+      (searchPool.includes('treps') && btc.testModule.toLowerCase().includes('treps')) ||
+      (searchPool.includes('bulk') && (btc.featureTab.toLowerCase().includes('bulk') || btc.testModule.toLowerCase().includes('bulk'))) ||
+      ((searchPool.includes('cc/od') || searchPool.includes('bank balance') || searchPool.includes('closing balance')) && btc.testModule.toLowerCase().includes('cc/od')) ||
+      ((searchPool.includes('mutual fund') || searchPool.includes('mf') || searchPool.includes('split')) && btc.testModule.toLowerCase().includes('mutual fund')) ||
+      ((searchPool.includes('penalty') || searchPool.includes('overdue') || searchPool.includes('autopay')) && btc.testModule.toLowerCase().includes('term loan')) ||
+      ((searchPool.includes('running balance') || searchPool.includes('capitalized')) && btc.featureTab.toLowerCase().includes('daily cash flow'));
+    return modMatch || tabMatch || kwMatch;
+  });
+
+  matchedBeaconTrained.forEach((btc) => {
+    if (generated.length < (params.count || 18)) {
+      const isDup = generated.some((g) => g.scenario.toLowerCase() === btc.testScenario.toLowerCase());
+      if (!isDup) {
+        generated.push({
+          scenario: btc.testScenario,
+          verification: btc.testCases,
+          expected: btc.expectedResult,
+          actual: btc.actualResult,
+          type: /not allow|restrict|prevent|reject|blank|invalid|error/i.test(btc.expectedResult)
+            ? 'Negative Validation'
+            : 'Positive Workflow',
+        });
+      }
+    }
+  });
+
   // Add supplemental enterprise test scenarios if count is needed
   const domainScenarios = [
     {
@@ -1319,6 +1431,7 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
       moduleName = 'Term Loan',
       clientName = 'Treasury Master',
       count = 20,
+      existingTestCases = [],
     } = req.body;
 
     const finalTicketNo = String(ticketNumber || ticketNo || '1024').trim().replace(/^#+/, '');
@@ -1344,6 +1457,7 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
       description ? `Ticket Description / Requirements: ${description}` : '',
       screenFields && screenFields.length > 0 ? `Detected Screen Fields: ${screenFields.join(', ')}` : '',
       docTexts.length > 0 ? docTexts.join('\n\n') : '',
+      getProductKnowledgeContext(moduleName, finalTicketNo, existingTestCases),
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -2001,6 +2115,8 @@ apiRouter.post(['/ai/convert-language-command', '/api/ai/convert-language-comman
     const moduleName = req.body.moduleName || req.body.module || 'Term Loan';
     const ticketNo = req.body.ticketNo || req.body.ticketNumber || '1024';
     const ticketTitle = req.body.ticketTitle || req.body.featureName || '';
+    const existingTestCases = req.body.existingTestCases || [];
+    const historyContext = getProductKnowledgeContext(moduleName, ticketNo, existingTestCases);
 
     if (!rawInput || !String(rawInput).trim()) {
       return res.status(400).json({ success: false, message: 'Command cannot be empty' });
@@ -2023,9 +2139,10 @@ ${cleanedCommand}
 Context:
 - Module: ${moduleName}
 - Ticket: #${ticketNo} ${ticketTitle ? `(${ticketTitle})` : ''}
+${historyContext}
 
 Your Task:
-Like ChatGPT, understand the core financial logic and transform this input into comprehensive corporate-grade QA test cases:
+Like ChatGPT, understand the core financial logic and previous history, and transform this input into comprehensive corporate-grade QA test cases (or if the user asks for "next points" / "aage ke points", generate the next logical test cases based on the previous points):
 1. Translate raw Hindi/Hinglish accurately into crystal-clear English without spelling mistakes.
 2. If the user mentions multiple operations or variations (e.g., Bullet interest + Coupon interest, FD End + Rollover, GL Code editable + visible, Undo Split-In + Split-Out), generate distinct, complete test cases for each variation in "structuredTestCases".
 3. If it is a single-topic point, generate:
@@ -2177,6 +2294,7 @@ Ticket Number: #${ticketContext.ticketNo || '1024'}
 Module: ${ticketContext.moduleName || 'Term Loan / Treasury Master'}
 Feature: ${ticketContext.featureName || 'Financial Workflow'}
 Description: ${ticketContext.description || ''}
+${getProductKnowledgeContext(ticketContext.moduleName, ticketContext.ticketNo, ticketContext.existingTestCases)}
 
 User Communication Style:
 - The user often writes in casual Hindi, Hinglish, English, or conversational shorthand with feature descriptions, background stories, and numbered scenarios.

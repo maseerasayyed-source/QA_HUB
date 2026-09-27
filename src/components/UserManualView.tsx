@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import {
   FileText,
@@ -35,6 +35,7 @@ import {
 } from '../types';
 import { exportUserManualToDocx } from '../utils/docxExport';
 import { generateUserManualFromTicket, createBlankUserManual } from '../utils/userManualHelper';
+import { ColumnHeader, SortDirection } from './common/ColumnHeader';
 
 interface UserManualViewProps {
   tickets: TicketSummary[];
@@ -83,6 +84,71 @@ export const UserManualView: React.FC<UserManualViewProps> = ({
 
   // Excel file upload input ref
   const excelInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Column Sort & Filter state for Verification Matrix table
+  const [matrixSortKey, setMatrixSortKey] = useState<string | null>(null);
+  const [matrixSortDirection, setMatrixSortDirection] = useState<SortDirection>(null);
+  const [matrixColumnFilters, setMatrixColumnFilters] = useState<Record<string, string[]>>({});
+  const [matrixColumnSearchTerms, setMatrixColumnSearchTerms] = useState<Record<string, string>>({});
+
+  const handleMatrixSort = (key: string) => {
+    if (matrixSortKey === key) {
+      setMatrixSortDirection((prev) => (prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc'));
+      if (matrixSortDirection === 'desc') setMatrixSortKey(null);
+    } else {
+      setMatrixSortKey(key);
+      setMatrixSortDirection('asc');
+    }
+  };
+
+  const matrixColumnOptions = useMemo(() => {
+    const cases = currentManual?.attachedTestCases || [];
+    const getUnique = (getter: (tc: AttachedExcelTestCase) => string) =>
+      Array.from(new Set(cases.map(getter).filter(Boolean)));
+    return {
+      testCaseId: getUnique((tc) => tc.testCaseId || ''),
+      scenario: getUnique((tc) => tc.scenario || ''),
+      descriptionOrSteps: getUnique((tc) => tc.descriptionOrSteps || ''),
+      expectedResult: getUnique((tc) => tc.expectedResult || ''),
+      status: getUnique((tc) => tc.status || 'Passed'),
+    };
+  }, [currentManual?.attachedTestCases]);
+
+  const filteredAttachedTestCases = useMemo(() => {
+    const cases = currentManual?.attachedTestCases || [];
+    const getColVal = (tc: AttachedExcelTestCase, key: string): string => {
+      if (key === 'status') return tc.status || 'Passed';
+      return String((tc as any)[key] || '');
+    };
+
+    const list = cases.filter((tc) => {
+      for (const colKey of Object.keys(matrixColumnFilters)) {
+        const selectedVals = matrixColumnFilters[colKey];
+        if (selectedVals && selectedVals.length > 0) {
+          if (!selectedVals.includes(getColVal(tc, colKey))) return false;
+        }
+      }
+      for (const colKey of Object.keys(matrixColumnSearchTerms)) {
+        const searchVal = matrixColumnSearchTerms[colKey];
+        if (searchVal && searchVal.trim() !== '') {
+          if (!getColVal(tc, colKey).toLowerCase().includes(searchVal.trim().toLowerCase())) return false;
+        }
+      }
+      return true;
+    });
+
+    if (matrixSortKey && matrixSortDirection) {
+      list.sort((a, b) => {
+        const cmp = getColVal(a, matrixSortKey).localeCompare(getColVal(b, matrixSortKey), undefined, {
+          numeric: true,
+          sensitivity: 'base',
+        });
+        return matrixSortDirection === 'asc' ? cmp : -cmp;
+      });
+    }
+
+    return list;
+  }, [currentManual?.attachedTestCases, matrixColumnFilters, matrixColumnSearchTerms, matrixSortKey, matrixSortDirection]);
 
   // Active Ticket
   const activeTicket = tickets.find(
@@ -1437,15 +1503,76 @@ export const UserManualView: React.FC<UserManualViewProps> = ({
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-blue-900 text-white font-bold text-[11px]">
-                            <th className="p-2.5 w-20">Test ID</th>
-                            <th className="p-2.5 w-1/4">Scenario</th>
-                            <th className="p-2.5">Steps / Action Description</th>
-                            <th className="p-2.5 w-1/4">Expected Result</th>
-                            <th className="p-2.5 w-20 text-center">Status</th>
+                            <ColumnHeader
+                              label="Test ID"
+                              sortKey="testCaseId"
+                              currentSortKey={matrixSortKey}
+                              sortDirection={matrixSortDirection}
+                              onSort={handleMatrixSort}
+                              filterOptions={matrixColumnOptions.testCaseId}
+                              selectedFilters={matrixColumnFilters.testCaseId || []}
+                              onFilterChange={(vals) => setMatrixColumnFilters((prev) => ({ ...prev, testCaseId: vals }))}
+                              searchTerm={matrixColumnSearchTerms.testCaseId || ''}
+                              onSearchChange={(term) => setMatrixColumnSearchTerms((prev) => ({ ...prev, testCaseId: term }))}
+                              className="p-2.5 w-20"
+                            />
+                            <ColumnHeader
+                              label="Scenario"
+                              sortKey="scenario"
+                              currentSortKey={matrixSortKey}
+                              sortDirection={matrixSortDirection}
+                              onSort={handleMatrixSort}
+                              filterOptions={matrixColumnOptions.scenario}
+                              selectedFilters={matrixColumnFilters.scenario || []}
+                              onFilterChange={(vals) => setMatrixColumnFilters((prev) => ({ ...prev, scenario: vals }))}
+                              searchTerm={matrixColumnSearchTerms.scenario || ''}
+                              onSearchChange={(term) => setMatrixColumnSearchTerms((prev) => ({ ...prev, scenario: term }))}
+                              className="p-2.5 w-1/4"
+                            />
+                            <ColumnHeader
+                              label="Steps / Action Description"
+                              sortKey="descriptionOrSteps"
+                              currentSortKey={matrixSortKey}
+                              sortDirection={matrixSortDirection}
+                              onSort={handleMatrixSort}
+                              filterOptions={matrixColumnOptions.descriptionOrSteps}
+                              selectedFilters={matrixColumnFilters.descriptionOrSteps || []}
+                              onFilterChange={(vals) => setMatrixColumnFilters((prev) => ({ ...prev, descriptionOrSteps: vals }))}
+                              searchTerm={matrixColumnSearchTerms.descriptionOrSteps || ''}
+                              onSearchChange={(term) => setMatrixColumnSearchTerms((prev) => ({ ...prev, descriptionOrSteps: term }))}
+                              className="p-2.5"
+                            />
+                            <ColumnHeader
+                              label="Expected Result"
+                              sortKey="expectedResult"
+                              currentSortKey={matrixSortKey}
+                              sortDirection={matrixSortDirection}
+                              onSort={handleMatrixSort}
+                              filterOptions={matrixColumnOptions.expectedResult}
+                              selectedFilters={matrixColumnFilters.expectedResult || []}
+                              onFilterChange={(vals) => setMatrixColumnFilters((prev) => ({ ...prev, expectedResult: vals }))}
+                              searchTerm={matrixColumnSearchTerms.expectedResult || ''}
+                              onSearchChange={(term) => setMatrixColumnSearchTerms((prev) => ({ ...prev, expectedResult: term }))}
+                              className="p-2.5 w-1/4"
+                            />
+                            <ColumnHeader
+                              label="Status"
+                              sortKey="status"
+                              currentSortKey={matrixSortKey}
+                              sortDirection={matrixSortDirection}
+                              onSort={handleMatrixSort}
+                              filterOptions={matrixColumnOptions.status}
+                              selectedFilters={matrixColumnFilters.status || []}
+                              onFilterChange={(vals) => setMatrixColumnFilters((prev) => ({ ...prev, status: vals }))}
+                              searchTerm={matrixColumnSearchTerms.status || ''}
+                              onSearchChange={(term) => setMatrixColumnSearchTerms((prev) => ({ ...prev, status: term }))}
+                              align="center"
+                              className="p-2.5 w-20"
+                            />
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200">
-                          {currentManual.attachedTestCases.map((tc, idx) => (
+                          {filteredAttachedTestCases.map((tc, idx) => (
                             <tr key={tc.id || idx} className="hover:bg-slate-50">
                               <td className="p-2.5 font-mono font-bold text-blue-700">{tc.testCaseId}</td>
                               <td className="p-2.5 font-semibold text-slate-900">{tc.scenario}</td>

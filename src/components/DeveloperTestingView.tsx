@@ -23,6 +23,10 @@ import {
   Edit3,
   CloudDownload,
   Languages,
+  Maximize2,
+  Minimize2,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import {
   DeveloperTestHeaderMeta,
@@ -72,6 +76,8 @@ interface DeveloperTestingViewProps {
   onSaveAndSubmitTicket?: (ticketNo: string) => void;
   onReopenEditTicket?: (ticketNo: string) => void;
   onDeleteTicket?: (ticketNumber: string, mode: 'all_modules' | 'tickets_tab_only') => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
@@ -94,9 +100,20 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   onSaveAndSubmitTicket,
   onReopenEditTicket,
   onDeleteTicket,
+  isSidebarCollapsed = false,
+  onToggleSidebar,
 }) => {
   // Hub Navigation Mode: 'tickets-table' (Tickets List) vs 'dev-testing-screen' (Detail Screen)
   const [hubMode, setHubMode] = useState<'tickets-table' | 'dev-testing-screen'>('tickets-table');
+
+  // State for Full UI Table-Only Mode
+  const [isTableOnlyMode, setIsTableOnlyMode] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (isSidebarCollapsed) {
+      setIsTableOnlyMode(true);
+    }
+  }, [isSidebarCollapsed]);
 
   // Selected Active Ticket
   const defaultTicketNo = activeTicketNumber || (tickets[0]?.ticketNumber) || INITIAL_DEV_TEST_HEADER.ticketNo;
@@ -357,14 +374,32 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
     setTicketToDelete(null);
   };
 
-  // Sorting & Filtering in table
+  // Sorting & Filtering in Tickets table
+  const [ticketSortKey, setTicketSortKey] = useState<string | null>(null);
+  const [ticketSortDirection, setTicketSortDirection] = useState<SortDirection>(null);
+  const [ticketColumnFilters, setTicketColumnFilters] = useState<Record<string, string>>({
+    ticketNumber: '',
+    featureName: '',
+    moduleName: '',
+    developer: '',
+    qaAssignee: '',
+    priority: '',
+    status: '',
+    devPoints: '',
+    action: '',
+  });
+
+  // Sorting & Filtering in Developer Testing detail table
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({
+    rowIndex: '',
     dealId: '',
     developerName: '',
     testingPoint: '',
     expectedResult: '',
+    evidence: '',
+    action: '',
     submissionState: '',
   });
 
@@ -910,7 +945,12 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   };
 
   // Sort & Filter logic in Detail Screen
-  const handleSort = (key: string) => {
+  const handleSort = (key: string, dir?: SortDirection) => {
+    if (dir !== undefined) {
+      setSortKey(dir ? key : null);
+      setSortDirection(dir);
+      return;
+    }
     if (sortKey === key) {
       if (sortDirection === 'asc') setSortDirection('desc');
       else {
@@ -929,7 +969,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   const filteredItems = useMemo(() => {
     return items
-      .filter((item) => {
+      .filter((item, idx) => {
         if (globalSearch.trim()) {
           const q = globalSearch.toLowerCase();
           const match =
@@ -941,15 +981,28 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
           if (!match) return false;
         }
 
+        if (columnFilters.rowIndex?.trim() && !String(idx + 1).includes(columnFilters.rowIndex.trim())) return false;
         if (columnFilters.dealId.trim() && !(item.dealId || '').toLowerCase().includes(columnFilters.dealId.toLowerCase().trim())) return false;
         if (columnFilters.developerName.trim() && !(item.developerName || '').toLowerCase().includes(columnFilters.developerName.toLowerCase().trim())) return false;
         if (columnFilters.testingPoint.trim() && !(item.testingPoint || '').toLowerCase().includes(columnFilters.testingPoint.toLowerCase().trim())) return false;
         if (columnFilters.expectedResult.trim() && !item.expectedResult.toLowerCase().includes(columnFilters.expectedResult.toLowerCase().trim())) return false;
+        if (columnFilters.evidence?.trim()) {
+          const q = columnFilters.evidence.toLowerCase().trim();
+          const hasAtt = (item.attachments || []).length > 0 || Boolean(item.screenshotName);
+          const attNames = [...(item.attachments || []).map((a) => a.name), item.screenshotName || ''].join(' ').toLowerCase();
+          const statusStr = hasAtt ? 'with evidence attached' : 'no evidence empty';
+          if (!attNames.includes(q) && !statusStr.includes(q)) return false;
+        }
 
         return true;
       })
       .sort((a, b) => {
         if (!sortKey || !sortDirection) return 0;
+        if (sortKey === 'evidence') {
+          const countA = (a.attachments || []).length;
+          const countB = (b.attachments || []).length;
+          return sortDirection === 'asc' ? countA - countB : countB - countA;
+        }
         const valA = (a as any)[sortKey] ?? '';
         const valB = (b as any)[sortKey] ?? '';
         const comp = String(valA).localeCompare(String(valB));
@@ -959,33 +1012,60 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
   // Filtered Tickets for Tickets List Table
   const filteredTickets = useMemo(() => {
-    return tickets.filter((t) => {
-      if (ticketSearch.trim()) {
-        const q = ticketSearch.toLowerCase();
-        const matches =
-          t.ticketNumber.toLowerCase().includes(q) ||
-          t.featureName.toLowerCase().includes(q) ||
-          t.moduleName.toLowerCase().includes(q) ||
-          t.qaAssignee.toLowerCase().includes(q) ||
-          t.developer.toLowerCase().includes(q) ||
-          (t.scenarioDetails || '').toLowerCase().includes(q) ||
-          (t.testingScenarios || '').toLowerCase().includes(q);
-        if (!matches) return false;
-      }
+    return tickets
+      .filter((t) => {
+        if (ticketSearch.trim()) {
+          const q = ticketSearch.toLowerCase();
+          const matches =
+            t.ticketNumber.toLowerCase().includes(q) ||
+            t.featureName.toLowerCase().includes(q) ||
+            t.moduleName.toLowerCase().includes(q) ||
+            t.qaAssignee.toLowerCase().includes(q) ||
+            t.developer.toLowerCase().includes(q) ||
+            (t.scenarioDetails || '').toLowerCase().includes(q) ||
+            (t.testingScenarios || '').toLowerCase().includes(q);
+          if (!matches) return false;
+        }
 
-      if (ticketModuleFilter !== 'all') {
-        const tMod = t.moduleName.toLowerCase();
-        const fMod = ticketModuleFilter.toLowerCase();
-        if (!tMod.includes(fMod) && !fMod.includes(tMod)) return false;
-      }
+        if (ticketModuleFilter !== 'all') {
+          const tMod = t.moduleName.toLowerCase();
+          const fMod = ticketModuleFilter.toLowerCase();
+          if (!tMod.includes(fMod) && !fMod.includes(tMod)) return false;
+        }
 
-      if (ticketStatusFilter !== 'all') {
-        if (t.status !== ticketStatusFilter) return false;
-      }
+        if (ticketStatusFilter !== 'all') {
+          if (t.status !== ticketStatusFilter) return false;
+        }
 
-      return true;
-    });
-  }, [tickets, ticketSearch, ticketModuleFilter, ticketStatusFilter]);
+        const pointsCount = (devTestingMap[t.ticketNumber] || []).length;
+        const rowPerm = canUserOpenTicket(t, currentUser);
+        const actionLabel = !rowPerm.allowed ? 'Locked' : 'Open';
+
+        if (ticketColumnFilters.ticketNumber && !t.ticketNumber.toLowerCase().includes(ticketColumnFilters.ticketNumber.toLowerCase())) return false;
+        if (ticketColumnFilters.featureName && !(`${t.featureName} ${t.testingScenarios || ''}`).toLowerCase().includes(ticketColumnFilters.featureName.toLowerCase())) return false;
+        if (ticketColumnFilters.moduleName && !t.moduleName.toLowerCase().includes(ticketColumnFilters.moduleName.toLowerCase())) return false;
+        if (ticketColumnFilters.developer && !t.developer.toLowerCase().includes(ticketColumnFilters.developer.toLowerCase())) return false;
+        if (ticketColumnFilters.qaAssignee && !t.qaAssignee.toLowerCase().includes(ticketColumnFilters.qaAssignee.toLowerCase())) return false;
+        if (ticketColumnFilters.priority && !t.priority.toLowerCase().includes(ticketColumnFilters.priority.toLowerCase())) return false;
+        if (ticketColumnFilters.status && !t.status.toLowerCase().includes(ticketColumnFilters.status.toLowerCase())) return false;
+        if (ticketColumnFilters.devPoints && !(`${pointsCount} Points`).toLowerCase().includes(ticketColumnFilters.devPoints.toLowerCase())) return false;
+        if (ticketColumnFilters.action && !actionLabel.toLowerCase().includes(ticketColumnFilters.action.toLowerCase())) return false;
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (!ticketSortKey || !ticketSortDirection) return 0;
+        if (ticketSortKey === 'devPoints') {
+          const cA = (devTestingMap[a.ticketNumber] || []).length;
+          const cB = (devTestingMap[b.ticketNumber] || []).length;
+          return ticketSortDirection === 'asc' ? cA - cB : cB - cA;
+        }
+        const valA = (a as any)[ticketSortKey] || '';
+        const valB = (b as any)[ticketSortKey] || '';
+        const comp = String(valA).localeCompare(String(valB));
+        return ticketSortDirection === 'asc' ? comp : -comp;
+      });
+  }, [tickets, ticketSearch, ticketModuleFilter, ticketStatusFilter, ticketColumnFilters, ticketSortKey, ticketSortDirection, devTestingMap, currentUser]);
 
   // Add Ticket Submit Handler (with Custom Module support)
   const handleCreateTicketSubmit = (e: React.FormEvent) => {
@@ -1068,7 +1148,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   // ==========================================
   if (hubMode === 'tickets-table') {
     return (
-      <div className="p-6 max-w-[1600px] mx-auto space-y-5 animate-fadeIn">
+      <div className="p-4 sm:p-6 w-full max-w-none mx-auto space-y-4 animate-fadeIn">
         {/* Header Bar */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
           <div className="flex items-center gap-3">
@@ -1154,19 +1234,133 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
         {/* Tickets Table View */}
         <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse min-w-[1000px]">
+          <div className="table-always-scroll max-h-[calc(100vh-230px)] min-h-[380px]">
+            <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
               <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
                 <tr>
-                  <th className="p-2.5 w-32 border-r border-slate-700">Ticket ID</th>
-                  <th className="p-2.5 min-w-[240px] border-r border-slate-700">Feature / Task Name</th>
-                  <th className="p-2.5 w-40 border-r border-slate-700">Module</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">Developer</th>
-                  <th className="p-2.5 w-36 border-r border-slate-700">QA Assignee</th>
-                  <th className="p-2.5 w-24 text-center border-r border-slate-700">Priority</th>
-                  <th className="p-2.5 w-28 text-center border-r border-slate-700">Status</th>
-                  <th className="p-2.5 w-32 text-center border-r border-slate-700">Dev Test Points</th>
-                  <th className="p-2.5 w-48 text-center">Action</th>
+                  <ColumnHeader
+                    title="Ticket ID"
+                    columnKey="ticketNumber"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.ticketNumber}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.ticketNumber)}
+                    className="w-32 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Feature / Task Name"
+                    columnKey="featureName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.featureName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.featureName)}
+                    className="min-w-[240px] border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Module"
+                    columnKey="moduleName"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.moduleName}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.moduleName)}
+                    className="w-40 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Developer"
+                    columnKey="developer"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.developer}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.developer)}
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="QA Assignee"
+                    columnKey="qaAssignee"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.qaAssignee}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={tickets.map((t) => t.qaAssignee)}
+                    className="w-36 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Priority"
+                    columnKey="priority"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.priority}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Critical', 'High', 'Medium', 'Low']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Status"
+                    columnKey="status"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.status}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Ready for QA', 'In Testing', 'Observation Raised', 'Passed']}
+                    align="center"
+                    className="w-28 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Dev Test Points"
+                    columnKey="devPoints"
+                    sortKey={ticketSortKey}
+                    sortDirection={ticketSortDirection}
+                    onSort={(k, d) => {
+                      setTicketSortKey(k);
+                      setTicketSortDirection(d);
+                    }}
+                    filterValue={ticketColumnFilters.devPoints}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    align="center"
+                    className="w-32 border-r border-slate-700"
+                  />
+                  <ColumnHeader
+                    title="Action"
+                    columnKey="action"
+                    filterValue={ticketColumnFilters.action}
+                    onFilterChange={(k, v) => setTicketColumnFilters((p) => ({ ...p, [k]: v }))}
+                    options={['Open', 'Locked']}
+                    align="center"
+                    className="w-48"
+                  />
                 </tr>
               </thead>
 
@@ -1573,138 +1767,254 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
   // VIEW 2: DEVELOPER TESTING DETAIL SCREEN
   // ==========================================
   return (
-    <div className="p-6 max-w-[1600px] mx-auto space-y-5 animate-fadeIn">
-      {/* Hub Back Breadcrumb */}
-      <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
-        <button
-          onClick={() => setHubMode('tickets-table')}
-          className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="w-3.5 h-3.5" />
-          <span>← Back to Tickets List</span>
-        </button>
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Viewing Developer Testing for:</span>
-          <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
-            Ticket #{header.ticketNo}
-          </span>
-          <span className="font-semibold text-slate-800">{header.featureName}</span>
-        </div>
-      </div>
-
-      {/* Header Bar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <span className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
-            <Code2 className="w-5 h-5" />
-          </span>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-slate-900 tracking-tight">
-                Developer Testing Documentation &amp; Tracking
-              </h1>
-              <span
-                className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
-                  header.status === 'Submitted'
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border border-amber-300'
-                }`}
-              >
-                {header.status === 'Submitted' ? `Submitted by ${header.submittedBy || 'Developer'}` : 'Draft (Private)'}
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Enter a simple testing point or generate directly from Azure DevOps ticket. Edit AI results, attach evidence, and submit.
-            </p>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Creator Controls */}
-          {isTicketCreator && (
-            isTicketInDraft(currentTicket) ? (
-              <>
-                <button
-                  onClick={handleSaveDraft}
-                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Save className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Save Draft</span>
-                </button>
-
-                <button
-                  onClick={handleSubmitDevTesting}
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
-                  title="Submit your developer testing points so team members can view"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>Save &amp; Submit Ticket</span>
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={handleReopenDeveloperTesting}
-                className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
-                title="Reopen ticket to edit again"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                <span>Reopen for Editing</span>
-              </button>
-            )
-          )}
-
-          {/* Read-Only Notice for Non-Creators */}
-          {!isTicketCreator && currentTicketPerms.isReadOnly && (
-            <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
-              <Eye className="w-3.5 h-3.5 text-blue-600" />
-              <span>Read-Only View (Submitted by {currentTicket?.createdBy || header.developer || 'Creator'})</span>
-            </span>
-          )}
-
-          <button
-            onClick={handleGenerateFromAzureDevOpsTicket}
-            disabled={isFetchingFromAdo || effectiveReadOnly}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>{isFetchingFromAdo ? 'Fetching Ticket...' : '✨ AI Generate from Ticket'}</span>
-          </button>
-
-          <button
-            onClick={handleDownloadExcel}
-            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
-          >
-            <Download className="w-3.5 h-3.5" />
-            <span>Export Excel</span>
-          </button>
-
-          <button
-            onClick={() => setIsAdoModalOpen(true)}
-            title="Attach Developer Testing directly to Azure DevOps Work Item"
-            className="px-3.5 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-all shadow-xs cursor-pointer"
-          >
-            <UploadCloud className="w-3.5 h-3.5 text-blue-200" />
-            <span>🚀 Azure DevOps</span>
-          </button>
-
-          {onDeleteTicket && (
+    <div
+      className={
+        isTableOnlyMode
+          ? 'w-full max-w-none h-[calc(100vh-3.5rem)] p-2 flex flex-col overflow-hidden bg-[#F8FAFC]'
+          : 'p-4 sm:p-6 w-full max-w-none mx-auto space-y-4 animate-fadeIn'
+      }
+    >
+      {!isTableOnlyMode && (
+        <>
+          {/* Hub Back Breadcrumb */}
+          <div className="flex items-center justify-between bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-2xs">
             <button
-              type="button"
-              onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.featureName })}
-              title={`Delete Ticket #${header.ticketNo}`}
-              className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+              onClick={() => setHubMode('tickets-table')}
+              className="flex items-center gap-1.5 text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-200 transition-colors cursor-pointer"
             >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Delete Ticket</span>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>← Back to Tickets List</span>
             </button>
-          )}
-        </div>
-      </div>
+            <div className="flex items-center gap-2 text-xs text-slate-500">
+              <span>Viewing Developer Testing for:</span>
+              <span className="font-mono font-bold text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-200">
+                Ticket #{header.ticketNo}
+              </span>
+              <span className="font-semibold text-slate-800">{header.featureName}</span>
+            </div>
+          </div>
+
+          {/* Header Bar */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white p-5 rounded-xl border border-slate-200 shadow-2xs">
+            <div className="flex items-center gap-3">
+              <span className="p-2 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+                <Code2 className="w-5 h-5" />
+              </span>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-bold text-slate-900 tracking-tight">
+                    Developer Testing Documentation &amp; Tracking
+                  </h1>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                      header.status === 'Submitted'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-amber-100 text-amber-800 border border-amber-300'
+                    }`}
+                  >
+                    {header.status === 'Submitted' ? `Submitted by ${header.submittedBy || 'Developer'}` : 'Draft (Private)'}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Enter a simple testing point or generate directly from Azure DevOps ticket. Edit AI results, attach evidence, and submit.
+                </p>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Creator Controls */}
+              {isTicketCreator && (
+                isTicketInDraft(currentTicket) ? (
+                  <>
+                    <button
+                      onClick={handleSaveDraft}
+                      className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 border border-slate-300 text-xs font-bold rounded-md flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5 text-slate-600" />
+                      <span>Save Draft</span>
+                    </button>
+
+                    <button
+                      onClick={handleSubmitDevTesting}
+                      className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer active:scale-95"
+                      title="Submit your developer testing points so team members can view"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>Save &amp; Submit Ticket</span>
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleReopenDeveloperTesting}
+                    className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-md flex items-center gap-1.5 shadow-xs transition-all cursor-pointer active:scale-95"
+                    title="Reopen ticket to edit again"
+                  >
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Reopen for Editing</span>
+                  </button>
+                )
+              )}
+
+              {/* Read-Only Notice for Non-Creators */}
+              {!isTicketCreator && currentTicketPerms.isReadOnly && (
+                <span className="px-3 py-1.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-xs font-bold flex items-center gap-1.5 shadow-2xs">
+                  <Eye className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Read-Only View (Submitted by {currentTicket?.createdBy || header.developer || 'Creator'})</span>
+                </span>
+              )}
+
+              <button
+                onClick={handleGenerateFromAzureDevOpsTicket}
+                disabled={isFetchingFromAdo || effectiveReadOnly}
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isFetchingFromAdo ? 'Fetching Ticket...' : '✨ AI Generate from Ticket'}</span>
+              </button>
+
+              <button
+                onClick={handleDownloadExcel}
+                className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-md flex items-center gap-2 shadow-xs transition-all cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Excel</span>
+              </button>
+
+              <button
+                onClick={() => setIsAdoModalOpen(true)}
+                title="Attach Developer Testing directly to Azure DevOps Work Item"
+                className="px-3.5 py-1.5 bg-gradient-to-r from-blue-700 to-indigo-700 hover:from-blue-800 hover:to-indigo-800 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-all shadow-xs cursor-pointer"
+              >
+                <UploadCloud className="w-3.5 h-3.5 text-blue-200" />
+                <span>🚀 Azure DevOps</span>
+              </button>
+
+              {onDeleteTicket && (
+                <button
+                  type="button"
+                  onClick={() => setTicketToDelete({ ticketNumber: header.ticketNo, taskName: header.featureName })}
+                  title={`Delete Ticket #${header.ticketNo}`}
+                  className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold rounded-md flex items-center gap-1.5 shadow-2xs cursor-pointer transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Ticket</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* COMMON MODULE HEADER */}
+          <CommonHeader
+            mode="developer"
+            selectedTicketNumber={selectedTicketNo}
+            tickets={tickets}
+            clientName={header.clientName || 'Treasury Master'}
+            onChangeClientName={(val) => {
+              const next = { ...header, clientName: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            moduleName={currentTicket?.moduleName || 'Term Loan'}
+            taskName={header.taskName !== undefined ? header.taskName : (header.featureName || currentTicket?.featureName || 'penalty overdue report')}
+            onChangeTaskName={(val) => {
+              const next = { ...header, taskName: val, featureName: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            qaAssigneeName={header.qaAssignee !== undefined ? header.qaAssignee : (currentTicket?.qaAssignee || '')}
+            onChangeQaAssigneeName={(val) => {
+              const next = { ...header, qaAssignee: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            developerName={header.developer !== undefined ? header.developer : (currentTicket?.developer || '')}
+            onChangeDeveloperName={(val) => {
+              const next = { ...header, developer: val };
+              setHeader(next);
+              const updatedItems = items.map((it) => ({
+                ...it,
+                developerName: val,
+              }));
+              saveStateToStore(updatedItems, next);
+            }}
+            sha={header.sha !== undefined ? header.sha : (header.shaCommit || currentTicket?.shaCommit || '')}
+            onChangeSha={(val) => {
+              const next = { ...header, sha: val, shaCommit: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            signOffBy={header.signOffBy !== undefined ? header.signOffBy : (currentTicket?.signOffBy || '')}
+            onChangeSignOffBy={(val) => {
+              const next = { ...header, signOffBy: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            description={header.description !== undefined ? header.description : (currentTicket?.description || '')}
+            testingScenarios={header.testingScenarios !== undefined ? header.testingScenarios : (currentTicket?.testingScenarios || '')}
+            attachedDocs={header.attachedDocs || []}
+            onUpdateAttachedDocs={(docs) => {
+              const next = { ...header, attachedDocs: docs };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            screenFields={header.screenFields || []}
+            onUpdateScreenFields={(fields) => {
+              const next = { ...header, screenFields: fields };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            onSelectTicket={handleTicketChange}
+            onChangeDescription={(val) => {
+              const next = { ...header, description: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            onChangeTestingScenarios={(val) => {
+              const next = { ...header, testingScenarios: val };
+              setHeader(next);
+              saveStateToStore(items, next);
+            }}
+            onGenerateAi={handleAiGenerateMultiScenarios}
+            isGenerating={isGeneratingAiScenarios}
+            generateButtonText="✨ AI Auto-Generate Scenarios into Table"
+            showGenerateButton={!effectiveReadOnly}
+            readOnly={effectiveReadOnly}
+          />
+
+          {/* Quick Single Point Generator Bar */}
+          <div className="bg-indigo-50/60 border border-indigo-200 p-3.5 rounded-xl flex flex-col md:flex-row items-center gap-3">
+            <div className="flex-1 w-full">
+              <label className="block text-[11px] font-bold text-indigo-900 uppercase tracking-wide mb-1">
+                Quick generate expected result: Enter a testing point
+              </label>
+              <input
+                type="text"
+                disabled={effectiveReadOnly}
+                placeholder={effectiveReadOnly ? 'Read-only mode (Ticket submitted by creator)' : 'e.g. Verify that changing the Index Rate updates the Effective Rate...'}
+                value={singlePointInput}
+                onChange={(e) => setSinglePointInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleAiGenerateSinglePoint();
+                }}
+                className="w-full px-3 py-1.5 bg-white border border-indigo-200 disabled:bg-slate-100 disabled:opacity-60 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              onClick={handleAiGenerateSinglePoint}
+              disabled={isGeneratingAiPoint || effectiveReadOnly || !singlePointInput.trim()}
+              className="w-full md:w-auto mt-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>{isGeneratingAiPoint ? 'Generating...' : '✨ Generate Expected Result'}</span>
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Feedback Toast */}
       {notification && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2 animate-fadeIn shadow-2xs">
+        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-900 flex items-center gap-2 animate-fadeIn shadow-2xs shrink-0 mb-1.5">
           <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
           <span>{notification}</span>
         </div>
@@ -1712,125 +2022,127 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
 
       {/* Download Toast */}
       {downloadSuccess && (
-        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center gap-2 animate-fadeIn">
+        <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-900 flex items-center gap-2 animate-fadeIn shrink-0 mb-1.5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span>Developer Testing Excel file downloaded successfully!</span>
         </div>
       )}
 
-      {/* COMMON MODULE HEADER */}
-      <CommonHeader
-        mode="developer"
-        selectedTicketNumber={selectedTicketNo}
-        tickets={tickets}
-        clientName={header.clientName || 'Treasury Master'}
-        onChangeClientName={(val) => {
-          const next = { ...header, clientName: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        moduleName={currentTicket?.moduleName || 'Term Loan'}
-        taskName={header.taskName !== undefined ? header.taskName : (header.featureName || currentTicket?.featureName || 'penalty overdue report')}
-        onChangeTaskName={(val) => {
-          const next = { ...header, taskName: val, featureName: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        qaAssigneeName={header.qaAssignee !== undefined ? header.qaAssignee : (currentTicket?.qaAssignee || '')}
-        onChangeQaAssigneeName={(val) => {
-          const next = { ...header, qaAssignee: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        developerName={header.developer !== undefined ? header.developer : (currentTicket?.developer || '')}
-        onChangeDeveloperName={(val) => {
-          const next = { ...header, developer: val };
-          setHeader(next);
-          const updatedItems = items.map((it) => ({
-            ...it,
-            developerName: val,
-          }));
-          saveStateToStore(updatedItems, next);
-        }}
-        sha={header.sha !== undefined ? header.sha : (header.shaCommit || currentTicket?.shaCommit || '')}
-        onChangeSha={(val) => {
-          const next = { ...header, sha: val, shaCommit: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        signOffBy={header.signOffBy !== undefined ? header.signOffBy : (currentTicket?.signOffBy || '')}
-        onChangeSignOffBy={(val) => {
-          const next = { ...header, signOffBy: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        description={header.description !== undefined ? header.description : (currentTicket?.description || '')}
-        testingScenarios={header.testingScenarios !== undefined ? header.testingScenarios : (currentTicket?.testingScenarios || '')}
-        attachedDocs={header.attachedDocs || []}
-        onUpdateAttachedDocs={(docs) => {
-          const next = { ...header, attachedDocs: docs };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        screenFields={header.screenFields || []}
-        onUpdateScreenFields={(fields) => {
-          const next = { ...header, screenFields: fields };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        onSelectTicket={handleTicketChange}
-        onChangeDescription={(val) => {
-          const next = { ...header, description: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        onChangeTestingScenarios={(val) => {
-          const next = { ...header, testingScenarios: val };
-          setHeader(next);
-          saveStateToStore(items, next);
-        }}
-        onGenerateAi={handleAiGenerateMultiScenarios}
-        isGenerating={isGeneratingAiScenarios}
-        generateButtonText="✨ AI Auto-Generate Scenarios into Table"
-        showGenerateButton={!effectiveReadOnly}
-        readOnly={effectiveReadOnly}
-      />
-
-      {/* Quick Single Point Generator Bar */}
-      <div className="bg-indigo-50/60 border border-indigo-200 p-3.5 rounded-xl flex flex-col md:flex-row items-center gap-3">
-        <div className="flex-1 w-full">
-          <label className="block text-[11px] font-bold text-indigo-900 uppercase tracking-wide mb-1">
-            Quick generate expected result: Enter a testing point
-          </label>
-          <input
-            type="text"
-            disabled={effectiveReadOnly}
-            placeholder={effectiveReadOnly ? 'Read-only mode (Ticket submitted by creator)' : 'e.g. Verify that changing the Index Rate updates the Effective Rate...'}
-            value={singlePointInput}
-            onChange={(e) => setSinglePointInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleAiGenerateSinglePoint();
-            }}
-            className="w-full px-3 py-1.5 bg-white border border-indigo-200 disabled:bg-slate-100 disabled:opacity-60 rounded-lg text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-        <button
-          onClick={handleAiGenerateSinglePoint}
-          disabled={isGeneratingAiPoint || effectiveReadOnly || !singlePointInput.trim()}
-          className="w-full md:w-auto mt-auto px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-all shadow-xs cursor-pointer"
-        >
-          <Sparkles className="w-3.5 h-3.5" />
-          <span>{isGeneratingAiPoint ? 'Generating...' : '✨ Generate Expected Result'}</span>
-        </button>
-      </div>
-
       {/* DEVELOPER TESTING TABLE */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden">
-        <div className="overflow-x-auto max-h-[600px]">
-          <table className="w-full text-left text-xs border-collapse min-w-[1300px]">
+      <div
+        className={`bg-white border border-slate-200 rounded-xl shadow-2xs overflow-hidden flex flex-col ${
+          isTableOnlyMode ? 'flex-1 min-h-0' : ''
+        }`}
+      >
+        {/* Table Control Toolbar */}
+        <div className="bg-slate-900 text-slate-100 px-3 sm:px-4 py-2.5 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 shadow-xs shrink-0">
+          <div className="flex flex-wrap items-center gap-2">
+            {isTableOnlyMode && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTableOnlyMode(false);
+                  setHubMode('tickets-table');
+                }}
+                className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Tickets</span>
+              </button>
+            )}
+            <span className="px-2.5 py-1 bg-blue-600/20 border border-blue-500/40 text-blue-300 rounded-lg font-mono font-bold text-xs">
+              #{header.ticketNo}
+            </span>
+            {!effectiveReadOnly && (
+              <button
+                onClick={handleAddRow}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-blue-300 border border-slate-700 text-xs font-semibold rounded-lg flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Add Row</span>
+              </button>
+            )}
+            <span className="text-[11px] text-slate-400 font-mono pl-2 border-l border-slate-700">
+              {filteredItems.length} of {items.length} rows
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {onToggleSidebar && (
+              <button
+                type="button"
+                onClick={onToggleSidebar}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                  isSidebarCollapsed
+                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                    : 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700'
+                }`}
+              >
+                {isSidebarCollapsed ? (
+                  <>
+                    <PanelLeftOpen className="w-3.5 h-3.5" />
+                    <span>Show Nav</span>
+                  </>
+                ) : (
+                  <>
+                    <PanelLeftClose className="w-3.5 h-3.5" />
+                    <span>Hide Nav</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setIsTableOnlyMode((prev) => !prev)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all border ${
+                isTableOnlyMode
+                  ? 'bg-blue-600 text-white border-blue-400 shadow-xs'
+                  : 'bg-slate-800 text-blue-300 border-slate-700 hover:bg-slate-700'
+              }`}
+            >
+              {isTableOnlyMode ? (
+                <>
+                  <Minimize2 className="w-3.5 h-3.5" />
+                  <span>Show Top Headers</span>
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Only Table View</span>
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleDownloadExcel}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Excel</span>
+            </button>
+          </div>
+        </div>
+
+        <div
+          className={`table-always-scroll ${
+            isTableOnlyMode
+              ? 'flex-1 min-h-0'
+              : 'max-h-[calc(100vh-220px)] min-h-[420px]'
+          }`}
+        >
+          <table className="w-full text-left text-xs border-collapse min-w-[1500px]">
             <thead className="bg-[#1E293B] text-slate-200 uppercase font-semibold text-[11px] tracking-wider sticky top-0 z-20 shadow-2xs">
               <tr>
-                <th className="p-2.5 w-12 text-center border-r border-slate-700">#</th>
+                <ColumnHeader
+                  title="#"
+                  columnKey="rowIndex"
+                  filterValue={columnFilters.rowIndex}
+                  onFilterChange={handleFilterChange}
+                  align="center"
+                  placeholder="#"
+                  className="w-16 border-r border-slate-700"
+                />
 
                 <ColumnHeader
                   title="Deal ID"
@@ -1840,6 +2152,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.dealId}
                   onFilterChange={handleFilterChange}
+                  options={items.map((it) => it.dealId || header.dealId || `DEAL-${header.ticketNo}`)}
                   className="w-32 border-r border-slate-700"
                 />
 
@@ -1851,6 +2164,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.developerName}
                   onFilterChange={handleFilterChange}
+                  options={items.map((it) => it.developerName || header.developer || '')}
                   className="w-40 border-r border-slate-700"
                 />
 
@@ -1862,6 +2176,7 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.testingPoint}
                   onFilterChange={handleFilterChange}
+                  options={items.map((it) => it.testingPoint || it.scenario || '')}
                   className="min-w-[280px] border-r border-slate-700"
                 />
 
@@ -1873,16 +2188,42 @@ export const DeveloperTestingView: React.FC<DeveloperTestingViewProps> = ({
                   onSort={handleSort}
                   filterValue={columnFilters.expectedResult}
                   onFilterChange={handleFilterChange}
+                  options={items.map((it) => it.expectedResult)}
                   className="min-w-[300px] border-r border-slate-700"
                 />
 
-                <th className="p-2.5 w-64 border-r border-slate-700 font-semibold">Evidence (Screenshots)</th>
+                <ColumnHeader
+                  title="Evidence (Screenshots)"
+                  columnKey="evidence"
+                  sortKey={sortKey}
+                  sortDirection={sortDirection}
+                  onSort={handleSort}
+                  filterValue={columnFilters.evidence}
+                  onFilterChange={handleFilterChange}
+                  options={['With Evidence', 'No Evidence']}
+                  className="w-64 border-r border-slate-700"
+                />
 
-                <th className="p-2.5 w-24 text-center font-semibold">Action</th>
+                <ColumnHeader
+                  title="Action"
+                  columnKey="action"
+                  filterValue={columnFilters.action}
+                  onFilterChange={handleFilterChange}
+                  options={['Duplicate', 'Delete']}
+                  align="center"
+                  className="w-28"
+                />
               </tr>
             </thead>
 
-            <tbody className="divide-y divide-slate-200 text-slate-800">
+            <tbody
+              className="divide-y divide-slate-200 text-slate-800"
+              onFocusCapture={() => {
+                if (!isTableOnlyMode) {
+                  setIsTableOnlyMode(true);
+                }
+              }}
+            >
               {filteredItems.map((item, index) => (
                 <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                   {/* # */}
