@@ -584,6 +584,136 @@ body[data-theme] .bg-slate-900.text-white h2 {
   color: #ffffff !important;
 }
 
+/* ============================================================================
+   BOLD DARK BORDERS FOR ALL FIELDS (INPUT, TEXTAREA, SELECT) & ALL TABLES
+   ============================================================================ */
+/* 1. Default / Global Bold Dark Borders for Form Fields */
+input:not([type="checkbox"]):not([type="radio"]),
+textarea,
+select {
+  border-width: 1.5px !important;
+  border-style: solid !important;
+  border-color: #334155 !important;
+}
+
+input:not([type="checkbox"]):not([type="radio"]):focus,
+textarea:focus,
+select:focus {
+  border-width: 2px !important;
+  border-color: #1d4ed8 !important;
+}
+
+/* 2. Default / Global Bold Dark Borders for Every Table, Row, Header & Cell */
+table {
+  border-collapse: collapse !important;
+  border: 2px solid #1e293b !important;
+}
+
+table thead tr,
+table tbody tr {
+  border-bottom: 1.5px solid #334155 !important;
+}
+
+table th {
+  border: 1.5px solid #475569 !important;
+}
+
+table td {
+  border: 1.5px solid #334155 !important;
+}
+
+/* Inline inputs inside table headers */
+thead input:not([type="checkbox"]):not([type="radio"]) {
+  border-width: 1.5px !important;
+  border-color: #64748b !important;
+}
+
+/* 3. Theme-Specific Bold Dark Borders for Fields & Tables */
+body[data-theme="Dark"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Dark"] textarea,
+body[data-theme="Dark"] select {
+  border-width: 1.5px !important;
+  border-color: #64748b !important;
+}
+body[data-theme="Dark"] table {
+  border: 2px solid #64748b !important;
+}
+body[data-theme="Dark"] table th,
+body[data-theme="Dark"] table td,
+body[data-theme="Dark"] table thead tr,
+body[data-theme="Dark"] table tbody tr {
+  border-color: #475569 !important;
+  border-width: 1.5px !important;
+}
+
+body[data-theme="Blue"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Blue"] textarea,
+body[data-theme="Blue"] select {
+  border-width: 1.5px !important;
+  border-color: #1e40af !important;
+}
+body[data-theme="Blue"] table {
+  border: 2px solid #1e3a8a !important;
+}
+body[data-theme="Blue"] table th {
+  border: 1.5px solid #1d4ed8 !important;
+}
+body[data-theme="Blue"] table td,
+body[data-theme="Blue"] table tbody tr {
+  border: 1.5px solid #1e40af !important;
+}
+
+body[data-theme="Green"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Green"] textarea,
+body[data-theme="Green"] select {
+  border-width: 1.5px !important;
+  border-color: #065f46 !important;
+}
+body[data-theme="Green"] table {
+  border: 2px solid #064e3b !important;
+}
+body[data-theme="Green"] table th {
+  border: 1.5px solid #047857 !important;
+}
+body[data-theme="Green"] table td,
+body[data-theme="Green"] table tbody tr {
+  border: 1.5px solid #065f46 !important;
+}
+
+body[data-theme="Purple"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Purple"] textarea,
+body[data-theme="Purple"] select {
+  border-width: 1.5px !important;
+  border-color: #5b21b6 !important;
+}
+body[data-theme="Purple"] table {
+  border: 2px solid #3b0764 !important;
+}
+body[data-theme="Purple"] table th {
+  border: 1.5px solid #6d28d9 !important;
+}
+body[data-theme="Purple"] table td,
+body[data-theme="Purple"] table tbody tr {
+  border: 1.5px solid #5b21b6 !important;
+}
+
+body[data-theme="Amber"] input:not([type="checkbox"]):not([type="radio"]),
+body[data-theme="Amber"] textarea,
+body[data-theme="Amber"] select {
+  border-width: 1.5px !important;
+  border-color: #92400e !important;
+}
+body[data-theme="Amber"] table {
+  border: 2px solid #78350f !important;
+}
+body[data-theme="Amber"] table th {
+  border: 1.5px solid #b45309 !important;
+}
+body[data-theme="Amber"] table td,
+body[data-theme="Amber"] table tbody tr {
+  border: 1.5px solid #92400e !important;
+}
+
 @layer base {
   html, body {
     font-size: 15px;
