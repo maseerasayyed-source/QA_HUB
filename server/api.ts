@@ -2,7 +2,7 @@ import 'dotenv/config';
 import express, { Request, Response, NextFunction } from 'express';
 import { GoogleGenAI } from '@google/genai';
 import { query, getDbStatus } from './db.ts';
-import { BEACON_ARCHITECTURE_BLUEPRINT, BEACON_TRAINED_TEST_CASES } from './beaconTrainingData.ts';
+import { BEACON_ARCHITECTURE_BLUEPRINT, BEACON_TRAINED_TEST_CASES, getBeaconManualModuleGuide } from './beaconTrainingData.ts';
 
 export const apiRouter = express.Router();
 apiRouter.use(express.json({ limit: '50mb' }));
@@ -818,36 +818,7 @@ const CANDIDATE_GEMINI_MODELS = [
   'gemini-flash-latest',
 ];
 
-function getProductKnowledgeContext(moduleName?: string, ticketNo?: string, currentTicketCases?: any[]): string {
-  // Collect all pre-trained Beacon test cases + historical test cases from saved/imported tickets
-  const historicalCases: any[] = [
-    ...BEACON_TRAINED_TEST_CASES,
-    ...(mockMemoryStore.productKnowledgeCases || []),
-  ];
-  if (mockMemoryStore.testCasesMap && typeof mockMemoryStore.testCasesMap === 'object') {
-    for (const [tKey, cases] of Object.entries(mockMemoryStore.testCasesMap)) {
-      if (Array.isArray(cases)) {
-        for (const c of cases) {
-          if (c && (c.testScenario || c.testCases)) {
-            historicalCases.push({ ...c, ticketNo: tKey });
-          }
-        }
-      }
-    }
-  }
-
-  const modLower = (moduleName || '').toLowerCase();
-  const matchedHistory = modLower
-    ? historicalCases.filter((c: any) =>
-        String(c.testModule || '').toLowerCase().includes(modLower) ||
-        String(c.featureTab || '').toLowerCase().includes(modLower) ||
-        String(c.testScenario || '').toLowerCase().includes(modLower)
-      )
-    : [];
-
-  const historySamples = (matchedHistory.length >= 3 ? matchedHistory : historicalCases).slice(0, 18);
-
-  // Also inspect current ticket's already-written points so AI can generate the NEXT logical points (aage ke points)
+function getProductKnowledgeContext(moduleName?: string, ticketNo?: string, currentTicketCases?: any[], queryText?: string): string {
   const cleanTicket = String(ticketNo || '').replace(/^#+/, '').trim();
   const activeCases =
     Array.isArray(currentTicketCases) && currentTicketCases.length > 0
@@ -856,30 +827,38 @@ function getProductKnowledgeContext(moduleName?: string, ticketNo?: string, curr
           ? mockMemoryStore.testCasesMap[cleanTicket]
           : []);
 
-  const parts: string[] = [BEACON_ARCHITECTURE_BLUEPRINT];
+  const parts: string[] = [
+    `CRITICAL RULE — REFERENCE MANUAL VS. USER'S ACTUAL SCENARIO:
+- The Beacon (TMS) User Manual and QA reference screenshots were provided ONLY as a background reference for Beacon domain terminology and QA writing style.
+- DO NOT copy, repeat, or inject unrelated scenarios from the reference manual or reference screenshots (for example, do NOT output Split Action, ECB FCY Sanction, Row 5/Row 6 Bulk Import, Penalty without disbursement, or GL Code Master test cases unless the user's current input specifically asks about that exact topic).
+- 100% of the generated test cases MUST be strictly and directly based on the user's CURRENT input (Scenario, Description, Feature Name, Screen Fields, or Command).
+- Follow Maseera Sayyed's QA Writing Style:
+  • Test Scenario: Starts with "Validate ..." or "Verify ..." describing the specific condition from the user's requirement.
+  • Test Cases: Starts with "Verify that ..." clearly stating what to test for the user's requirement.
+  • Expected Result: Clear specification statements ("The system should ...").
+  • Actual Result: Clear pass confirmation matching the expected result.`,
+  ];
+
+  // Only attach targeted domain terminology if the user's actual query text explicitly mentions those terms
+  if (queryText && queryText.trim().length > 3) {
+    const manualModuleGuide = getBeaconManualModuleGuide(queryText);
+    if (manualModuleGuide) {
+      parts.push(
+        `RELEVANT BEACON DOMAIN TERMINOLOGY (Use ONLY to understand terms mentioned in the user's input — do NOT generate unrelated test cases outside the user's input):\n${manualModuleGuide}`
+      );
+    }
+  }
 
   if (activeCases.length > 0) {
     const existingList = activeCases
-      .slice(-15)
+      .slice(-12)
       .map(
         (c: any, idx: number) =>
           `${idx + 1}. [${c.testCaseId || `TC0${idx + 1}`}] Scenario: ${c.testScenario || ''} | Test Case: ${c.testCases || ''}`
       )
       .join('\n');
     parts.push(
-      `CURRENT TICKET'S PREVIOUS POINTS (${activeCases.length} points already in table):\n${existingList}\nIMPORTANT: Do NOT repeat the points above. Just like ChatGPT, use this previous history to automatically generate the NEXT logical test points (aage ke points) in sequence — covering the remaining workflows, Initiate Action options, Bulk Import rules (Row 5 headers / Row 6 data), Cashflow/Report reflections, maker-checker authorization, and negative validations!`
-    );
-  }
-
-  if (historySamples.length > 0) {
-    const formatted = historySamples
-      .map(
-        (s: any, idx: number) =>
-          `Beacon Example ${idx + 1} [Module: ${s.testModule || 'General'} | Tab: ${s.featureTab || 'General'}]:\n  - Scenario: ${s.testScenario}\n  - Test Case: ${s.testCases}\n  - Expected Result: ${(s.expectedResult || '').replace(/\n/g, ' ')}\n  - Actual Result: ${(s.actualResult || '').replace(/\n/g, ' ')}`
-      )
-      .join('\n');
-    parts.push(
-      `BEACON TRAINED EXAMPLES & PREVIOUS HISTORY (${historicalCases.length} real Beacon test cases in memory):\nFollow Maseera Sayyed's exact Beacon terminology, screen names, and QA phrasing style from these real examples:\n${formatted}`
+      `EXISTING TEST CASES ALREADY IN THIS TICKET (${activeCases.length} rows):\n${existingList}\nIMPORTANT: Do NOT duplicate the existing rows above. Generate new, non-duplicate test cases strictly focused on the user's current scenario/requirement.`
     );
   }
 
@@ -963,7 +942,7 @@ async function callGemini(options: {
           contents: options.contents,
           config,
         }),
-        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Gemini timeout 5s on ${model}`)), 5000)),
+        new Promise<any>((_, reject) => setTimeout(() => reject(new Error(`Gemini timeout 25s on ${model}`)), 25000)),
       ]);
 
       const text = response.text?.trim() || '';
@@ -1128,271 +1107,178 @@ function translateHinglishToEnglish(rawText: string): string {
   return text;
 }
 
-// Deterministic Clean QA Generator (Directly derived from user's description, without random fake IDs)
+// Deterministic Clean QA Generator — Strictly derived from the user's actual scenario/description/fields (NEVER dumps unrelated reference scenarios)
 function generateRichFallbackTestCases(params: {
-  scenario: string;
-  description: string;
+  scenario?: string;
+  description?: string;
+  featureName?: string;
   moduleName?: string;
   ticketNo?: string;
   screenFields?: string[];
   count?: number;
 }) {
   const mod = params.moduleName || 'Financial Module';
-  const rawText = (params.description || params.scenario || 'Feature workflow verification').trim();
-  const lowerAll = rawText.toLowerCase();
-  const ticketNo = params.ticketNo || '1024';
+  const feature = params.featureName || mod;
+  const rawInput =
+    [params.scenario, params.description, params.featureName]
+      .filter((s) => typeof s === 'string' && s.trim().length > 0)
+      .join('\n')
+      .trim() || `${feature} workflow verification`;
 
-  const shouldMarkAllPass = /pass|working as expected|actual result pass/i.test(rawText);
+  const fields =
+    Array.isArray(params.screenFields) && params.screenFields.length > 0
+      ? params.screenFields
+      : [];
+  const fieldsLabel = fields.length > 0 ? fields.slice(0, 5).join(', ') : `${feature} fields`;
 
-  // 1. Check for specific FD Rollover TDS 4-scenarios request
-  if (lowerAll.includes('fd rollover') && lowerAll.includes('tds')) {
-    const fdCases = [
-      {
-        scenario: 'Verify TDS amount reflection in accounting for FD END (Maturity / Closure) with Coupon Interest Payment',
-        verification: `Verify that upon executing FD END (Closure/Maturity) with Coupon Interest Payment, the system accurately calculates the TDS amount on the final coupon and reflects balanced debit and credit entries in the accounting ledger.`,
-        expected: `• Final coupon interest is computed accurately.\n• TDS is deducted at statutory rate (e.g., 10%) on coupon interest.\n• Voucher entries reflect: Debit Interest Expense, Credit Bank Account (Net Coupon), Credit TDS Payable GL Account.\n• No rounding discrepancy or unposted voucher lines.`,
-        actual: 'Verified successfully in local build: TDS amount is accurately calculated and reflected in the accounting entries (Pass).',
-        type: 'Positive Workflow',
-      },
-      {
-        scenario: 'Verify TDS amount reflection in accounting for FD END (Maturity / Closure) with Bullet Interest Payment',
-        verification: `Verify that upon executing FD END (Closure/Maturity) with Bullet Interest Payment, the system calculates TDS on total cumulative interest accrued across the entire tenure and generates balanced accounting entries.`,
-        expected: `• Cumulative bullet interest is reconciled accurately.\n• TDS is deducted on cumulative gross interest.\n• Voucher entries reflect: Debit FD Principal/Accrual, Credit Customer Settlement Account (Net Principal + Interest after TDS), Credit TDS Payable GL.\n• Voucher is perfectly balanced with zero suspense.`,
-        actual: 'Verified successfully in local build: TDS amount for bullet interest payment is correctly reflected in accounting entries (Pass).',
-        type: 'Positive Workflow',
-      },
-      {
-        scenario: 'Verify TDS amount reflection in accounting for FD Rollover with Coupon Interest Payment',
-        verification: `Verify that during FD Rollover where interest is paid out via Coupon mode, the completed tenure interest undergoes accurate TDS deduction and accounting vouchers reflect the net coupon payout and new rollover tranche.`,
-        expected: `• Matured FD tranche is closed and rolled over into a new active FD deal.\n• Coupon interest is settled with exact statutory TDS deduction.\n• TDS deduction is posted to TDS Payable GL without delay.\n• Rollover deal principal commences with the original principal balance.`,
-        actual: 'Verified successfully in local build: TDS on coupon payout during rollover is reflected in accounting vouchers (Pass).',
-        type: 'Positive Workflow',
-      },
-      {
-        scenario: 'Verify TDS amount reflection in accounting for FD Rollover with Bullet Interest Payment (Reinvestment)',
-        verification: `Verify that during FD Rollover with Bullet Interest Payment (Compound Reinvestment), TDS is deducted from the cumulative interest, and net proceeds (Principal + Net Interest) are rolled over into the new FD deal with balanced accounting postings.`,
-        expected: `• Gross bullet interest and TDS deduction are accurately computed.\n• TDS Payable GL receives credit for the exact tax deduction.\n• Net rollover principal equals Original Principal + Net Interest after TDS.\n• All balance transfers between matured deal and new rollover deal reconcile with zero suspense.`,
-        actual: 'Verified successfully in local build: TDS deduction and net rollover principal are reflected accurately in accounting entries (Pass).',
-        type: 'Positive Workflow',
-      },
-    ];
+  // Extract distinct user points/lines from scenario & description
+  const rawLines = rawInput
+    .split(/[\n\r;]+/)
+    .map((l) => l.replace(/^(\d+[\.\)\-:]|\([0-9a-zA-Z]+\)|[-*•#]+)\s*/, '').trim())
+    .filter(
+      (l) =>
+        l.length > 3 &&
+        !/^(currently me ek testing|ab me tujhe|abhi k liye sare actual result|all thee result pass|all result pass)/i.test(
+          l
+        )
+    );
 
-    return fdCases.map((c, idx) => {
-      const num = idx + 1;
-      const tcId = `TC${num < 10 ? '0' + num : num}`;
-      return {
-        id: `tc-${Date.now()}-${num}`,
-        testCaseId: tcId,
-        testModule: 'accounting',
-        featureTab: 'FD Rollover',
-        testScenario: c.scenario,
-        preconditions: 'FD rollover and settlement permissions configured; active matured deal present.',
-        testCases: c.verification,
-        testInputs: 'Principal: 10,00,000, Interest Rate: 7.5%, TDS Rate: 10%, Frequency: Monthly/Bullet',
-        expectedResult: c.expected,
-        actualResult: c.actual,
-        validationScenario: c.type,
-        status: 'pass',
-        attachments: [],
-        screenshot1: '',
-      };
+  const userPoints = rawLines.length > 0 ? rawLines : [rawInput];
+  const generated: {
+    scenario: string;
+    verification: string;
+    inputs: string;
+    expected: string;
+    actual: string;
+    type: string;
+    tab?: string;
+  }[] = [];
+
+  // 1. Create dedicated test cases directly for each point the user wrote
+  userPoints.forEach((pt) => {
+    const translated = translateHinglishToEnglish(pt).replace(/\.$/, '').trim();
+    const coreStatement = translated
+      .replace(/^(verify\s+that|validate\s+that|ensure\s+that|verify|validate|check\s+that|check)\s+/i, '')
+      .trim();
+    const cleanTitle = coreStatement.charAt(0).toUpperCase() + coreStatement.slice(1);
+    const isNeg =
+      /\b(error|alert|invalid|blank|empty|reject|prevent|cannot|should not|not allow|restrict|block|missing|not visible)\b/i.test(
+        translated
+      );
+
+    // Primary test case for this exact user point
+    generated.push({
+      scenario: `Validate ${coreStatement.slice(0, 95)}`,
+      verification: `Verify that ${coreStatement}.`,
+      inputs: fields.length > 0 ? `Fields: ${fieldsLabel}` : `${mod} — ${cleanTitle.slice(0, 45)}`,
+      expected: isNeg
+        ? `The system should restrict the invalid operation (${coreStatement}) and display an appropriate validation message.`
+        : `The system should successfully process and validate that ${coreStatement} as expected.`,
+      actual: isNeg
+        ? `The system restricted the invalid operation and displayed the appropriate validation message.`
+        : `Verified successfully: ${cleanTitle} is working as expected.`,
+      type: isNeg ? 'Negative Validation' : 'Positive Workflow',
+      tab: feature.slice(0, 30),
     });
-  }
 
-  // Extract numbered or bulleted points from user input
-  const lines = rawText.split(/[\n\r]+/);
-  const numberedPoints: { num: number; text: string }[] = [];
-  const otherLines: string[] = [];
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    const match = trimmed.match(/^(\d+)[\.\)\-:]\s*(.+)$/);
-    if (match) {
-      numberedPoints.push({ num: parseInt(match[1], 10), text: match[2].trim() });
-    } else if (
-      !/currently me ek testing|ab me tujhe wo bhi scenarios|abhi k liye sare actual result|all thee result pass|all result pass/i.test(trimmed) &&
-      trimmed.length > 5
-    ) {
-      otherLines.push(trimmed.replace(/^[-*•]\s*/, ''));
-    }
-  }
-
-  const generated: any[] = [];
-
-  // If user provided numbered points, handle every single one specifically
-  if (numberedPoints.length > 0) {
-    numberedPoints.forEach((pt, pIdx) => {
-      const lower = pt.text.toLowerCase();
-      let scenario = `Validate scenario ${pIdx + 1}`;
-      let verification = `Verify that ${pt.text}`;
-      let expected = 'Action executes properly and system updates relevant records.';
-      let actual = 'Verified successfully in local build: functioning as per specification (Pass).';
-      let type = 'Positive Workflow';
-
-      if (lower.includes('gl code') && (lower.includes('new fiels') || lower.includes('new fields') || lower.includes('editable'))) {
-        scenario = 'Validate editability of newly added GL Code fields';
-        verification = 'Verify that all newly added GL Code fields in the Global Accounting Code Master are editable.';
-        expected = 'All newly added GL Code fields should be editable and the user should be able to update/save the required values.';
-        actual = 'All newly added GL Code fields are editable and values can be updated/saved successfully (Pass).';
-      } else if (lower.includes('old branch') || (lower.includes('already accounting') && lower.includes('reversal'))) {
-        scenario = 'Validate accounting entries for existing deals on an old branch';
-        verification = 'Verify that accounting entries are not regenerated for deals whose accounting entries were already generated and saved on the old branch.';
-        expected = 'No additional accounting entry or reversal entry should be created for the existing deal.';
-        actual = 'No additional accounting or reversal entry is generated (Pass).';
-      } else if (lower.includes('gsec') || lower.includes('slr') || lower.includes('lcr')) {
-        scenario = 'Validate G-Sec GL Code based on Investment Purpose';
-        verification = 'Verify that the GL Code configured for different G-Sec purposes such as SLR, LCR, Investment, Lien, Other, etc. is reflected correctly in accounting entries.';
-        expected = 'The accounting entry should reflect the GL Code configured for the respective G-Sec Investment Purpose.';
-        actual = 'The configured GL Code is reflected correctly based on the selected G-Sec Investment Purpose (Pass).';
-      } else if (lower.includes('bond') || lower.includes('coupon') || lower.includes('ncd')) {
-        scenario = 'Validate Bond (Coupon/NCD) GL Code';
-        verification = 'Verify that the GL Code configured for Bond (Coupon/NCD) is reflected correctly in accounting entries.';
-        expected = 'The accounting entry should reflect the GL Code configured for the respective Bond (Coupon/NCD) transaction.';
-        actual = 'The configured GL Code is reflected correctly in accounting (Pass).';
-      } else if (lower.includes('fd') || lower.includes('fixed deposit')) {
-        scenario = 'Validate FD GL Code';
-        verification = 'Verify that the GL Code configured for FD is reflected correctly in accounting entries.';
-        expected = 'The accounting entry should reflect the GL Code configured for the respective FD transaction.';
-        actual = 'The configured GL Code is reflected correctly in accounting (Pass).';
-      } else if (lower.includes('cp') || lower.includes('commercial paper')) {
-        scenario = 'Validate CP GL Code';
-        verification = 'Verify that the GL Code configured for CP is reflected correctly in accounting entries.';
-        expected = 'The accounting entry should reflect the GL Code configured for the respective CP transaction.';
-        actual = 'The configured GL Code is reflected correctly in accounting (Pass).';
-      } else if (lower.includes('treps') && (lower.includes('invest') || lower.includes('investment'))) {
-        scenario = 'Validate TREPS Investment GL Code';
-        verification = 'Verify that the GL Code configured for TREPS investment is reflected correctly in accounting entries.';
-        expected = 'The accounting entry should reflect the GL Code configured for the respective TREPS Investment.';
-        actual = 'The configured GL Code is reflected correctly in accounting (Pass).';
-      } else if (lower.includes('treps') && (lower.includes('borrow') || lower.includes('borrowing'))) {
-        scenario = 'Validate TREPS Borrowing GL Code fields and entries';
-        verification = 'Verify that the configured GL Code fields for TREPS borrowing are reflected correctly and proper accounting entries are created.';
-        expected = 'The configured TREPS Borrowing GL Code should be reflected and corresponding accounting entry should be posted correctly.';
-        actual = 'The configured GL Code and accounting entries are posted correctly (Pass).';
-      } else if (lower.includes('deal wise') || lower.includes('deal-wise')) {
-        scenario = 'Validate visibility of GL Code fields in Deal-wise Accounting';
-        verification = 'Verify whether the newly added GL Code fields are displayed in Deal-wise Accounting.';
-        expected = 'Newly added GL Code fields should be visible/accessible in Deal-wise Accounting as per the configuration.';
-        actual = 'All GL Code fields are properly visible and accessible in Deal-wise Accounting (Pass).';
-      } else if (lower.includes('jis date') || lower.includes('date pe') || lower.includes('update hue')) {
-        scenario = 'Validate effective date for GL Code updates in accounting entries';
-        verification = 'Verify that accounting entries reflect the GL Code based on the date the code was updated in the GL master.';
-        expected = 'Accounting entries generated on or after the update date should reflect the updated GL Code.';
-        actual = 'Accounting entries correctly reflect the updated GL Code as per the update date (Pass).';
-      } else if (lower.includes('undo') || lower.includes('rollback')) {
-        scenario = 'Validate GL Code visibility after Undo action in GL Master';
-        verification = 'Verify that after performing an Undo action in the GL Master, the GL Code is no longer visible in accounting.';
-        expected = 'After undoing the action from the GL Master, the code should not be visible or applied to accounting entries.';
-        actual = 'The undone GL Code is not visible and not applied to accounting entries (Pass).';
-      } else {
-        const translatedPt = translateHinglishToEnglish(pt.text);
-        const cleanText = translatedPt.replace(/\.$/, '');
-        const isNeg = /error|alert|invalid|reject|cannot|not visible|prevent|not allow/i.test(cleanText);
-        scenario = `Validate ${cleanText.replace(/^verify\s+that\s+/i, '').slice(0, 60)}`;
-        verification = cleanText.toLowerCase().startsWith('verify') ? cleanText : `Verify that ${cleanText}`;
-        expected = isNeg
-          ? 'System enforces restriction and prevents invalid operation with clear alert.'
-          : 'Operation executes successfully and relevant data/entries update consistently.';
-        actual = isNeg
-          ? 'Verified successfully: System restricted invalid operation and displayed proper notification (Pass).'
-          : `Verified successfully in local build: ${cleanText} executed as expected in accordance with specifications (Pass).`;
-        type = isNeg ? 'Negative Validation' : 'Positive Workflow';
-      }
-
+    // Companion Negative / Validation case specifically for this user point (if primary was positive)
+    if (!isNeg && userPoints.length <= 6) {
       generated.push({
-        scenario,
-        verification,
-        expected,
-        actual: shouldMarkAllPass ? actual : actual,
-        type,
+        scenario: `Validate error handling and restriction for invalid inputs in: ${coreStatement.slice(0, 70)}`,
+        verification: `Verify that the system displays an appropriate validation error message when invalid, blank, or out-of-range values are entered while testing: ${coreStatement}.`,
+        inputs: `Invalid / Blank inputs for ${cleanTitle.slice(0, 40)}`,
+        expected: `The system should reject invalid or blank inputs and display a clear validation message without saving corrupted data.`,
+        actual: `The system rejected invalid/blank inputs and displayed the expected validation error message.`,
+        type: 'Negative Validation',
+        tab: feature.slice(0, 30),
       });
-    });
-  } else {
-    // Standard line-by-line fallback with translation
-    const rawPoints = otherLines.length > 0 ? otherLines : [rawText];
-    rawPoints.forEach((pt) => {
-      const translated = translateHinglishToEnglish(pt);
-      const cleanPt = translated.replace(/\.$/, '');
-      const isNeg = /error|alert|invalid|blank|reject|prevent|cannot|should not|not allow/i.test(cleanPt);
-      generated.push({
-        scenario: `Validate ${cleanPt.replace(/^verify\s+that\s+/i, '').slice(0, 65)}`,
-        verification: cleanPt.toLowerCase().startsWith('verify') ? cleanPt : `Verify that ${cleanPt}`,
-        expected: isNeg
-          ? 'System enforces restriction and prevents invalid operation.'
-          : 'Operation executes successfully and relevant records update consistently.',
-        actual: isNeg
-          ? 'Verified successfully: System restricted invalid input (Pass).'
-          : `Verified successfully in local build: functioning as per specification (Pass).`,
-        type: isNeg ? 'Negative Validation' : 'Positive Workflow',
-      });
-    });
-  }
-
-  // Pull matching real Beacon test cases from BEACON_TRAINED_TEST_CASES
-  const searchPool = `${mod} ${rawText}`.toLowerCase();
-  const matchedBeaconTrained = BEACON_TRAINED_TEST_CASES.filter((btc) => {
-    const modMatch = searchPool.includes(btc.testModule.toLowerCase()) || btc.testModule.toLowerCase().includes(mod.toLowerCase());
-    const tabMatch = searchPool.includes(btc.featureTab.toLowerCase());
-    const kwMatch =
-      (searchPool.includes('sanction') && btc.testModule.toLowerCase().includes('sanction')) ||
-      (searchPool.includes('ecb') && btc.featureTab.toLowerCase().includes('ecb')) ||
-      (searchPool.includes('treps') && btc.testModule.toLowerCase().includes('treps')) ||
-      (searchPool.includes('bulk') && (btc.featureTab.toLowerCase().includes('bulk') || btc.testModule.toLowerCase().includes('bulk'))) ||
-      ((searchPool.includes('cc/od') || searchPool.includes('bank balance') || searchPool.includes('closing balance')) && btc.testModule.toLowerCase().includes('cc/od')) ||
-      ((searchPool.includes('mutual fund') || searchPool.includes('mf') || searchPool.includes('split')) && btc.testModule.toLowerCase().includes('mutual fund')) ||
-      ((searchPool.includes('penalty') || searchPool.includes('overdue') || searchPool.includes('autopay')) && btc.testModule.toLowerCase().includes('term loan')) ||
-      ((searchPool.includes('running balance') || searchPool.includes('capitalized')) && btc.featureTab.toLowerCase().includes('daily cash flow'));
-    return modMatch || tabMatch || kwMatch;
-  });
-
-  matchedBeaconTrained.forEach((btc) => {
-    if (generated.length < (params.count || 18)) {
-      const isDup = generated.some((g) => g.scenario.toLowerCase() === btc.testScenario.toLowerCase());
-      if (!isDup) {
-        generated.push({
-          scenario: btc.testScenario,
-          verification: btc.testCases,
-          expected: btc.expectedResult,
-          actual: btc.actualResult,
-          type: /not allow|restrict|prevent|reject|blank|invalid|error/i.test(btc.expectedResult)
-            ? 'Negative Validation'
-            : 'Positive Workflow',
-        });
-      }
     }
   });
 
-  // Add supplemental enterprise test scenarios if count is needed
-  const domainScenarios = [
+  // 2. If more test cases are requested, expand strictly around the user's primary topic/feature & screen fields
+  const primaryTopicRaw = translateHinglishToEnglish(userPoints[0] || feature)
+    .replace(/\.$/, '')
+    .replace(/^(verify\s+that|validate\s+that|ensure\s+that|verify|validate|check)\s+/i, '')
+    .trim();
+
+  const targetedExpansions = [
     {
-      scenario: `UI screen consistency and layout verification`,
-      verification: `Verify that all relevant fields and action buttons for '${mod}' are displayed consistently and clearly on the screen.`,
-      expected: `• All relevant fields and action buttons render without visual defects.\n• Labels and values are properly aligned.\n• Controls are responsive.`,
-      actual: `Verified successfully: UI elements, fields, and action buttons rendered consistently without defects (Pass).`,
+      scenario: `Validate UI field visibility and editability for ${primaryTopicRaw.slice(0, 65)}`,
+      verification: `Verify that all relevant fields and controls (${fieldsLabel}) for ${primaryTopicRaw} are properly visible, aligned, and editable on the ${mod} UI.`,
+      inputs: `UI Screen (${fieldsLabel})`,
+      expected: `All applicable fields and controls (${fieldsLabel}) should be visible and editable on the UI as per user access rights.`,
+      actual: `All applicable fields and controls were visible and editable on the UI as expected.`,
       type: 'Positive Workflow',
     },
     {
-      scenario: `Mandatory field validation check`,
-      verification: `Verify that the system prevents submission and highlights required fields when mandatory inputs are left blank.`,
-      expected: `• System blocks submission.\n• Required fields are highlighted with appropriate warning messages.\n• Incomplete data is not saved.`,
-      actual: `Verified successfully: System prevented submission and clearly highlighted required blank fields (Pass).`,
+      scenario: `Validate mandatory field validation when required inputs are left blank for ${primaryTopicRaw.slice(0, 55)}`,
+      verification: `Verify that the system restricts submission and displays a validation message when mandatory fields (${fieldsLabel}) are left blank during ${primaryTopicRaw}.`,
+      inputs: `Blank Mandatory Fields (${fieldsLabel})`,
+      expected: `The system should block saving/submission when mandatory fields are blank and display an appropriate validation message.`,
+      actual: `The system blocked submission with blank mandatory fields and displayed the validation message.`,
       type: 'Negative Validation',
     },
     {
-      scenario: `Audit trail and transaction history reflection`,
-      verification: `Verify that after processing changes in '${mod}', the action is accurately recorded in transaction history with proper timestamp and user ID.`,
-      expected: `• Transaction history records the event accurately.\n• User and timestamp details are preserved in audit trail.\n• History details match processed operation.`,
-      actual: `Verified successfully: Transaction history and audit trail accurately recorded the action (Pass).`,
+      scenario: `Validate data persistence and save functionality for ${primaryTopicRaw.slice(0, 65)}`,
+      verification: `Verify that upon entering valid details for ${primaryTopicRaw} and clicking Save/Accept, the record is saved accurately and reflected on the ${mod} screen.`,
+      inputs: `Valid parameters for ${primaryTopicRaw.slice(0, 40)}`,
+      expected: `The system should save the details without error and display the updated values accurately in ${mod}.`,
+      actual: `The details were saved accurately and reflected properly on the ${mod} screen.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Validate boundary and format constraints on fields for ${primaryTopicRaw.slice(0, 60)}`,
+      verification: `Verify that numeric precision, date constraints, and field format validations are enforced accurately for ${primaryTopicRaw}.`,
+      inputs: `Boundary / Format test values (${fieldsLabel})`,
+      expected: `The system should accept values within valid boundaries and restrict invalid formats or out-of-bound values with a validation message.`,
+      actual: `The system enforced boundary and format constraints accurately.`,
+      type: 'Boundary & Integrity',
+    },
+    {
+      scenario: `Validate Maker-Checker access rights (Input vs Authorization) for ${primaryTopicRaw.slice(0, 55)}`,
+      verification: `Verify that a user with Input rights can initiate/save ${primaryTopicRaw}, and only a user with Authorization rights can authorize the pending record in ${mod}.`,
+      inputs: `Maker (Input Rights) & Checker (Authorization Rights)`,
+      expected: `Users without input rights should be restricted from editing, and users with input-only rights should be restricted from authorizing the record.`,
+      actual: `Maker-Checker role restrictions functioned accurately for ${primaryTopicRaw}.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Validate Transaction History and Audit Trail reflection for ${primaryTopicRaw.slice(0, 60)}`,
+      verification: `Verify that after executing and authorizing ${primaryTopicRaw}, the transaction history and audit logs in ${mod} are updated with accurate details.`,
+      inputs: `Transaction History / Audit Log`,
+      expected: `The transaction history should accurately record the action, date, user, and updated values for ${primaryTopicRaw}.`,
+      actual: `The transaction history and audit logs were updated accurately after the operation.`,
+      type: 'Positive Workflow',
+    },
+    {
+      scenario: `Validate duplicate entry / repeated action restriction for ${primaryTopicRaw.slice(0, 60)}`,
+      verification: `Verify that the system prevents duplicate entries or invalid repeated actions for ${primaryTopicRaw} and displays an appropriate validation message.`,
+      inputs: `Duplicate / Repeated Payload`,
+      expected: `The system should reject duplicate entries or invalid repeated submissions and display a clear validation error message.`,
+      actual: `The system prevented duplicate submission and displayed the appropriate validation message.`,
+      type: 'Negative Validation',
+    },
+    {
+      scenario: `Validate report and downstream reflection after ${primaryTopicRaw.slice(0, 60)}`,
+      verification: `Verify that changes made during ${primaryTopicRaw} are accurately reflected in the corresponding ${mod} summary, cashflow, or report view.`,
+      inputs: `${mod} Summary / Report View`,
+      expected: `All updated values from ${primaryTopicRaw} should reflect accurately and consistently across linked views and reports.`,
+      actual: `All updated values reflected accurately in the corresponding summary and report views.`,
       type: 'Positive Workflow',
     },
   ];
 
-  domainScenarios.forEach((ds) => {
-    if (generated.length < (params.count || 12)) {
-      generated.push(ds);
+  const targetCount = Math.min(Math.max(params.count || 10, userPoints.length), 20);
+  for (const exp of targetedExpansions) {
+    if (generated.length >= targetCount) break;
+    const exists = generated.some((g) => g.scenario.toLowerCase() === exp.scenario.toLowerCase());
+    if (!exists) {
+      generated.push({
+        ...exp,
+        tab: feature.slice(0, 30),
+      });
     }
-  });
+  }
 
   return generated.map((c, idx) => {
     const num = idx + 1;
@@ -1400,12 +1286,12 @@ function generateRichFallbackTestCases(params: {
     return {
       id: `tc-${Date.now()}-${num}`,
       testCaseId: tcId,
-      testModule: mod.toLowerCase(),
-      featureTab: 'General',
+      testModule: mod,
+      featureTab: c.tab || feature || 'General',
       testScenario: c.scenario,
       preconditions: 'Standard environment and user permissions configured.',
       testCases: c.verification,
-      testInputs: 'Standard parameters',
+      testInputs: c.inputs || 'Standard parameters',
       expectedResult: c.expected,
       actualResult: c.actual,
       validationScenario: c.type,
@@ -1423,6 +1309,7 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
       prompt,
       scenario,
       description,
+      featureName,
       screenFields,
       attachedImages = [],
       attachments = [],
@@ -1430,7 +1317,7 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
       ticketNumber,
       moduleName = 'Term Loan',
       clientName = 'Treasury Master',
-      count = 20,
+      count = 15,
       existingTestCases = [],
     } = req.body;
 
@@ -1452,12 +1339,13 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
     }
 
     const userInstructions = [
-      prompt || '',
-      scenario ? `Specific Scenario / Acceptance Details: ${scenario}` : '',
+      prompt ? `User Prompt / Requirement: ${prompt}` : '',
+      featureName ? `Feature / Task Name: ${featureName}` : '',
+      scenario ? `Specific Testing Scenarios / Points to Cover: ${scenario}` : '',
       description ? `Ticket Description / Requirements: ${description}` : '',
       screenFields && screenFields.length > 0 ? `Detected Screen Fields: ${screenFields.join(', ')}` : '',
       docTexts.length > 0 ? docTexts.join('\n\n') : '',
-      getProductKnowledgeContext(moduleName, finalTicketNo, existingTestCases),
+      getProductKnowledgeContext(moduleName, finalTicketNo, existingTestCases, `${prompt || ''} ${scenario || ''} ${description || ''} ${featureName || ''}`),
     ]
       .filter(Boolean)
       .join('\n\n');
@@ -1466,54 +1354,44 @@ apiRouter.post(['/ai/generate-test-cases', '/api/ai/generate-test-cases'], async
 
     if (ai) {
       try {
-        const systemInstruction = `You are a Principal Banking & Treasury QA Architect and Test Engineering Lead.
-The user provides ticket requirements, feature descriptions, and testing notes for:
+        const systemInstruction = `You are a Principal Banking & Treasury QA Architect and Test Engineering Lead for Beacon (TMS).
+The user provides ticket requirements, feature descriptions, and testing scenarios for:
 Module: ${moduleName}
+Feature: ${featureName || moduleName}
 Ticket: #${finalTicketNo}
 Client: ${clientName}
 
-The user's input may be written in ANY language (English, Hindi, Hinglish, casual notes, or shorthand, e.g. "mujhe check krna hai every field in term loan", "agar blank chhod de to alert aana chahiye", "GL code reflect nahi ho raha h").
-
-YOUR OBJECTIVES:
-1. Deeply understand the user's intent. If written in Hindi, Hinglish, or casual phrasing, accurately interpret their functional requirements into crystal-clear English test cases.
-2. If the user mentions specific fields, bugs, or workflows (e.g. GL codes, undo actions, fee structures, blank validations), ensure MULTIPLE dedicated test cases rigorously validate those exact requirements.
-3. If the user asks to check all fields or test the module thoroughly, generate comprehensive coverage across all standard ${moduleName} workflows:
-   - Deal / Facility Creation & Booking (Deal ID, counterparty, sanctioned limit vs disbursed amount, currency)
-   - Interest Parameters (Fixed vs Floating, Benchmark/MCLR, Spread %, Day count convention 30/360 or Actual/365, Reset frequency)
-   - Tenor, Value Date, First Repayment Date, Maturity Date validations
-   - Repayment & Amortization Schedules (Principal & Interest split, Bullet, Equal installments, Moratorium period)
-   - Mandatory field validation & Empty/Blank field prevention
-   - Boundary & Negative Testing (Negative numbers, zero amounts, exceeding sanctioned limit, backdated restrictions)
-   - Accounting & GL voucher postings, Maker-Checker authorization workflow, and Audit Trail logs
-4. Generate AT LEAST ${Math.max(count, 20)} distinct, natural, production-grade test cases.
-5. Format for each test case:
+CRITICAL RULES:
+1. GENERATE TEST CASES STRICTLY FOR THE USER'S PROVIDED SCENARIO / DESCRIPTION / FEATURE.
+2. NEVER output unrelated reference scenarios (e.g., do NOT output Split Action, ECB FCY Sanction, Row 5/Row 6 Bulk Import, Penalty without disbursement, or GL Code Master test cases unless the user's current input specifically asks about them).
+3. If the user's input is written in Hindi, Hinglish, or casual shorthand, accurately translate and expand THEIR exact scenario points into clean, professional corporate English test cases.
+4. Cover Positive workflows, Negative validations, Mandatory field checks, Boundary conditions, UI/Field validations, and Authorization/History checks SPECIFICALLY for the user's described scenario/feature.
+5. Generate ${Math.min(Math.max(count, 10), 20)} distinct, non-duplicate, production-grade test cases directly relevant to the user's requirement.
+6. Format for each test case:
    - testCaseId: string ('TC01', 'TC02', etc.)
    - testModule: string ('${moduleName}')
-   - featureTab: string ('General' or relevant sub-feature)
-   - testScenario: string (A concise, understandable scenario title in simple English, e.g. 'Validate mandatory field validation for Loan Amount', 'Verify interest recalculation upon benchmark rate reset', 'Validate deal authorization by Senior Checker')
-   - testCases: string (A single, direct verification statement starting with 'Verify that ...', written in clear, simple English)
-   - testInputs: string (Specific input values or parameters, or 'Valid parameters')
-   - expectedResult: string (Clear bullet points using '• ', e.g.:
-• System displays appropriate validation error message.
-• Prevents transaction save without mandatory field.
-• Form field is highlighted with warning alert.)
-   - actualResult: string (A clear positive verification statement, e.g. 'Verified successfully: Mandatory field validation triggered and prevented submission without valid input.')
+   - featureTab: string ('${featureName || 'General'}')
+   - testScenario: string (Concise scenario title starting with 'Validate ...' or 'Verify ...' directly addressing the user's requirement)
+   - testCases: string (Direct verification statement starting with 'Verify that ...')
+   - testInputs: string (Specific relevant input values or field names)
+   - expectedResult: string (Clear expected system behavior)
+   - actualResult: string (Clear confirmation statement matching Expected Result)
    - validationScenario: string ('Positive Workflow' | 'Negative Validation' | 'Boundary & Integrity')
    - status: string ('pass')
 
 Return strictly valid JSON in this exact structure without markdown code blocks:
 {
-  "summary": "Clear summary in English of the test suite generated",
+  "summary": "Clear summary in English of the test suite generated for the user's scenario",
   "testCases": [
     {
       "testCaseId": "TC01",
       "testModule": "${moduleName}",
-      "featureTab": "General",
-      "testScenario": "...",
+      "featureTab": "${featureName || 'General'}",
+      "testScenario": "Validate ...",
       "testCases": "Verify that ...",
       "testInputs": "...",
-      "expectedResult": "• Point 1\\n• Point 2",
-      "actualResult": "Verified successfully: ...",
+      "expectedResult": "The system should ...",
+      "actualResult": "The system ...",
       "validationScenario": "Positive Workflow",
       "status": "pass"
     }
@@ -1600,8 +1478,9 @@ Return strictly valid JSON in this exact structure without markdown code blocks:
 
     // Fallback if no Gemini key or quota reached
     const fallbackCases = generateRichFallbackTestCases({
-      scenario,
+      scenario: scenario || prompt,
       description,
+      featureName,
       moduleName,
       ticketNo: finalTicketNo,
       screenFields,
@@ -2116,7 +1995,7 @@ apiRouter.post(['/ai/convert-language-command', '/api/ai/convert-language-comman
     const ticketNo = req.body.ticketNo || req.body.ticketNumber || '1024';
     const ticketTitle = req.body.ticketTitle || req.body.featureName || '';
     const existingTestCases = req.body.existingTestCases || [];
-    const historyContext = getProductKnowledgeContext(moduleName, ticketNo, existingTestCases);
+    const historyContext = getProductKnowledgeContext(moduleName, ticketNo, existingTestCases, rawInput);
 
     if (!rawInput || !String(rawInput).trim()) {
       return res.status(400).json({ success: false, message: 'Command cannot be empty' });
@@ -2141,21 +2020,22 @@ Context:
 - Ticket: #${ticketNo} ${ticketTitle ? `(${ticketTitle})` : ''}
 ${historyContext}
 
-Your Task:
-Like ChatGPT, understand the core financial logic and previous history, and transform this input into comprehensive corporate-grade QA test cases (or if the user asks for "next points" / "aage ke points", generate the next logical test cases based on the previous points):
-1. Translate raw Hindi/Hinglish accurately into crystal-clear English without spelling mistakes.
-2. If the user mentions multiple operations or variations (e.g., Bullet interest + Coupon interest, FD End + Rollover, GL Code editable + visible, Undo Split-In + Split-Out), generate distinct, complete test cases for each variation in "structuredTestCases".
-3. If it is a single-topic point, generate:
-   - Primary Positive Workflow Test Case
-   - Key Boundary / Alternate Flow Test Case
-   - Negative Validation Test Case
-4. For every test case, provide:
+CRITICAL RULES:
+1. GENERATE TEST CASES STRICTLY FOR THE USER'S INPUT POINT / REQUIREMENT ABOVE.
+2. NEVER output unrelated reference scenarios from the user manual or past tickets unless the user's input specifically mentions them.
+3. Translate raw Hindi/Hinglish accurately into crystal-clear corporate English without spelling mistakes.
+4. If the user mentions multiple operations or variations in their input, generate distinct, complete test cases for each variation in "structuredTestCases".
+5. If it is a single-topic point, generate:
+   - Primary Positive Workflow Test Case for that exact point
+   - Key Boundary / Alternate Flow Test Case for that exact point
+   - Negative Validation Test Case for that exact point
+6. For every test case, provide:
    - "testCaseId": "TC01", "TC02", etc.
-   - "testScenario": Crisp, easily understandable scenario title
+   - "testScenario": Crisp, easily understandable scenario title starting with "Validate ..."
    - "testCases": Clear verification statement starting with "Verify that ..."
    - "testInputs": Specific test inputs and parameters
-   - "expectedResult": 3-4 bullet points starting with '• '
-   - "actualResult": Explicit positive confirmation matching a Pass status (e.g. "Verified successfully in local build: ... (Pass).")
+   - "expectedResult": Clear expected system behavior
+   - "actualResult": Explicit positive confirmation matching Expected Result
    - "validationScenario": "Positive Workflow" or "Negative Validation"
    - "status": "pass"
 
@@ -2287,35 +2167,30 @@ apiRouter.post(['/ai/chat', '/api/ai/chat'], async (req: Request, res: Response)
 
   const lastUserMessage = [...messages].reverse().find((m: any) => m.role === 'user')?.content || '';
 
-  const systemPrompt = `You are Beacon AI QA Chatbot, an elite ChatGPT-caliber Senior QA Architect and Test Engineering Lead for banking and treasury enterprise applications.
+  const systemPrompt = `You are Beacon AI QA Chatbot, an elite Senior QA Architect and Test Engineering Lead for banking and treasury enterprise applications.
 
 Context:
 Ticket Number: #${ticketContext.ticketNo || '1024'}
 Module: ${ticketContext.moduleName || 'Term Loan / Treasury Master'}
 Feature: ${ticketContext.featureName || 'Financial Workflow'}
 Description: ${ticketContext.description || ''}
-${getProductKnowledgeContext(ticketContext.moduleName, ticketContext.ticketNo, ticketContext.existingTestCases)}
+${getProductKnowledgeContext(ticketContext.moduleName, ticketContext.ticketNo, ticketContext.existingTestCases, lastUserMessage)}
 
-User Communication Style:
-- The user often writes in casual Hindi, Hinglish, English, or conversational shorthand with feature descriptions, background stories, and numbered scenarios.
-- When the user asks you to generate test cases or provides scenarios, acknowledge warmly and directly in friendly conversational tone:
-  "Bilkul. Main in points ko proper QA test case format mein convert kar raha hoon, aur abhi ke liye Actual Result = Expected Result and Status = Working as expected consider kar raha hoon." (or English/Hinglish matching user's tone).
-- Provide a clean, crystal-clear Markdown Table with exact columns:
+CRITICAL RULES:
+- Generate test cases STRICTLY for the user's current message / scenarios.
+- NEVER output unrelated reference scenarios (such as Split Action, ECB FCY, Row 5/Row 6, or GL Code Master) unless the user specifically asks about them in their message.
+- Translate any Hindi, Hinglish, or casual shorthand into clean, professional corporate English without spelling errors.
+- Provide a clean Markdown Table with exact columns:
   | # | Test Scenario | Test Case | Expected Result | Actual Result | Status |
-- Rules for generating test cases:
-  1. Translate every concept into clear, professional, easily understandable English without spelling errors.
-  2. Map each scenario or point directly to a row (1, 2, 3, etc.).
-  3. Expand shorthand like "FD END (coupon / Bullet int payment)", "FD rollover (Coupon/ bullet Int payment)" into complete, separate, explicit domain test cases.
-  4. If user says "all result pass" or "actual result pass hi consider kr", write a clear positive confirmation in Actual Result and set Status to "Working as expected ✅".
-  5. Include a JSON code block with language identifier 'json:qa-cases' at the end of the message:
+- Include a JSON code block with language identifier 'json:qa-cases' at the end of the message:
 \`\`\`json:qa-cases
 [
   {
     "testCaseId": "TC01",
-    "testScenario": "Validate editability of newly added GL Code fields",
-    "testCases": "Verify that all newly added GL Code fields in the Global Accounting Code Master are editable.",
-    "expectedResult": "• All newly added GL Code fields should be editable.\\n• System accepts modifications without constraint errors.",
-    "actualResult": "All newly added GL Code fields are editable and values can be updated/saved successfully (Pass).",
+    "testScenario": "Validate ...",
+    "testCases": "Verify that ...",
+    "expectedResult": "The system should ...",
+    "actualResult": "Verified successfully: ... (Pass).",
     "status": "pass",
     "validationScenario": "Positive Workflow"
   }
@@ -2333,9 +2208,9 @@ User Communication Style:
         callChatGptOrGemini({
           systemPrompt,
           userPrompt,
-          temperature: 0.25,
+          temperature: 0.2,
         }),
-        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('AI Chat response timeout')), 9000)),
+        new Promise<string>((_, reject) => setTimeout(() => reject(new Error('AI Chat response timeout')), 22000)),
       ]);
     } catch (aiErr) {
       console.warn('[AI Chat] AI model error or timeout, engaging instant domain generator:', aiErr);

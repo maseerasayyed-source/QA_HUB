@@ -13,55 +13,120 @@ export interface BeaconTrainedTestCase {
 }
 
 export const BEACON_ARCHITECTURE_BLUEPRINT = `
-BEACON TREASURY MASTER — CORE PRODUCT ARCHITECTURE & QA STANDARDS (Trained from Maseera Sayyed's QA Suites):
-1. UI & Action Workflows ("Initiate Action"):
-   - Deals support lifecycle actions under the "Initiate Action" menu:
-     • Sanction / ECB: "Update Sanction", "Renew Sanction", "Add Deviation", "Change Disbursement Schedule".
-     • Mutual Fund (MF): "Investment", "Redemption", "Switch", "Split Action" (Split Out / Split In), "MF Modification".
-   - Authorization & Access Rights:
-     • Role separation between "input access rights" (Maker) and "authorization rights" (Checker).
-     • Users without input rights cannot edit deals or perform bulk import; users with input-only rights cannot authorize deals.
-     • Transactions in "Pending Authorization" status enforce strict dependency checks (e.g., cannot perform Split Out if first investment transaction is Pending Authorization; if a Redemption is Pending Authorization, post-split authorization is blocked if it results in a negative unit balance).
+BEACON TREASURY MANAGEMENT SYSTEM (TMS) USER MANUAL 1.0 — COMPLETE PRODUCT ARCHITECTURE & QA STANDARDS (Trained from Official Beacon User Manual & Maseera Sayyed's QA Suites):
 
-2. Bulk Import / Bulk Upload Architecture:
-   - Standard Bulk Import UI includes "Save Sample" (generates template with proper column headers and sample entries without client-specific names/data) and "Accept" button.
-   - Excel File Format Rule: Column headers MUST start from the 5th row, and deal data MUST start from the 6th row. Header mapping is positional (based on defined column number and row position — row 5 headers, row 6 data) even if header text differs slightly.
-   - Date & Duplicate Validations: Deals/files with dates beyond the Server Date / System Date are blocked; duplicate Trade No. or mismatched Sanction References across sheets (Basic Details, Main Break-up, Sub Break-up) are rejected with proper validation messages.
+1. GLOBAL SYSTEM ARCHITECTURE, NAVIGATION & ACCESS CONTROL:
+   - Main Navigation Modules: Dashboard, Masters, Sanction, Borrowings, Investments, Hedge / Derivatives, Security & Collateral, Accounting & Ledger, Reports, Settings / User Administration.
+   - Maker-Checker (Input vs. Authorize) & Role Rights:
+     • Role separation between "Input Access Rights" (Maker: Add, Edit, Bulk Import, Initiate Action) and "Authorization Access Rights" (Checker: Authorize, Reject, Bulk Authorize).
+     • Users without input rights are restricted from creating/editing deals or performing Bulk Import; users with input-only rights are restricted from authorizing deals.
+     • Status Lifecycle: Pending Authorization -> Authorized / Rejected -> Closed / Matured / Cancelled.
+     • Dependency Enforcement: Transactions in "Pending Authorization" status enforce strict dependency locks (e.g., cannot perform Split Out if first investment transaction is Pending Authorization; if a Redemption is Pending Authorization, post-split authorization is blocked if it results in a negative unit balance).
+   - Undo Action & History Synchronization:
+     • Available in Transaction History and Master History to revert the last action.
+     • Cascading Undo: Undoing a linked transaction (such as Mutual Fund Split-In from Transaction History) automatically reverts the corresponding Split-Out transaction (and vice versa) to keep both deals synchronized. Undoing a GL Code update in GL Master removes the reverted GL Code from accounting.
 
-3. Module-Specific Business Rules:
-   - Term Loan (Penalty, Cashflow, Overdue Report, Autopay Overdue Report):
-     • Penalty entries (penalty interest %, penalty principal %) appear in Deal Cashflow and Overdue Report ONLY when overdue occurs AFTER loan disbursement AND default/penalty rate > 0.
-     • Without loan disbursement (or if penalty rate is 0 / not entered), penalty entries are NOT generated in Cashflow or Overdue Report.
-     • Autopay Overdue Report: Deals under Autopay do NOT appear in the Overdue Report during the active autopay period; once the autopay period ends, any subsequent overdue appears in the Overdue Report with penalty entries.
-   - TREPS Investment (Bulk Import & Deal Entry):
-     • Mandatory fields: Trade No., Maturity Date, Settlement Date, Trade Interest Rate (%), Trade Value (Rs.).
-     • Field Mapping & Calculations: 1 Leg Consideration (Principal) = Trade Value in Excel; Trade Interest Rate (%) = Repo Rate in Excel; Reversal Date for Lend = Maturity Date in Excel; calculates Tenure, Settlement Type, Total Interest, and 2-Leg Consideration (Principal + Interest).
-   - Daily Cash Flow MIS Report:
-     • "Short Capitalized Interest Payment" flag and "Capitalized Interest Payment" flag control whether unprocessed interest is included in the summary and how the "Running Balance" is calculated.
-   - Sanction Master, ECB Deal, Sanction Report & Sanction Bulk Upload:
-     • "Currency" field is visible and editable ONLY for ECB instrument; non-editable for all other instruments and non-editable in fungible sanctions even for ECB.
-     • "Has Sub Limit" checkbox is set to NO / non-editable in ECB main break-up; if "Has Sub Limit" is NO, adding sub break-up details is restricted.
-     • Sanction Facility ID visibility: If sanction is in FCY, Facility ID is visible only when deal currency matches sanction FCY; if sanction is in INR, Facility ID is visible for all deals irrespective of deal currency.
-     • Sanction Utilization: FCY sanction + FCY deal = validated directly on FCY drawdown without INR conversion; INR sanction + FCY deal = validated as (FCY drawdown * conversion rate) = INR amount. Cumulative utilization is tracked across multiple deals; drawdown/deviation cannot exceed available sanction or reduce sanction below utilized amount during Update/Renewal/Add Deviation/Change Disbursement Schedule.
-     • Repayment amount in Change Disbursement Schedule must match disbursement amount (cannot be greater or less).
-     • Sanction Report displays Currency column and calculates Principal O/S in INR using conversion rate.
-   - CC/OD and Bank Balance Master:
-     • Header displayed as "Actual Closing Balance".
-     • Updated closing balance reflects in Cashflow, ALM Treasury Report, and Borrowing Register Report from the same effective date, and interest calculation starts from that date.
-     • Negative bank balance rules: Restricted after sanction validity period expires, restricted if no CC/OD deal is linked, restricted beyond sanctioned limit, and restricted for "tracking-purpose" bank accounts.
-     • Positive bank balance rules: Allowed even when no CC/OD deal is linked and allowed for tracking-purpose bank accounts.
-     • On sanction validity date, closing balance for a linked CC/OD deal must be 0 or positive.
-     • CC Bank Account dropdown on Deal UI displays only Home Entity bank accounts linked to the selected lender bank.
-   - Mutual Fund (MF Split Action):
-     • Under Initiate Action -> Split Action: user enters Ratio (New:Old) for ISIN split.
-     • "Split Out From" dropdown filters schemes belonging ONLY to the same AMC and matching Plan, Option, and Fund Name as the selected Split In deal.
-     • Split In deal must have no previous transactions prior to Split Action; Value Date in Split In is auto-fetched from Split Out transaction; calculates Split In Units and new ISIN NAV from split ratio.
-     • Updates Investment Holding Details, Transaction History, and Holding Summary (Total Units, Average Purchase NAV, Total Investment Amount, Current Market Value, Unrealised/Realised Profit/Loss, Historical XIRR & Current XIRR).
-     • Post-Split Restrictions: Once all units are Split Out, only "MF Modification" is available under Initiate Action (Investment, Redemption, Switch hidden); Split Action option is removed from a deal where Split In is already completed.
+2. STANDARD BULK IMPORT / BULK UPLOAD ARCHITECTURE (ALL MODULES):
+   - Standard Bulk Import UI controls: "Browse / Upload", "Save Sample" (generates standard Excel template with proper column headers and sample entries without any client-specific names/data), and "Accept" button.
+   - Strict Row 5 / Row 6 Excel Format Rule:
+     • Column headers MUST start from the 5th row (Row 5).
+     • Deal / Master data MUST start from the 6th row (Row 6).
+     • Header mapping is positional (mapped by defined column number and row position — Row 5 headers, Row 6 data) even if header label text in Excel differs slightly from UI field names.
+   - Date, Mandatory & Duplicate Validations:
+     • Deals or files with dates beyond the Server Date / System Date (future settlement/upload dates) are blocked with a clear validation message.
+     • Rows missing mandatory fields (e.g., Trade No., Settlement Date, Maturity Date, Trade Interest Rate %, Trade Value) are rejected and not accepted on Bulk Import UI.
+     • Duplicate identifiers (e.g., existing Trade No.) or cross-sheet mismatches (e.g., Sanction Reference mismatch between Basic Details, Main Break-up, and Sub Break-up sheets) are rejected with specific validation errors.
 
-4. Maseera Sayyed's Exact QA Writing Style:
-   - Test Scenario: Starts with "Validate ..." or "Verify ..." — clear, specific functional condition.
-   - Test Cases: Starts with "Verify that ..." (or "Ensure that ...") naming the exact Beacon screen, tab, field, flag, or report.
+3. MASTERS MODULE (BEACON USER MANUAL SECTION — MASTERS):
+   - Home Entity & Counterparty Master:
+     • Captures Entity/Counterparty Type (Bank, NBFC, AMC, Broker, Corporate, Clearing Corporation/CCIL, Trustee, Rating Agency), PAN, TAN, LEI, 15-digit GSTIN (validated for format & state code), and contact/settlement details.
+   - Bank Account Master & Bank Balance Master:
+     • Bank Account Master links Bank Name, Branch, IFSC, Account No., Account Type (Current, CC/OD, Escrow, Tracking-Purpose Only), and Home Entity.
+     • Bank Balance Master displays header "Actual Closing Balance" and supports manual entry and Bulk Import from an Effective Date.
+     • Tracking-purpose bank accounts allow updating positive balances only; negative bank balances are strictly restricted with a validation message.
+     • CC/OD linked bank accounts restrict negative balances if no CC/OD deal is linked, after sanction validity expires, or beyond the sanctioned limit; on the sanction validity expiry date, closing balance must be 0 or positive.
+   - Benchmark / Index Rate Master:
+     • Stores MCLR (1M/3M/6M/1Y), Repo Rate, T-Bill, SOFR, MIBOR rates by Effective Date. Updating a benchmark rate dynamically recalculates Effective Rate (Benchmark + Spread) across floating-rate deals on their reset schedule.
+   - Security / ISIN Master & NAV Master:
+     • Stores 12-character ISIN, Instrument Type (MF, G-Sec, SDL, T-Bill, NCD/Bond, CP, CD), Issuer/AMC, Face Value, Coupon Rate, Issue/Maturity Dates, Day Count Convention (Actual/365, Actual/Actual, 30/360), and daily NAV / Clean & Dirty Market Prices.
+
+4. SANCTION MODULE (SANCTION MASTER, ECB SANCTION, INITIATE ACTION & BULK UPLOAD):
+   - Currency Field Rules:
+     • "Currency" field is visible and editable ONLY for ECB (External Commercial Borrowing) instrument in Sanction Master; non-editable for all domestic instruments and non-editable in Fungible Sanctions even for ECB.
+     • Adding multiple break-ups with different currencies under the same Sanction Reference is strictly restricted (both during creation and under Initiate Action -> Update Sanction / Renew Sanction).
+   - Main Break-up & Sub Break-up Rules:
+     • "Has Sub Limit" checkbox is non-editable (locked to NO) in ECB main break-up.
+     • When "Has Sub Limit" is set to NO, adding details in the Sub Break-up section/sheet throws a validation error.
+     • Sub Break-up Availability Date cannot be greater than Main Break-up Availability Date.
+   - Sanction Facility ID Visibility & Utilization Validation:
+     • If Sanction is created in FCY, Facility ID is visible ONLY when the deal currency matches the Sanction FCY. If Sanction is in INR, Facility ID is visible for all deals irrespective of deal currency.
+     • FCY Sanction + FCY Deal: Utilization is validated directly on FCY drawdown amount without INR conversion.
+     • INR Sanction + FCY Deal: Utilization is calculated and validated as (FCY Drawdown * Conversion Rate) = INR Amount against the INR Sanction Limit.
+     • Cumulative utilization is tracked across multiple deals under the same Sanction Facility ID; drawdown cannot exceed available sanction, and when available sanction reaches 0, the sanction cannot be used in another deal.
+   - Sanction Initiate Actions ("Update Sanction", "Renew Sanction", "Add Deviation", "Change Disbursement Schedule"):
+     • During Update Sanction or Renew Sanction, the system restricts changing the Currency and prevents reducing the Sanction Amount below the already utilized amount.
+     • Add Deviation and Change Disbursement Schedule enforce available sanction limit checks (blocking when available balance is 0) and require Repayment Amount to match Disbursement Amount (cannot be greater or less).
+   - Sanction Report:
+     • Displays "Currency" column with proper header naming and calculates "Principal O/S in INR" using the applicable conversion rate.
+
+5. BORROWINGS MODULE (BEACON USER MANUAL SECTION — BORROWINGS):
+   - Term Loan (TL) & Short Term Loan (STL):
+     • Covers Deal Booking, Tranche Disbursement Schedule, Interest Parameters (Fixed/Floating, Benchmark + Spread, Reset Frequency, Moratorium), Repayment Schedule (EMI, Equal Principal, Bullet, Custom), Fees & GST, Cashflow, and Initiate Actions (Disbursement, Rate Reset, Prepayment/Foreclosure, Add Deviation, Change Disbursement Schedule, Autopay).
+     • Penalty & Overdue Rules: Penalty entries (penalty interest %, penalty principal %) appear in Deal Cashflow and Overdue Report ONLY when overdue occurs AFTER loan disbursement AND default/penalty rate > 0. Without loan disbursement (or when penalty rate is 0 / blank), no penalty entries are generated.
+     • Autopay Overdue Report Rule: Deals under Autopay do NOT appear in the Overdue Report during the active Autopay period; once the Autopay period ends, any subsequent overdue appears in the Overdue Report with applicable penalty entries.
+   - Working Capital Demand Loan (WCDL):
+     • Sub-limit drawdown under Sanction/CC limit, short-term tenure, rollover/renewal at maturity, bullet or periodic interest settlement.
+   - Cash Credit (CC) & Overdraft (OD):
+     • CC Bank Account dropdown on Deal UI displays ONLY Home Entity bank accounts belonging to the selected Lender Bank.
+     • Closing balances updated in Bank Balance Master (manual or bulk import) reflect from the same Effective Date in Deal Cashflow, ALM Treasury Report, and Borrowing Register Report, and daily interest calculation starts from that date.
+   - External Commercial Borrowing (ECB):
+     • Multi-currency (FCY) borrowing, LRN tracking, Conversion Rate validation against FCY/INR Sanctions, Withholding Tax (WHT), Hedged/Unhedged tracking.
+   - Commercial Paper (CP) & Non-Convertible Debentures (NCD) Borrowing:
+     • CP issued at discount to Face Value, IPA & rating details, discount amortization, redemption at par.
+     • NCD series/tranche booking, ISIN, Coupon Schedule (Fixed/Floating/Zero Coupon), Put/Call options, Debenture Trustee, TDS, and redemption schedule.
+   - TREPS Borrowing & Letter of Credit (LC) / Bank Guarantee (BG):
+     • TREPS Borrowing tracks 1st Leg borrowed amount, Repo Rate, Tenure, Total Interest, 2nd Leg settlement, collateral basket, and dedicated TREPS Borrowing GL Codes.
+     • LC/BG tracks issuance under non-fund sanction limits, usance/sight terms, margin FD lien, commission/charges, amendments, and invocation/closure.
+
+6. INVESTMENTS MODULE (BEACON USER MANUAL SECTION — INVESTMENTS):
+   - Mutual Fund (MF) Investment:
+     • Supports Purchase/Investment, Redemption (FIFO unit allocation & Capital Gains), Switch, MF Modification, and Split Action (Split Out / Split In) under "Initiate Action".
+     • MF Split Action Rules:
+       - Visible and editable under Initiate Action; accepts Ratio (New:Old) for ISIN split.
+       - "Split Out From" dropdown displays ONLY schemes belonging to the same AMC and matching Plan, Option, and Fund Name as the selected Split In deal.
+       - Split In deal must have NO previous transactions before performing Split Action.
+       - Value Date in Split Out is validated against Transaction Date; Value Date in Split In is auto-fetched from the Split Out transaction.
+       - System calculates Split In Units and new ISIN NAV based on the applied split ratio, updating Investment Holding Details, Transaction History, and Holding Summary (Total Units, Average Purchase NAV, Total Investment Amount, Current Market Value, Unrealised/Realised P&L, XIRR).
+       - Post-Split Action availability: After all units are Split Out, ONLY "MF Modification" is available under Initiate Action (Investment, Redemption, Switch hidden); Split Action option is removed once Split In is completed on a deal.
+   - Fixed Deposit (FD) Investment:
+     • Supports Placement, Periodic Interest Accrual/Receipt, FD Lien Marking, Premature Closure, FD End (Maturity/Closure), and FD Rollover under both Coupon Interest Payment and Bullet Interest Payment modes.
+     • FD Rollover & FD End TDS Accounting Rules:
+       - In Coupon Interest Payment mode (FD End & FD Rollover), TDS is deducted on the coupon payout and reflected in accounting vouchers (Debit Interest/Accrual, Credit Bank/Rollover, Credit TDS Payable GL), while Rollover commences with original principal.
+       - In Bullet Interest Payment mode (FD End & FD Rollover), TDS is calculated on cumulative gross interest; for Bullet Rollover, net proceeds (Original Principal + Net Interest after TDS) roll over into the new FD deal with balanced GL postings.
+   - Government Securities (G-Sec / T-Bill / SDL), Corporate Bonds (NCD) & Commercial Paper (CP) Investments:
+     • G-Sec Investment Purpose (SLR, LCR, Investment, Lien, Other) maps to dedicated purpose-specific GL Codes in accounting.
+     • Tracks Clean Price, Broken Period / Accrued Interest, Dirty Price, YTM, Coupon Receipts, HTM/AFS/HFT classification, MTM valuation, and Secondary Market Sale/Redemption.
+   - TREPS Investment (Lending):
+     • Bulk Import & Deal UI validate mandatory fields: Trade No., Maturity Date, Settlement Date, Trade Interest Rate (%), Trade Value (Rs.).
+     • Field Mapping & Calculations: 1 Leg Consideration (Principal) = Trade Value in Excel; Trade Interest Rate (%) = Repo Rate in Excel; Reversal Date for Lend = Maturity Date in Excel; accurately calculates Tenure, Settlement Type, Total Interest, and 2-Leg Consideration (Principal + Interest).
+
+7. HEDGE / DERIVATIVES, SECURITY & COLLATERAL, ACCOUNTING & REPORTS MODULES:
+   - Hedge & Derivatives:
+     • FX Forward, Cross Currency Swap (CCS), Interest Rate Swap (IRS), and Options linked to underlying ECB/Trade exposures; supports Utilization, Early Delivery, Rollover, Cancellation, and MTM valuation.
+   - Security & Collateral:
+     • Tracks Hypothecation, Mortgage, Pledge, FD Lien, Asset Cover Ratio (ACR), ROC Charge filings, and security mapping to Sanction/Borrowing deals.
+   - Accounting & Global Accounting Code Master (GL Master):
+     • Newly added GL Code fields in Global Accounting Code Master must be editable and reflected in Deal-wise Accounting.
+     • Effective Date Rule: Accounting entries reflect updated GL Codes based on the date the GL Code was updated in GL Master.
+     • Old Branch Compatibility Rule: Deals whose accounting entries were already generated and saved on an old branch must NOT generate duplicate accounting entries or reversal entries.
+     • Balanced double-entry vouchers (Debit = Credit) are generated across all instruments (G-Sec by Purpose, Bond/NCD, FD, CP, TREPS Investment, TREPS Borrowing, Term Loan, CC/OD, MF).
+   - Reports Module:
+     • Daily Cash Flow MIS Report: "Short Capitalized Interest Payment" flag (when checked, includes applicable short capitalized interest in Running Balance) and "Capitalized Interest Payment" flag (when unchecked and interest is unprocessed, excludes unprocessed interest from summary and calculates Running Balance solely from processed transactions).
+     • Overdue Report, Autopay Overdue Report, Sanction Report, Borrowing Register Report, Investment Register Report, ALM Treasury Report.
+
+8. MASEERA SAYYED'S EXACT QA WRITING STYLE:
+   - Test Scenario: Starts with "Validate ..." or "Verify ..." — clear, specific functional condition naming the exact Beacon workflow.
+   - Test Cases: Starts with "Verify that ..." (or "Ensure that ...") naming the exact Beacon screen, tab, dropdown, flag, or report.
    - Expected Result: Direct specification statements ("The system should ...", "System should restrict / allow ... and display an appropriate validation message.").
    - Actual Result: Clear confirmation matching Expected Result ("The system prevents ... and displays the appropriate validation message.").
 `;
@@ -1057,4 +1122,241 @@ export const BEACON_TRAINED_TEST_CASES: BeaconTrainedTestCase[] = [
     actualResult: 'The system correctly restricted the Split Action when a previous transaction existed in the Split In deal and displayed the appropriate validation message.',
     status: 'pass',
   },
+
+  // 7. Fixed Deposit (FD) — Placement, Rollover, FD End, TDS & Lien Marking (User Manual 1.0)
+  {
+    testCaseId: 'TC01',
+    testModule: 'Fixed Deposit (FD)',
+    featureTab: 'FD Rollover & TDS',
+    testScenario: 'Validate TDS calculation and accounting reflection for FD End (Maturity/Closure) with Coupon Interest Payment.',
+    testCases: 'Verify that upon executing FD End (Maturity/Closure) under Coupon Interest Payment mode, the system accurately calculates TDS on the final coupon and posts balanced debit and credit entries in Deal-wise Accounting.',
+    testInputs: 'FD Deal (Coupon Interest Payment), TDS Rate = 10%, Action = FD End',
+    expectedResult: 'The system should calculate the final coupon interest and deduct TDS accurately. Accounting vouchers should reflect Debit Interest Receivable/Accrual, Credit Bank Account (Net Coupon + Principal), and Credit TDS Payable GL.',
+    actualResult: 'TDS on final coupon interest was calculated accurately and reflected properly in the FD End accounting entries.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC02',
+    testModule: 'Fixed Deposit (FD)',
+    featureTab: 'FD Rollover & TDS',
+    testScenario: 'Validate TDS calculation and accounting reflection for FD End (Maturity/Closure) with Bullet Interest Payment.',
+    testCases: 'Verify that upon executing FD End (Maturity/Closure) under Bullet Interest Payment mode, the system calculates TDS on cumulative interest accrued across the tenure and reflects balanced accounting entries.',
+    testInputs: 'FD Deal (Bullet Interest Payment), TDS Rate = 10%, Action = FD End',
+    expectedResult: 'The system should compute cumulative bullet interest, deduct statutory TDS, and post balanced accounting entries for Net Maturity Proceeds and TDS Payable GL.',
+    actualResult: 'Cumulative bullet interest and TDS deduction were accurately calculated and reflected in FD End accounting entries.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC03',
+    testModule: 'Fixed Deposit (FD)',
+    featureTab: 'FD Rollover & TDS',
+    testScenario: 'Validate FD Rollover under Coupon Interest Payment mode with TDS reflection.',
+    testCases: 'Verify that during FD Rollover under Initiate Action for a Coupon Interest Payment deal, completed tenure coupon interest undergoes TDS deduction and the new rollover FD tranche commences with the original principal.',
+    testInputs: 'Initiate Action -> FD Rollover (Coupon Mode)',
+    expectedResult: 'The system should settle the matured coupon net of TDS, post TDS to the configured TDS GL Code, and create/update the rollover FD schedule with the original principal amount.',
+    actualResult: 'FD Rollover under Coupon mode accurately posted TDS in accounting and rolled over the original principal.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC04',
+    testModule: 'Fixed Deposit (FD)',
+    featureTab: 'FD Rollover & TDS',
+    testScenario: 'Validate FD Rollover under Bullet Interest Payment mode (Compound Reinvestment) with TDS deduction.',
+    testCases: 'Verify that during FD Rollover for a Bullet Interest Payment deal, TDS is deducted from cumulative accrued interest and net proceeds (Principal + Net Interest after TDS) are rolled over into the renewed FD deal.',
+    testInputs: 'Initiate Action -> FD Rollover (Bullet Mode)',
+    expectedResult: 'The system should deduct TDS on gross bullet interest, reflect the TDS entry in accounting, and set the new rollover principal to Original Principal plus Net Interest after TDS.',
+    actualResult: 'TDS was deducted from bullet interest and the net principal + interest amount was rolled over accurately.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC05',
+    testModule: 'Fixed Deposit (FD)',
+    featureTab: 'FD Lien Marking',
+    testScenario: 'Validate FD Lien Marking against Overdraft (OD) or Letter of Credit (LC) facility.',
+    testCases: 'Verify that when an active FD is marked under Lien via Initiate Action, the system restricts premature encashment/closure beyond the unencumbered FD balance.',
+    testInputs: 'Initiate Action -> Lien Marking',
+    expectedResult: 'The system should record the Lien amount against the FD deal and restrict premature withdrawal or closure of the lien-marked amount until the lien is released.',
+    actualResult: 'The system successfully marked the lien on the FD deal and restricted encashment of the lien-marked balance.',
+    status: 'pass',
+  },
+
+  // 8. Accounting & Global Accounting Code Master (GL Master & Deal-Wise Accounting)
+  {
+    testCaseId: 'TC01',
+    testModule: 'Accounting & Ledger',
+    featureTab: 'Global Accounting Code Master',
+    testScenario: 'Validate editability of newly added GL Code fields in Global Accounting Code Master.',
+    testCases: 'Verify that all newly added GL Code configuration fields in the Global Accounting Code Master are editable and allow saving updated GL codes across instruments.',
+    testInputs: 'Global Accounting Code Master -> New GL Code Fields',
+    expectedResult: 'All newly added GL Code fields should be editable, and the system should save the updated GL codes without validation errors.',
+    actualResult: 'All newly added GL Code fields in the Global Accounting Code Master are editable and saved successfully.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC02',
+    testModule: 'Accounting & Ledger',
+    featureTab: 'Deal-wise Accounting',
+    testScenario: 'Validate prevention of duplicate or reversal accounting entries for existing deals on an old branch.',
+    testCases: 'Verify that accounting entries are not regenerated and no reversal entries are created for existing deals whose accounting entries were already generated and saved on the old branch.',
+    testInputs: 'Existing Deal with Saved Accounting on Old Branch',
+    expectedResult: 'No additional accounting entry or reversal voucher should be generated for existing deals already accounted for on the old branch.',
+    actualResult: 'No duplicate accounting entry or reversal entry was created for existing deals from the old branch.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC03',
+    testModule: 'Government Securities (GSec)',
+    featureTab: 'G-Sec Accounting',
+    testScenario: 'Validate G-Sec GL Code reflection based on selected Investment Purpose (SLR, LCR, Investment, Lien, Other).',
+    testCases: 'Verify that the GL Code configured in the Global Accounting Code Master for each G-Sec Investment Purpose (SLR, LCR, Investment, Lien, Other) is accurately reflected in Deal-wise Accounting entries.',
+    testInputs: 'G-Sec Deal with Purpose = SLR / LCR / Investment / Lien / Other',
+    expectedResult: 'The accounting voucher should fetch and display the exact GL Code configured for the selected G-Sec Investment Purpose.',
+    actualResult: 'The configured GL Code was reflected accurately in accounting entries based on the selected G-Sec Investment Purpose.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC04',
+    testModule: 'Accounting & Ledger',
+    featureTab: 'GL Master Effective Date & Undo',
+    testScenario: 'Validate GL Code effective date application and Undo action behavior in GL Master.',
+    testCases: 'Verify that accounting entries reflect the updated GL Code strictly from the date it was updated in the GL Master, and performing an Undo action in GL Master removes the uncommitted GL Code from accounting.',
+    testInputs: 'GL Master Update Date & Undo Action',
+    expectedResult: 'Accounting entries generated on or after the update date should reflect the updated GL Code. After performing Undo in the GL Master, the reverted GL Code should no longer be visible or applied in accounting.',
+    actualResult: 'Accounting entries reflected the GL Code as per the update date, and undoing the action in GL Master removed the code from accounting as expected.',
+    status: 'pass',
+  },
+
+  // 9. NCD, Commercial Paper (CP), WCDL, LC/BG & Hedge Modules (User Manual 1.0)
+  {
+    testCaseId: 'TC01',
+    testModule: 'Non-Convertible Debentures',
+    featureTab: 'NCD Deal & Coupon Schedule',
+    testScenario: 'Validate NCD deal booking, ISIN mapping, and coupon cashflow schedule generation.',
+    testCases: 'Verify that when an NCD deal is booked with ISIN, Face Value, Units, Coupon Rate, and Put/Call dates, the system generates an accurate coupon payment and redemption schedule in the Cashflow tab.',
+    testInputs: 'NCD Deal (ISIN, Face Value, Coupon Rate %, Frequency)',
+    expectedResult: 'The system should validate the ISIN details from the Security Master and generate accurate periodic coupon and principal redemption cashflows as per the day count convention.',
+    actualResult: 'NCD deal was booked and the coupon and redemption cashflow schedule was generated accurately.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC02',
+    testModule: 'Commercial Paper (CP)',
+    featureTab: 'CP Issuance & Discount Amortization',
+    testScenario: 'Validate Commercial Paper (CP) discounted issue price and redemption at Face Value.',
+    testCases: 'Verify that for a Commercial Paper (CP) deal, the system calculates the discount amount (Face Value minus Issue Value) and schedules amortization and full Face Value settlement on Maturity Date.',
+    testInputs: 'CP Deal (Face Value, Discounted Issue Price, Value Date, Maturity Date)',
+    expectedResult: 'The system should accurately compute the discount amount, generate the discount amortization schedule across the tenure, and reflect full Face Value payable on the Maturity Date.',
+    actualResult: 'The system accurately computed the CP discount, amortization schedule, and maturity settlement at Face Value.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC03',
+    testModule: 'Working Capital Demand Loan',
+    featureTab: 'WCDL Sub-limit & Rollover',
+    testCases: 'Verify that a WCDL drawdown carves out utilization from the linked Working Capital / CC Sanction limit and allows rollover on the maturity date within sanction validity.',
+    testScenario: 'Validate WCDL drawdown against sanction sub-limit and maturity rollover.',
+    testInputs: 'WCDL Deal under Sanction Sub-Limit, Initiate Action -> Rollover',
+    expectedResult: 'The system should validate the WCDL drawdown against the available sanction sub-limit and allow rollover on maturity when the parent sanction is active.',
+    actualResult: 'WCDL drawdown was validated against the sanction sub-limit and maturity rollover executed successfully.',
+    status: 'pass',
+  },
+  {
+    testCaseId: 'TC04',
+    testModule: 'Letter of Credit (LOC)',
+    featureTab: 'LC Issuance & Margin FD Lien',
+    testScenario: 'Validate Letter of Credit (LC) issuance, non-fund sanction limit utilization, and commission calculation.',
+    testCases: 'Verify that booking an LC deal validates available non-fund sanction limit, calculates LC issuance commission and GST, and links applicable margin money/FD lien.',
+    testInputs: 'LC Deal (Usance/Sight, LC Amount, Expiry Date, Margin %)',
+    expectedResult: 'The system should deduct the LC amount from the available non-fund sanction limit, compute commission and GST accurately, and record the margin details.',
+    actualResult: 'LC issuance utilized the non-fund sanction limit and computed commission and margin details accurately.',
+    status: 'pass',
+  },
 ];
+
+/**
+ * Returns targeted Beacon (TMS) User Manual 1.0 domain specifications based on the module or user query.
+ */
+export function getBeaconManualModuleGuide(moduleOrQuery: string): string {
+  const q = (moduleOrQuery || '').toLowerCase();
+  const guides: string[] = [];
+
+  if (q.includes('term loan') || q.includes('tl') || q.includes('stl') || q.includes('short term') || q.includes('penalty') || q.includes('overdue') || q.includes('autopay')) {
+    guides.push(`BEACON USER MANUAL 1.0 — TERM LOAN (TL) & SHORT TERM LOAN (STL) SPECIFICATION:
+- Screens & Tabs: Basic Details, Interest & Rate Parameters, Repayment Schedule, Cashflow, Fees & Charges, Security Mapping, Initiate Action, Transaction History.
+- Key Validations:
+  1. Disbursement vs Sanction: Tranche disbursement cannot exceed Available Sanction Limit; Repayment Schedule total principal must equal Disbursed Amount.
+  2. Floating Rate & Reset: Effective Rate = Benchmark Rate (MCLR/Repo/SOFR from Benchmark Master) + Spread (%). Updating Benchmark Rate recalculates future cashflow interest from the Reset Date.
+  3. Penalty & Overdue Report: Penalty entries (Penalty Interest % and Penalty Principal %) are generated in Deal Cashflow and Overdue Report ONLY when overdue occurs AFTER loan disbursement AND Default/Penalty Rate > 0. Without disbursement (or if penalty rate is 0), penalty entries are NOT generated.
+  4. Autopay Overdue Report: Deals under active Autopay are excluded from Overdue Report until the Autopay end date; post-Autopay overdues appear in Overdue Report with penalty entries.
+  5. Initiate Actions: Disbursement, Rate Reset, Prepayment / Foreclosure, Add Deviation, Change Disbursement Schedule.`);
+  }
+
+  if (q.includes('sanction') || q.includes('ecb') || q.includes('break-up') || q.includes('breakup') || q.includes('sub limit') || q.includes('facility id')) {
+    guides.push(`BEACON USER MANUAL 1.0 — SANCTION MASTER, ECB & SANCTION BULK UPLOAD SPECIFICATION:
+- Screens & Sheets: Sanction Master UI (Basic Details, Main Break-up, Sub Break-up), Sanction Bulk Upload (.xlsx with Row 5 headers & Row 6 data), Sanction Report, Deal UI Sanction Facility ID dropdown.
+- Key Validations:
+  1. Currency Editability: "Currency" field is visible and editable ONLY for non-fungible ECB instrument; locked/non-editable for domestic instruments and fungible ECB sanctions.
+  2. Multi-Currency Break-up Restriction: System restricts adding multiple break-ups with different currencies under the same Sanction Reference (during creation, Update Sanction, and Renew Sanction).
+  3. Has Sub Limit: Locked to NO for ECB main break-up; if "Has Sub Limit" = NO, adding Sub Break-up rows throws validation error; Sub Break-up Availability Date cannot exceed Main Break-up Availability Date.
+  4. Facility ID Visibility: FCY Sanction Facility ID is visible ONLY when Deal Currency matches Sanction FCY; INR Sanction Facility ID is visible across all deal currencies.
+  5. Utilization Math: FCY Sanction + FCY Deal validates directly on FCY drawdown (no INR conversion); INR Sanction + FCY Deal validates on (FCY Drawdown * Conversion Rate) = INR Amount. Cumulative utilization across deals cannot exceed limit; when available limit = 0, sanction is blocked.
+  6. Initiate Actions (Update Sanction, Renew Sanction, Add Deviation, Change Disbursement Schedule): Cannot change currency or reduce sanction below utilized amount; Repayment amount must equal Disbursement amount.`);
+  }
+
+  if (q.includes('mutual fund') || q.includes('mf') || q.includes('split') || q.includes('nav') || q.includes('redemption') || q.includes('switch')) {
+    guides.push(`BEACON USER MANUAL 1.0 — MUTUAL FUND (MF) INVESTMENT & SPLIT ACTION SPECIFICATION:
+- Screens & Actions: MF Deal Booking, Initiate Action -> Investment (Additional Purchase), Redemption (FIFO), Switch, Split Action (Split Out / Split In), MF Modification, Investment Holding Details, Holding Summary, Transaction History.
+- Key Validations:
+  1. Split Action Visibility & Ratio: Visible and clickable under Initiate Action; all fields editable; accepts Ratio (New:Old) for ISIN split and calculates Split In Units and new ISIN NAV.
+  2. AMC & Scheme Filtering: "Split Out From" dropdown displays ONLY schemes belonging to the same AMC and matching Plan, Option, and Fund Name as the selected Split In deal.
+  3. Prior Transaction & Pending Authorization Checks: Split In deal must have NO prior transactions; Split Out is blocked if first investment transaction is in Pending Authorization status; if a Redemption is Pending Authorization, post-split redemption authorization is blocked if it causes a negative unit balance.
+  4. Value Date & Holding Summary: Split Out Value Date validated against Transaction Date; Split In Value Date auto-fetched from Split Out. Updates Total Units, Average Purchase NAV, Total Investment Amount, Current Market Value, Unrealised/Realised P&L, and XIRR.
+  5. Post-Split Menu & Cascading Undo: After 100% units are Split Out, ONLY "MF Modification" is visible under Initiate Action; Split Action is removed once Split In is completed; Undoing Split-In from Transaction History automatically reverts Split-Out and vice versa.`);
+  }
+
+  if (q.includes('cc') || q.includes('od') || q.includes('cash credit') || q.includes('overdraft') || q.includes('bank balance') || q.includes('closing balance')) {
+    guides.push(`BEACON USER MANUAL 1.0 — CC/OD & BANK BALANCE MASTER SPECIFICATION:
+- Screens & Reports: CC/OD Deal UI (CC Bank Account dropdown), Bank Balance Master ("Actual Closing Balance" header & Bulk Import), Deal Cashflow, ALM Treasury Report, Borrowing Register Report.
+- Key Validations:
+  1. CC Bank Account Filtering: Displays ONLY Home Entity bank accounts belonging to the selected Lender Bank.
+  2. Effective Date Reflection: Closing balance updated via UI or Bulk Import reflects in Cashflow, ALM Treasury Report, and Borrowing Register Report from the same Effective Date, and interest accrues from that date.
+  3. Negative vs Positive Balance Rules: Negative closing balance is restricted after sanction validity expiry, restricted when no CC/OD deal is linked, restricted beyond sanctioned limit, and restricted for tracking-purpose bank accounts. Positive balance is allowed without a linked CC/OD deal and on tracking-purpose accounts. On sanction validity date, balance must be >= 0.`);
+  }
+
+  if (q.includes('treps') || q.includes('bulk import') || q.includes('bulk upload') || q.includes('save sample')) {
+    guides.push(`BEACON USER MANUAL 1.0 — TREPS (INVESTMENT & BORROWING) & BULK IMPORT SPECIFICATION:
+- Screens: TREPS Deal UI, Bulk Import UI ("Save Sample", "Accept"), Deal-wise Accounting.
+- Key Validations:
+  1. Row 5 / Row 6 Rule: Excel column headers MUST start at Row 5 and deal data at Row 6 (positional mapping applies even if header text differs).
+  2. Save Sample: Generates template with proper headers and sample rows without any client-specific names/data.
+  3. Mandatory & Date Checks: Trade No., Maturity Date, Settlement Date, Trade Interest Rate (%), Trade Value (Rs.) are mandatory; blank/invalid rows, duplicate Trade No., or dates beyond Server Date are rejected.
+  4. Field Mapping & Math: 1 Leg Consideration (Principal) = Trade Value; Trade Interest Rate (%) = Repo Rate; Reversal Date for Lend = Maturity Date; system computes Tenure, Settlement Type, Total Interest, and 2-Leg Consideration (Principal + Interest).`);
+  }
+
+  if (q.includes('fd') || q.includes('fixed deposit') || q.includes('rollover') || q.includes('tds') || q.includes('lien')) {
+    guides.push(`BEACON USER MANUAL 1.0 — FIXED DEPOSIT (FD) & TDS ACCOUNTING SPECIFICATION:
+- Screens & Actions: FD Booking, Initiate Action -> FD Interest Receipt, FD Rollover, FD End (Maturity/Closure), Premature Closure, FD Lien Marking.
+- Key Validations:
+  1. FD End (Coupon vs Bullet): Computes final coupon or cumulative bullet interest, deducts statutory TDS, and posts balanced accounting entries (Debit Interest/Principal, Credit Bank Settlement, Credit TDS Payable GL).
+  2. FD Rollover (Coupon vs Bullet): In Coupon mode, coupon is settled net of TDS and original principal rolls over; in Bullet mode, TDS is deducted from cumulative interest and Net Proceeds (Principal + Net Interest after TDS) roll over into the new FD deal.`);
+  }
+
+  if (q.includes('gl') || q.includes('accounting') || q.includes('ledger') || q.includes('voucher') || q.includes('gsec') || q.includes('g-sec') || q.includes('slr') || q.includes('lcr')) {
+    guides.push(`BEACON USER MANUAL 1.0 — ACCOUNTING, GL MASTER & G-SEC PURPOSE SPECIFICATION:
+- Screens: Global Accounting Code Master (GL Master), Deal-wise Accounting, Accounting Voucher Report.
+- Key Validations:
+  1. Editable GL Fields: Newly added GL Code fields in Global Accounting Code Master must be editable and visible in Deal-wise Accounting across all instruments (G-Sec by Purpose: SLR, LCR, Investment, Lien, Other; Bond/NCD; FD; CP; TREPS Investment; TREPS Borrowing).
+  2. Old Branch Rule: Existing deals whose accounting entries were already generated and saved on an old branch must NOT generate duplicate or reversal entries.
+  3. Effective Date & Undo Rule: Accounting entries reflect updated GL Codes based on the GL Master update date; performing Undo in GL Master removes the reverted GL Code from accounting.`);
+  }
+
+  if (q.includes('cashflow') || q.includes('cash flow') || q.includes('running balance') || q.includes('capitalized')) {
+    guides.push(`BEACON USER MANUAL 1.0 — DAILY CASH FLOW MIS REPORT SPECIFICATION:
+- Key Validations:
+  1. Short Capitalized Interest Payment Flag: When checked, Running Balance accurately includes the applicable short capitalized interest payment amount.
+  2. Capitalized Interest Payment Flag: When unchecked and interest payment is unprocessed, unprocessed interest is excluded from the summary and Running Balance is calculated strictly from actual processed transactions.`);
+  }
+
+  return guides.join('\n\n');
+}
+

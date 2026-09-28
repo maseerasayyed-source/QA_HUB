@@ -72,41 +72,8 @@ export function isNonEnglishOrHinglish(text: string): boolean {
 export function translateHinglishOffline(text: string): string {
   if (!text) return '';
   let res = text.trim();
-  const lower = res.toLowerCase();
 
-  // 1. High-level full scenario sentence matching for common treasury/banking QA inputs
-  if (lower.includes('fd rollover') && lower.includes('tds')) {
-    if (lower.includes('coupon') && lower.includes('bullet') && (lower.includes('fd end') || lower.includes('maturity'))) {
-      return 'In the Fixed Deposit (FD) module, verify that the TDS (Tax Deducted at Source) amount is accurately calculated and reflected in the accounting ledger entries across both Coupon Interest Payment and Bullet Interest Payment modes for FD Rollover and FD Maturity/Closure.';
-    }
-    return 'For FD Rollover transactions, verify that the TDS amount is accurately calculated on accrued interest and correctly reflected in the accounting voucher and ledger entries.';
-  }
-
-  if (lower.includes('deal wise') && lower.includes('internal ui') && lower.includes('front ui')) {
-    return 'For existing deals, the Interest GL Code and Investment GL Code fields are not displayed on the Internal UI. However, the GL codes are visible on the Front UI and are also reflected in the generated deal output.';
-  }
-
-  if (lower.includes('gl code') && (lower.includes('new fiels') || lower.includes('new fields') || lower.includes('editable'))) {
-    return 'Verify that all newly added GL Code configuration fields in the Global Accounting Code Master are fully editable and allow user modifications.';
-  }
-
-  if (lower.includes('old branch') && lower.includes('already accounting')) {
-    return 'Verify that no duplicate accounting entries or reversal vouchers are generated for existing deals whose accounting entries were already generated and saved on the old branch.';
-  }
-
-  if (lower.includes('gsec') && (lower.includes('slr') || lower.includes('lcr') || lower.includes('purpose'))) {
-    return 'Verify that the configured GL Code reflects accurately in accounting entries based on the selected G-Sec Investment Purpose (SLR, LCR, Investment, Lien, Other).';
-  }
-
-  if (lower.includes('undo') && lower.includes('split in') && lower.includes('split out')) {
-    return 'Verify that performing an Undo action on Split-In from transaction history automatically reverts the corresponding Split-Out action, and vice versa.';
-  }
-
-  if (lower.includes('fees after maturity') && lower.includes('bulk import')) {
-    return 'Verify that fees configured after the maturity date at the UI level are also accepted during Bulk Import without triggering date-range validation rejections.';
-  }
-
-  // 2. Comprehensive word & phrase replacements
+  // Comprehensive word & phrase replacements
   const phraseReplacements: [RegExp, string][] = [
     [/\bagar\s+user\b/gi, 'if the user'],
     [/\bagar\s+/gi, 'if '],
@@ -306,62 +273,20 @@ export async function processLanguageCommand(
     console.warn('Backend command converter failed, using local parser:', err);
   }
 
-  // Local fallback matching corporate GPT style
+  // Local fallback matching corporate GPT style strictly derived from the user's command
   const translated = translateHinglishOffline(command);
-  const lower = command.toLowerCase();
-
-  // Check for the user's FD Rollover TDS 4-scenarios requirement
-  if (lower.includes('fd rollover') && lower.includes('tds')) {
-    const cases = [
-      {
-        testScenario: 'Verify TDS amount reflection in accounting for FD END (Maturity / Closure) with Coupon Interest Payment',
-        testCases: `Verify that upon executing FD END (Closure/Maturity) with Coupon Interest Payment, the system accurately calculates the TDS amount on the final coupon and reflects balanced debit and credit entries in the accounting ledger.`,
-        expectedResult: `• Final coupon interest is computed accurately.\n• TDS is deducted at statutory rate (e.g., 10%) on coupon interest.\n• Voucher entries reflect: Debit Interest Expense, Credit Bank Account (Net Coupon), Credit TDS Payable GL Account.\n• No rounding discrepancy or unposted voucher lines.`,
-        actualResult: 'Verified successfully in local build: TDS amount is accurately calculated and reflected in the accounting entries (Pass).',
-        validationScenario: 'Positive Workflow',
-      },
-      {
-        testScenario: 'Verify TDS amount reflection in accounting for FD END (Maturity / Closure) with Bullet Interest Payment',
-        testCases: `Verify that upon executing FD END (Closure/Maturity) with Bullet Interest Payment, the system calculates TDS on total cumulative interest accrued across the entire tenure and generates balanced accounting entries.`,
-        expectedResult: `• Cumulative bullet interest is reconciled accurately.\n• TDS is deducted on cumulative gross interest.\n• Voucher entries reflect: Debit FD Principal/Accrual, Credit Customer Settlement Account (Net Principal + Interest after TDS), Credit TDS Payable GL.\n• Voucher is perfectly balanced with zero suspense.`,
-        actualResult: 'Verified successfully in local build: TDS amount for bullet interest payment is correctly reflected in accounting entries (Pass).',
-        validationScenario: 'Positive Workflow',
-      },
-      {
-        testScenario: 'Verify TDS amount reflection in accounting for FD Rollover with Coupon Interest Payment',
-        testCases: `Verify that during FD Rollover where interest is paid out via Coupon mode, the completed tenure interest undergoes accurate TDS deduction and accounting vouchers reflect the net coupon payout and new rollover tranche.`,
-        expectedResult: `• Matured FD tranche is closed and rolled over into a new active FD deal.\n• Coupon interest is settled with exact statutory TDS deduction.\n• TDS deduction is posted to TDS Payable GL without delay.\n• Rollover deal principal commences with the original principal balance.`,
-        actualResult: 'Verified successfully in local build: TDS on coupon payout during rollover is reflected in accounting vouchers (Pass).',
-        validationScenario: 'Positive Workflow',
-      },
-      {
-        testScenario: 'Verify TDS amount reflection in accounting for FD Rollover with Bullet Interest Payment (Reinvestment)',
-        testCases: `Verify that during FD Rollover with Bullet Interest Payment (Compound Reinvestment), TDS is deducted from the cumulative interest, and net proceeds (Principal + Net Interest) are rolled over into the new FD deal with balanced accounting postings.`,
-        expectedResult: `• Gross bullet interest and TDS deduction are accurately computed.\n• TDS Payable GL receives credit for the exact tax deduction.\n• Net rollover principal equals Original Principal + Net Interest after TDS.\n• All balance transfers between matured deal and new rollover deal reconcile with zero suspense.`,
-        actualResult: 'Verified successfully in local build: TDS deduction and net rollover principal are reflected accurately in accounting entries (Pass).',
-        validationScenario: 'Positive Workflow',
-      },
-    ];
-
-    return {
-      englishText: translated,
-      structuredTestCase: cases[0],
-      structuredTestCases: cases,
-    };
-  }
-
-  const isNegative = /error|invalid|fail|alert|disable|not|must not|cannot|prevent/i.test(translated);
-  const cleanAction = translated.replace(/^(verify that|validate that|ensure that)\s+/i, '');
+  const isNegative = /error|invalid|fail|alert|disable|not|must not|cannot|prevent|restrict/i.test(translated);
+  const cleanAction = translated.replace(/^(verify that|validate that|ensure that)\s+/i, '').replace(/\.+$/, '').trim();
 
   const singleCase = {
-    testScenario: `Validate ${cleanAction.slice(0, 70)}`,
-    testCases: `Verify that ${cleanAction}, with corresponding actions, calculations, and data remaining properly synchronized in ${moduleName} for Ticket #${ticketNo}.`,
+    testScenario: `Validate ${cleanAction.slice(0, 85)}`,
+    testCases: `Verify that ${cleanAction}.`,
     expectedResult: isNegative
-      ? `• System displays appropriate validation alert/error message.\n• Prevents invalid operation or mismatched balance.\n• Existing records remain unmodified.`
-      : `• Operation executes successfully without errors.\n• Both related actions and transaction balances remain fully synchronized.\n• Status updates to completed state.`,
+      ? `The system should restrict the invalid operation (${cleanAction}) and display an appropriate validation message.`
+      : `The system should successfully process and validate that ${cleanAction} as expected.`,
     actualResult: isNegative
-      ? 'System successfully triggered validation alert and prevented invalid operation as expected (Pass).'
-      : 'Verified successfully in local build: operation completed and all balances synchronized correctly as per specification (Pass).',
+      ? `The system restricted the invalid operation and displayed the appropriate validation message.`
+      : `Verified successfully: ${cleanAction.charAt(0).toUpperCase() + cleanAction.slice(1)} is working as expected.`,
     validationScenario: isNegative ? 'Negative Validation' : 'Positive Workflow',
   };
 
